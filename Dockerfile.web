@@ -1,0 +1,38 @@
+# UI de Búho. Imagen aparte del colector a propósito: son dos procesos con
+# ciclos de vida distintos y no queremos que un reinicio de la web pause la
+# recolección.
+FROM node:24-alpine AS builder
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+COPY packages/core/package.json      packages/core/
+COPY packages/checks/package.json    packages/checks/
+COPY packages/store/package.json     packages/store/
+COPY apps/collector/package.json     apps/collector/
+COPY apps/cli/package.json           apps/cli/
+COPY apps/web/package.json           apps/web/
+
+RUN npm ci
+
+COPY tsconfig.base.json tsconfig.json ./
+COPY packages/ packages/
+COPY apps/ apps/
+
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build -w @buho/web
+
+FROM node:24-alpine AS runner
+
+WORKDIR /app
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+
+# La salida standalone ya trae sólo los node_modules que el server necesita.
+COPY --from=builder /app/apps/web/.next/standalone ./
+COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
+
+EXPOSE 3000
+CMD ["node", "apps/web/server.js"]

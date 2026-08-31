@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  // apps/web se verifica con su propio tsconfig (JSX + tipos de Next).
+  "include": ["packages/*/src/**/*.ts", "apps/collector/src/**/*.ts", "apps/cli/src/**/*.ts"]
+}

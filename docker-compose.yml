@@ -1,0 +1,73 @@
+services:
+  store:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: buho
+      POSTGRES_PASSWORD: ${BUHO_STORE_PASSWORD:-buho}
+      POSTGRES_DB: buho
+      TZ: ${BUHO_TZ:-UTC}
+    ports:
+      # 55432 en el host para no chocar con un PostgreSQL local en 5432. Se
+      # puede mover si ese puerto ya está tomado.
+      - "127.0.0.1:${BUHO_STORE_PORT:-55432}:5432"
+    volumes:
+      # PostgreSQL 18 espera el montaje en /var/lib/postgresql, no en
+      # /var/lib/postgresql/data: con la ruta antigua el contenedor no arranca.
+      - buho_store:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U buho -d buho"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  collector:
+    build: .
+    depends_on:
+      store:
+        condition: service_healthy
+    environment:
+      BUHO_STORE_URL: postgres://buho:${BUHO_STORE_PASSWORD:-buho}@store:5432/buho
+      BUHO_CONFIG: /app/config.json
+      # Las líneas base agrupan por hora del día: colector, consola y store
+      # tienen que estar en la misma zona o la banda sale corrida.
+      TZ: ${BUHO_TZ:-UTC}
+    volumes:
+      - ./config.json:/app/config.json:ro
+    # Para monitorear instancias que corren en el host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    depends_on:
+      store:
+        condition: service_healthy
+    environment:
+      # La UI sólo habla con el store; nunca con las instancias monitoreadas.
+      BUHO_STORE_URL: postgres://buho:${BUHO_STORE_PASSWORD:-buho}@store:5432/buho
+      # Sin uno de estos dos la consola no sirve ninguna página en producción:
+      # es deliberado, para que un despliegue no quede abierto por olvido.
+      #
+      # SECRET firma las sesiones y debe fijarse siempre que haya cuentas de
+      # usuario: si la firma se derivara de la contraseña compartida, cambiarla
+      # cerraría todas las sesiones abiertas.
+      BUHO_AUTH_SECRET: ${BUHO_AUTH_SECRET:-}
+      # PASSWORD entra como administrador mientras no exista ninguna cuenta, para
+      # poder crear la primera. En cuanto hay una, deja de funcionar.
+      BUHO_AUTH_PASSWORD: ${BUHO_AUTH_PASSWORD:-}
+      # Activar sólo si la consola termina TLS ella misma; detrás de un proxy
+      # que lo termina, la cookie no debe exigir secure o nadie puede entrar.
+      BUHO_AUTH_COOKIE_SECURE: ${BUHO_AUTH_COOKIE_SECURE:-false}
+      TZ: ${BUHO_TZ:-UTC}
+    ports:
+      # Sigue escuchando en loopback: la autenticación no reemplaza al proxy o
+      # la VPN, sólo deja de ser el único control.
+      - "127.0.0.1:${BUHO_WEB_PORT:-3100}:3000"
+    restart: unless-stopped
+
+volumes:
+  buho_store:

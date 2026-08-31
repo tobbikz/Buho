@@ -1,0 +1,13 @@
+{
+  "name": "@buho/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "buho-check": "./src/main.ts"
+  },
+  "dependencies": {
+    "@buho/checks": "*",
+    "@buho/core": "*"
+  }
+}

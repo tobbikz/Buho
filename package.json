@@ -1,0 +1,31 @@
+{
+  "name": "buho",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "B\u00faho \u2014 monitor de bases de datos on-prem. PostgreSQL primero.",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "check": "tsx apps/cli/src/main.ts",
+    "collector": "tsx apps/collector/src/main.ts",
+    "web": "npm run dev -w @buho/web",
+    "web:build": "npm run build -w @buho/web",
+    "migrate": "tsx packages/store/src/migrate.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
+    "verify:console": "node scripts/verify-console.mjs",
+    "verify:v1": "node scripts/verify-v1.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "@types/pg": "^8.23.1",
+    "playwright": "^1.62.1",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  }
+}

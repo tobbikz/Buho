@@ -1,0 +1,147 @@
+import Link from 'next/link';
+import { NotesPanel } from '@/components/NotesPanel';
+import { StatCard } from '@/components/StatCard';
+import { StoreError } from '@/components/StoreError';
+import { formatBytes, formatAgo } from '@/lib/format';
+import {
+  backupAgeHours,
+  backupState,
+  ENGINE_LABEL,
+  getBackups,
+  getNotes,
+  type BackupRow,
+  type BackupState,
+} from '@/lib/estate';
+
+export const dynamic = 'force-dynamic';
+
+const KIND_LABEL: Record<string, string> = {
+  full: 'Completo',
+  differential: 'Diferencial',
+  log: 'Log',
+  wal_archive: 'Archivado de WAL',
+};
+
+const STATE_TAG: Record<BackupState, string> = {
+  sin_recuperacion: 'tag--error',
+  atrasado: 'tag--warn',
+  no_verificable: 'tag--muted',
+  ok: 'tag--ok',
+};
+
+export default async function BackupsPage() {
+  let rows: BackupRow[];
+  let notes;
+  try {
+    [rows, notes] = await Promise.all([getBackups(), getNotes('backups')]);
+  } catch (error) {
+    return <StoreError message={error instanceof Error ? error.message : String(error)} />;
+  }
+
+  const never = rows.filter((row) => backupState(row) === 'sin_recuperacion');
+  const stale = rows.filter((row) => backupState(row) === 'atrasado');
+  const unknown = rows.filter((row) => backupState(row) === 'no_verificable');
+  const protectedDbs = new Set(
+    rows.filter((row) => backupState(row) === 'ok').map((row) => `${row.instanceId}/${row.database}`),
+  );
+  const allDbs = new Set(rows.map((row) => `${row.instanceId}/${row.database}`));
+
+  return (
+    <div className="flex flex-col gap-[0.875rem]">
+      <div className="stat-grid">
+        <StatCard
+          label="Sin respaldo verificable"
+          value={String(never.length)}
+          hint="nunca respaldadas o sin cadena de recuperación"
+          tone={never.length > 0 ? 'error' : 'ok'}
+        />
+        <StatCard
+          label="Respaldo atrasado"
+          value={String(stale.length)}
+          hint="más viejo que su ventana tolerable"
+          tone={stale.length > 0 ? 'warn' : 'ok'}
+        />
+        <StatCard
+          label="Bases cubiertas"
+          value={`${protectedDbs.size} de ${allDbs.size}`}
+          hint="con al menos un respaldo dentro de ventana"
+          tone={protectedDbs.size === allDbs.size && allDbs.size > 0 ? 'ok' : 'warn'}
+        />
+        <StatCard
+          label="No verificable"
+          value={String(unknown.length)}
+          hint="el motor no lleva catálogo de respaldos"
+          tone={unknown.length > 0 ? 'neutral' : 'ok'}
+        />
+      </div>
+
+      <NotesPanel notes={notes} />
+
+      <section className="panel">
+        <div className="panel-header">
+          <span className="panel-title">Estado de respaldos por base</span>
+          <span className="font-mono text-[10px] text-foreground-muted">
+            completo ≤ 7 d · diferencial ≤ 24 h · log ≤ 4 h
+          </span>
+        </div>
+        {rows.length === 0 ? (
+          <div className="empty">Ninguna instancia reportó respaldos todavía.</div>
+        ) : (
+          <div className="table-scroll" style={{ maxHeight: 'none' }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Instancia</th>
+                  <th>Motor</th>
+                  <th>Base</th>
+                  <th>Tipo</th>
+                  <th>Último</th>
+                  <th className="text-right">Antigüedad</th>
+                  <th className="text-right">Tamaño</th>
+                  <th>Origen</th>
+                  <th>Modelo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, index) => {
+                  const state = backupState(row);
+                  const age = backupAgeHours(row);
+                  const recovery = row.detail['recovery_model'] as string | undefined;
+                  return (
+                    <tr key={`${row.instanceId}-${row.database}-${row.kind}-${index}`}>
+                      <td>
+                        <Link href={`/instances/${row.instanceId}`} className="underline decoration-dotted">
+                          {row.alias}
+                        </Link>
+                      </td>
+                      <td className="text-[11px] text-foreground-secondary">
+                        {ENGINE_LABEL[row.engine] ?? row.engine}
+                      </td>
+                      <td className="font-mono text-[11px]">{row.database}</td>
+                      <td>{KIND_LABEL[row.kind] ?? row.kind}</td>
+                      <td>
+                        <span className={`tag ${STATE_TAG[state]}`}>
+                          {row.finishedAt
+                            ? formatAgo(row.finishedAt)
+                            : row.detail['archive_mode'] === 'off'
+                              ? 'sin archivado'
+                              : state === 'sin_recuperacion'
+                                ? 'nunca'
+                                : 'no verificable'}
+                        </span>
+                      </td>
+                      <td className="num">{age === null ? '·' : `${age.toFixed(1)} h`}</td>
+                      <td className="num">{row.sizeBytes ? formatBytes(row.sizeBytes) : '·'}</td>
+                      <td className="font-mono text-[10px] text-foreground-muted">{row.source}</td>
+                      <td className="text-[11px]">{recovery ?? '·'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}

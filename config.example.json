@@ -1,0 +1,75 @@
+{
+  "store": {
+    "url": "postgres://buho:buho@127.0.0.1:55432/buho"
+  },
+  "collector": {
+    "statementTimeoutMs": 5000,
+    "connectTimeoutMs": 5000,
+    "instanceCycleBudgetMs": 20000,
+    "retention": {
+      "rawDays": 7,
+      "rollup5mDays": 30,
+      "rollup1hDays": 400,
+      "lockEpisodeDays": 30,
+      "statementDays": 14
+    }
+  },
+  "instances": [
+    {
+      "alias": "datalake-local",
+      "environment": "dev",
+      "host": "127.0.0.1",
+      "port": 5432,
+      "hostMetrics": {
+        "_comentario": "CPU/memoria/disco del servidor. PostgreSQL no los expone: hay que leer /proc. 'local' si Búho corre en el mismo host, 'ssh' para leerlos sin instalar nada en el servidor, 'none' u omitido para no recogerlos.",
+        "source": "ssh",
+        "target": "buho@servidor-bd",
+        "identityFile": "/etc/buho/id_ed25519",
+        "dataDirectory": "/var/lib/postgresql/16/main"
+      },
+      "database": "datalake",
+      "user": "buho_monitor",
+      "password": "cambiar",
+      "tags": {
+        "grupo": "produccion-cr",
+        "equipo": "datos"
+      },
+      "logs": {
+        "source": "journal",
+        "access": "ssh",
+        "target": "usuario@servidor",
+        "unit": "postgresql"
+      }
+    },
+    {
+      "alias": "mariadb-prod",
+      "engine": "mariadb",
+      "host": "10.0.0.20",
+      "port": 3306,
+      "database": "",
+      "user": "buho_monitor",
+      "password": "CAMBIAR",
+      "environment": "prod",
+      "_comentario": "MariaDB y SQL Server entran sólo por el inventario del parque: versiones, configuración, disco, replicación, backups, jobs y licencias. El pipeline de métricas de 5 s y los 22 checks son de PostgreSQL.",
+      "tags": {
+        "grupo": "produccion-cr",
+        "equipo": "datos"
+      }
+    },
+    {
+      "alias": "mssql-prod",
+      "engine": "mssql",
+      "host": "10.0.0.30",
+      "port": 1433,
+      "database": "master",
+      "user": "buho_monitor",
+      "password": "CAMBIAR",
+      "environment": "prod",
+      "_comentario": "En SQL Server el usuario necesita VIEW SERVER STATE y lectura sobre msdb para ver el catálogo de respaldos y los jobs del Agent.",
+      "tags": {
+        "grupo": "produccion-cr",
+        "equipo": "datos"
+      }
+    }
+  ]
+}
