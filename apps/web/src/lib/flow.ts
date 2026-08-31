@@ -456,3 +456,48 @@ export async function getTableCounters(
     (a, b) => b.inserted + b.updated + b.deleted - (a.inserted + a.updated + a.deleted),
   );
 }
+
+/**
+ * Contra qué se compara "mucho tráfico" en el lienzo vivo.
+ *
+ * Un lienzo que se normaliza contra sí mismo no informa: cualquier tráfico
+ * estable llega al máximo de brillo y duplicar la carga no cambia nada. La
+ * referencia tiene que venir de fuera del instante, y lo honesto es la propia
+ * historia de la instancia: el percentil 90 de las tasas de los últimos días.
+ *
+ * Se usa p90 y no el máximo porque un pico único —una carga masiva, una
+ * migración— dejaría el lienzo apagado para siempre; y se usa la historia de la
+ * instancia y no un número fijo porque cincuenta filas por segundo son mucho en
+ * una base pequeña y nada en un datalake.
+ */
+export async function referenceRate(
+  instanceId: number,
+  weight: FlowWeight,
+  days = 7,
+): Promise<number> {
+  const columna = weight === 'calls' ? 'calls' : weight === 'time' ? 'exec_ms' : 'rows';
+
+  const filas = await query<{ referencia: number | null }>(
+    `with por_minuto as (
+       select date_trunc('minute', s.ts) as minuto,
+              sum(s.${columna})          as peso
+         from buho.statement_stats s
+         left join buho.statement_texts t
+                on t.instance_id = s.instance_id and t.queryid = s.queryid
+        where s.instance_id = $1
+          and s.ts > now() - ($2 || ' days')::interval
+          and (t.query is null or t.query not like '%/* buho */%')
+        group by 1
+     )
+     select percentile_cont(0.9) within group (order by peso / 60.0) as referencia
+       from por_minuto
+      where peso > 0`,
+    [instanceId, days],
+  );
+
+  const referencia = Number(filas[0]?.referencia ?? 0);
+  // Un suelo mínimo: sin historia, o con una historia de casi nada, dividir por
+  // un número diminuto haría que el primer hilo de tráfico se viera como una
+  // tormenta.
+  return referencia > 0.05 ? referencia : 1;
+}

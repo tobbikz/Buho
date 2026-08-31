@@ -23,7 +23,8 @@
     "test:retention": "node scripts/test-retention.mjs",
     "verify:parity": "node scripts/verify-parity.mjs",
     "verify:flow": "node scripts/probe-fleet-flow.mjs",
-    "ensayo:instalacion": "bash scripts/ensayo-instalacion.sh"
+    "ensayo:instalacion": "bash scripts/ensayo-instalacion.sh",
+    "carga:sintetica": "node scripts/carga-sintetica.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",

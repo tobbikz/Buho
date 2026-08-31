@@ -925,6 +925,99 @@ export class Store {
     return utiles.length;
   }
 
+  /**
+   * Guarda una foto de sesiones: el agregado de esperas y el detalle recortado.
+   *
+   * Va en una sola transacción porque las dos tablas describen el mismo
+   * instante: un agregado sin su detalle, o al revés, haría dudar de si falta un
+   * dato o si no había nada.
+   */
+  async saveSessionSnapshot(
+    instanceId: number,
+    snapshot: {
+      at: Date;
+      waits: { waitType: string; waitEvent: string | null; sessions: number }[];
+      detail: {
+        pid: number;
+        state: string;
+        waitEventType: string | null;
+        waitEvent: string | null;
+        application: string;
+        username: string;
+        database: string;
+        queryid: string | null;
+        queryMs: number | null;
+        xactMs: number | null;
+        blockedBy: number | null;
+        query: string | null;
+      }[];
+    },
+  ): Promise<number> {
+    if (snapshot.waits.length === 0 && snapshot.detail.length === 0) return 0;
+
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+
+      if (snapshot.waits.length > 0) {
+        const values: unknown[] = [];
+        const tuples: string[] = [];
+        snapshot.waits.forEach((espera, indice) => {
+          const base = indice * 5;
+          tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`);
+          values.push(instanceId, snapshot.at, espera.waitType, espera.waitEvent, espera.sessions);
+        });
+        await client.query(
+          `insert into buho.wait_samples (instance_id, ts, wait_type, wait_event, sessions)
+           values ${tuples.join(', ')}`,
+          values,
+        );
+      }
+
+      if (snapshot.detail.length > 0) {
+        const values: unknown[] = [];
+        const tuples: string[] = [];
+        snapshot.detail.forEach((sesion, indice) => {
+          const base = indice * 14;
+          tuples.push(
+            `(${Array.from({ length: 14 }, (_, offset) => `$${base + offset + 1}`).join(', ')})`,
+          );
+          values.push(
+            instanceId,
+            snapshot.at,
+            sesion.pid,
+            sesion.state,
+            sesion.waitEventType,
+            sesion.waitEvent,
+            sesion.application,
+            sesion.username,
+            sesion.database,
+            sesion.queryid,
+            sesion.queryMs,
+            sesion.xactMs,
+            sesion.blockedBy,
+            sesion.query,
+          );
+        });
+        await client.query(
+          `insert into buho.session_samples
+                  (instance_id, ts, pid, state, wait_type, wait_event, application,
+                   username, database, queryid, query_ms, xact_ms, blocked_by, query)
+           values ${tuples.join(', ')}`,
+          values,
+        );
+      }
+
+      await client.query('commit');
+      return snapshot.waits.length + snapshot.detail.length;
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async saveVacuum(instanceId: number, snapshot: VacuumSnapshot): Promise<void> {
     const client = await this.pool.connect();
     try {
@@ -1186,6 +1279,8 @@ export class Store {
       `select buho.ensure_partitions('metric_samples', $1)
             + buho.ensure_partitions('statement_stats', $1)
             + buho.ensure_partitions('query_actors', $1)
+            + buho.ensure_partitions('wait_samples', $1)
+            + buho.ensure_partitions('session_samples', $1)
             + buho.ensure_partitions('log_events', $1) as created`,
       [3],
     );
@@ -1210,6 +1305,8 @@ export class Store {
       `select buho.prune_partitions('metric_samples', $1)
             + buho.prune_partitions('statement_stats', $2)
             + buho.prune_partitions('query_actors', $2)
+            + buho.prune_partitions('wait_samples', $2)
+            + buho.prune_partitions('session_samples', $1)
             + buho.prune_partitions('log_events', $3) as dropped`,
       [retention.rawDays, retention.statementDays, retention.logDays],
     );

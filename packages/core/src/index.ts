@@ -37,6 +37,8 @@ export { runExplain, analyzePlan, isReadOnly, statementKind } from './explain';
 export { sampleVacuum, vacuumSamples } from './vacuum';
 export type { VacuumSnapshot, VacuumTable, VacuumProgress } from './vacuum';
 export { sampleActors, inspectActors, ActorAccumulator } from './actors';
+export { sampleSessions, summarizeSessions } from './sessions';
+export type { SessionSample, SessionSnapshot } from './sessions';
 export type { ActorObservation, ActorSupport } from './actors';
 export { statementObjects } from './sqlobjects';
 export type { StatementObjects, StatementOperation, FlowWeight } from './sqlobjects';

@@ -30,6 +30,8 @@ import {
   sampleActors,
   inspectActors,
   ActorAccumulator,
+  sampleSessions,
+  summarizeSessions,
   readLog,
   sampleVacuum,
   vacuumSamples,
@@ -92,6 +94,7 @@ const PLAN_QUEUE_INTERVAL_MS = 1_000;
 // acumulado: la foto tiene que ser frecuente para no perderse las consultas
 // cortas, la escritura no.
 const ACTOR_SAMPLE_INTERVAL_MS = 5_000;
+const SESSION_INTERVAL_MS = 10_000;
 const ACTOR_FLUSH_INTERVAL_MS = 60_000;
 const BLOAT_QUEUE_INTERVAL_MS = 2_000;
 // Media hora es más de lo que cualquiera va a esperar mirando la pantalla, pero
@@ -361,6 +364,39 @@ function startActorLoop(
 }
 
 /**
+ * Muestreo de sesiones y esperas.
+ *
+ * Cada diez segundos, y no cada cinco como el muestreo de aplicaciones, porque
+ * esta consulta trae más columnas y llama a `pg_blocking_pids` cuando hay
+ * bloqueos. Diez segundos siguen siendo suficientes para lo que esto mide, que
+ * son esperas que duran, no las que pasan en un milisegundo.
+ */
+function startSessionLoop(instance: InstanceConfig, instanceId: number, pool: Pool): void {
+  startLoop(`${instance.alias}/sesiones`, SESSION_INTERVAL_MS, async () => {
+    const foto = summarizeSessions(await sampleSessions(pool));
+    const escritas = await store.saveSessionSnapshot(instanceId, {
+      at: foto.at,
+      waits: foto.waits,
+      detail: foto.detail,
+    });
+    if (escritas === 0) return;
+
+    // Se registra sólo cuando hay algo raro: una foto con dos sesiones activas
+    // en CPU no merece una línea de log cada diez segundos.
+    if (foto.blockedSessions > 0 || (foto.longestQueryMs ?? 0) > 30_000) {
+      log(
+        'info',
+        `${instance.alias}/sesiones: ${foto.activeSessions} activa(s), ` +
+          `${foto.blockedSessions} bloqueada(s)` +
+          (foto.longestQueryMs
+            ? `, la más larga ${(foto.longestQueryMs / 1000).toFixed(1)} s`
+            : ''),
+      );
+    }
+  });
+}
+
+/**
  * Lectura del log del servidor.
  *
  * Sólo corre si la instancia lo declara: leer journald o archivos del servidor
@@ -614,6 +650,7 @@ async function monitorInstance(instance: InstanceConfig): Promise<void> {
   startPlanQueueLoop(instance, instanceId, pool);
   startBloatQueueLoop(instance, instanceId, pool);
   startActorLoop(instance, instanceId, pool, caps);
+  startSessionLoop(instance, instanceId, pool);
 
   startLoop(`${instance.alias}/locks`, LOCKS_INTERVAL_MS, async () => {
     const blocked = await sampleBlocking(pool);

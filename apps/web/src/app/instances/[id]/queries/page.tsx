@@ -151,10 +151,11 @@ export default async function QueriesPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ w?: string; order?: string; monitor?: string }>;
+  searchParams: Promise<{ w?: string; order?: string; monitor?: string; buscar?: string }>;
 }) {
   const { id } = await params;
-  const { w, order, monitor } = await searchParams;
+  const { w, order, monitor, buscar } = await searchParams;
+  const filtro = buscar?.trim() ? buscar.trim() : null;
 
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
@@ -199,7 +200,7 @@ export default async function QueriesPage({
   let failure: string | null = null;
   try {
     [statements, load] = await Promise.all([
-      getTopStatements(instanceId, window.minutes, selectedOrder, !showMonitorQueries, 25),
+      getTopStatements(instanceId, window.minutes, selectedOrder, !showMonitorQueries, 25, filtro),
       getStatementLoad(instanceId, window.minutes, window.bucketSeconds, !showMonitorQueries),
     ]);
     // Depende del top, así que va en un segundo viaje: pedir la evolución de
@@ -254,6 +255,33 @@ export default async function QueriesPage({
         </header>
 
         <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
+
+
+        {filtro && (
+
+          <div className="panel">
+
+            <div className="panel-body flex items-center justify-between gap-3 text-[12px]">
+
+              <span>
+
+                Filtrando por <span className="font-mono">{filtro}</span>. Se muestran sólo las consultas cuyo texto,
+
+                rol o base lo contienen.
+
+              </span>
+
+              <Link href={`/instances/${instanceId}/queries?w=${window.key}&order=${selectedOrder}`} className="tag tag--muted">
+
+                quitar filtro
+
+              </Link>
+
+            </div>
+
+          </div>
+
+        )}
 
         {engine === 'postgres' && instance.statStatements !== 'active' ? (
           <ActivationAssistant state={instance.statStatements} />

@@ -511,6 +511,14 @@ export async function getTopStatements(
   order: StatementOrder = 'time',
   hideMonitorQueries = true,
   limit = 25,
+  /**
+   * Filtro de texto libre sobre la consulta, el rol o la base.
+   *
+   * Existe para que el diagrama de flujo pueda llevar a algún sitio útil: al
+   * pinchar una tabla, la pregunta siguiente siempre es "¿y qué consultas la
+   * tocan?", y sin filtro había que buscarla a ojo en una lista de veinticinco.
+   */
+  search: string | null = null,
 ): Promise<TopStatement[]> {
   const rows = await query<Record<string, unknown>>(
     `select s.queryid::text                       as queryid,
@@ -532,10 +540,14 @@ export async function getTopStatements(
       where s.instance_id = $1
         and s.ts > now() - make_interval(mins => $2::int)
         and ($4::boolean is false or t.query not like $5)
+        and ($6::text is null
+             or t.query ilike '%' || $6 || '%'
+             or s.username ilike '%' || $6 || '%'
+             or s.database ilike '%' || $6 || '%')
       group by 1, 2
       order by ${STATEMENT_ORDER_SQL[order]} desc nulls last
       limit $3`,
-    [instanceId, windowMinutes, limit, hideMonitorQueries, MONITOR_QUERY_TAG],
+    [instanceId, windowMinutes, limit, hideMonitorQueries, MONITOR_QUERY_TAG, search],
   );
 
   return rows.map((row) => {

@@ -216,6 +216,53 @@ create index if not exists query_actors_lookup
 create index if not exists query_actors_by_query
   on buho.query_actors (instance_id, queryid, ts desc);
 
+-- ------------------------------------- muestreo de sesiones y esperas
+--
+-- Dos tablas porque son dos preguntas. El agregado contesta "en qué se va el
+-- tiempo" y tiene que ser barato de consultar sobre semanas; el detalle
+-- contesta "qué estaba corriendo a las 3:04" y sólo guarda las sesiones que
+-- valen la pena reconstruir.
+--
+-- Es muestreo, no contabilidad: una espera de dos milisegundos casi nunca cae
+-- en una foto cada diez segundos. Lo que mide bien es la duración: si una
+-- espera aparece en el 40 % de las fotos, ocupó el 40 % del tiempo.
+create table if not exists buho.wait_samples (
+  instance_id bigint      not null references buho.instances (instance_id) on delete cascade,
+  ts          timestamptz not null,
+  wait_type   text        not null,
+  wait_event  text,
+  sessions    integer     not null
+) partition by range (ts);
+
+create table if not exists buho.wait_samples_default
+  partition of buho.wait_samples default;
+
+create index if not exists wait_samples_lookup
+  on buho.wait_samples (instance_id, ts desc);
+
+create table if not exists buho.session_samples (
+  instance_id bigint      not null references buho.instances (instance_id) on delete cascade,
+  ts          timestamptz not null,
+  pid         integer     not null,
+  state       text        not null,
+  wait_type   text,
+  wait_event  text,
+  application text        not null,
+  username    text        not null,
+  database    text        not null,
+  queryid     bigint,
+  query_ms    numeric,
+  xact_ms     numeric,
+  blocked_by  integer,
+  query       text
+) partition by range (ts);
+
+create table if not exists buho.session_samples_default
+  partition of buho.session_samples default;
+
+create index if not exists session_samples_lookup
+  on buho.session_samples (instance_id, ts desc);
+
 -- La primera versión de esta tabla no estaba particionada. Una tabla plana no
 -- se convierte con ALTER, así que se renombra, se recrea particionada y se
 -- copian las filas (que caen en la partición por defecto y de ahí las mueve la

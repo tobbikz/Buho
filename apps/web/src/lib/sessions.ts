@@ -1,0 +1,252 @@
+import { query } from './db';
+
+/**
+ * Lecturas del muestreo de sesiones.
+ *
+ * Toda esta pantalla se apoya en una idea: con fotos cada diez segundos no se
+ * cuentan esperas, se estima **cuánto duraron**. Si una espera aparece en el
+ * 40 % de las fotos, ocupó aproximadamente el 40 % del tiempo. Por eso todo se
+ * expresa en proporción de fotos y en «sesiones promedio», nunca en «cantidad de
+ * esperas», que sería inventar una cuenta que nadie midió.
+ */
+
+export interface WaitShare {
+  waitType: string;
+  waitEvent: string | null;
+  /** Suma de sesiones vistas esperando esto. */
+  sessions: number;
+  /** Sesiones promedio ocupadas en esto durante la ventana. */
+  averageSessions: number;
+  share: number;
+}
+
+export interface WaitBucket {
+  bucket: Date;
+  byType: Record<string, number>;
+  total: number;
+}
+
+export interface SessionRow {
+  ts: Date;
+  pid: number;
+  state: string;
+  waitType: string | null;
+  waitEvent: string | null;
+  application: string;
+  username: string;
+  database: string;
+  queryid: string | null;
+  queryMs: number | null;
+  xactMs: number | null;
+  blockedBy: number | null;
+  query: string | null;
+}
+
+/** Cuántas fotos hay en la ventana: es el divisor de todos los porcentajes. */
+async function sampleCount(instanceId: number, minutes: number): Promise<number> {
+  const filas = await query<{ fotos: number }>(
+    `select count(distinct ts) as fotos
+       from buho.wait_samples
+      where instance_id = $1 and ts > now() - ($2 || ' minutes')::interval`,
+    [instanceId, minutes],
+  );
+  return Number(filas[0]?.fotos ?? 0);
+}
+
+export async function getWaitShares(
+  instanceId: number,
+  minutes: number,
+  top = 12,
+): Promise<{ waits: WaitShare[]; samples: number; averageBusy: number }> {
+  const fotos = await sampleCount(instanceId, minutes);
+
+  const filas = await query<{
+    wait_type: string;
+    wait_event: string | null;
+    sessions: number;
+  }>(
+    `select wait_type, wait_event, sum(sessions) as sessions
+       from buho.wait_samples
+      where instance_id = $1 and ts > now() - ($2 || ' minutes')::interval
+      group by 1, 2
+      order by 3 desc
+      limit $3`,
+    [instanceId, minutes, top],
+  );
+
+  const totalFilas = await query<{ total: number }>(
+    `select coalesce(sum(sessions), 0) as total
+       from buho.wait_samples
+      where instance_id = $1 and ts > now() - ($2 || ' minutes')::interval`,
+    [instanceId, minutes],
+  );
+  const total = Number(totalFilas[0]?.total ?? 0);
+
+  return {
+    samples: fotos,
+    // Sesiones promedio ocupadas: es el número que se compara con el número de
+    // núcleos del servidor. Si hay ocho núcleos y este número es doce, el
+    // servidor está por encima de su capacidad de CPU.
+    averageBusy: fotos > 0 ? total / fotos : 0,
+    waits: filas.map((fila) => ({
+      waitType: fila.wait_type,
+      waitEvent: fila.wait_event,
+      sessions: Number(fila.sessions),
+      averageSessions: fotos > 0 ? Number(fila.sessions) / fotos : 0,
+      share: total > 0 ? Number(fila.sessions) / total : 0,
+    })),
+  };
+}
+
+/**
+ * Serie temporal por tipo de espera, para ver cuándo cambió el perfil.
+ *
+ * El tamaño del cubo se elige según la ventana: con cubos fijos, una semana
+ * daría sesenta mil puntos y una hora, seis.
+ */
+export async function getWaitTimeline(instanceId: number, minutes: number): Promise<WaitBucket[]> {
+  const segundos = minutes <= 60 ? 60 : minutes <= 360 ? 300 : minutes <= 1440 ? 900 : 3600;
+
+  const filas = await query<{ bucket: Date; wait_type: string; sessions: number; fotos: number }>(
+    `select to_timestamp(floor(extract(epoch from ts) / $3) * $3) as bucket,
+            wait_type,
+            sum(sessions)          as sessions,
+            count(distinct ts)     as fotos
+       from buho.wait_samples
+      where instance_id = $1 and ts > now() - ($2 || ' minutes')::interval
+      group by 1, 2
+      order by 1`,
+    [instanceId, minutes, segundos],
+  );
+
+  const cubos = new Map<number, WaitBucket>();
+  for (const fila of filas) {
+    const clave = new Date(fila.bucket).getTime();
+    const cubo = cubos.get(clave) ?? { bucket: new Date(clave), byType: {}, total: 0 };
+    // Se divide por las fotos del cubo para que el eje sea "sesiones a la vez" y
+    // no "sesiones sumadas", que crecería solo con el tamaño del cubo.
+    const promedio = Number(fila.sessions) / Math.max(1, Number(fila.fotos));
+    cubo.byType[fila.wait_type] = (cubo.byType[fila.wait_type] ?? 0) + promedio;
+    cubo.total += promedio;
+    cubos.set(clave, cubo);
+  }
+  return [...cubos.values()];
+}
+
+/**
+ * Qué estaba corriendo en un momento dado.
+ *
+ * Se busca la foto más cercana al instante pedido y no un rango: promediar
+ * sesiones de fotos distintas mezclaría consultas que nunca coexistieron, y esta
+ * pantalla existe para poder decir «a las 3:04 estas siete sesiones estaban
+ * esperando a esta otra».
+ */
+export async function getSessionsAt(
+  instanceId: number,
+  at: Date,
+): Promise<{ at: Date | null; sessions: SessionRow[] }> {
+  const cercana = await query<{ ts: Date }>(
+    `select ts
+       from buho.session_samples
+      where instance_id = $1
+      order by abs(extract(epoch from (ts - $2::timestamptz)))
+      limit 1`,
+    [instanceId, at.toISOString()],
+  );
+  const momento = cercana[0]?.ts ?? null;
+  if (!momento) return { at: null, sessions: [] };
+
+  const filas = await query<{
+    ts: Date;
+    pid: number;
+    state: string;
+    wait_type: string | null;
+    wait_event: string | null;
+    application: string;
+    username: string;
+    database: string;
+    queryid: string | null;
+    query_ms: string | null;
+    xact_ms: string | null;
+    blocked_by: number | null;
+    query: string | null;
+  }>(
+    `select ts, pid, state, wait_type, wait_event, application, username, database,
+            queryid::text as queryid, query_ms, xact_ms, blocked_by, query
+       from buho.session_samples
+      where instance_id = $1 and ts = $2
+      order by coalesce(query_ms, 0) desc`,
+    [instanceId, momento],
+  );
+
+  return {
+    at: new Date(momento),
+    sessions: filas.map((fila) => ({
+      ts: new Date(fila.ts),
+      pid: Number(fila.pid),
+      state: fila.state,
+      waitType: fila.wait_type,
+      waitEvent: fila.wait_event,
+      application: fila.application,
+      username: fila.username,
+      database: fila.database,
+      queryid: fila.queryid,
+      queryMs: fila.query_ms === null ? null : Number(fila.query_ms),
+      xactMs: fila.xact_ms === null ? null : Number(fila.xact_ms),
+      blockedBy: fila.blocked_by === null ? null : Number(fila.blocked_by),
+      query: fila.query,
+    })),
+  };
+}
+
+/**
+ * Los momentos que vale la pena mirar, para no obligar a adivinar una hora.
+ *
+ * Se ordenan por gravedad y no por tiempo: quien abre esta pantalla después de
+ * un incidente quiere el peor momento, no el último.
+ */
+export async function getInterestingMoments(
+  instanceId: number,
+  minutes: number,
+  limit = 8,
+): Promise<{ ts: Date; sessions: number; blocked: number; longestMs: number | null }[]> {
+  const filas = await query<{
+    ts: Date;
+    sesiones: number;
+    bloqueadas: number;
+    mas_larga: string | null;
+  }>(
+    `select ts,
+            count(*)                                        as sesiones,
+            count(*) filter (where wait_type = 'Lock')      as bloqueadas,
+            max(query_ms)                                   as mas_larga
+       from buho.session_samples
+      where instance_id = $1 and ts > now() - ($2 || ' minutes')::interval
+      group by ts
+      order by count(*) filter (where wait_type = 'Lock') desc,
+               max(query_ms) desc nulls last
+      limit $3`,
+    [instanceId, minutes, limit],
+  );
+
+  return filas.map((fila) => ({
+    ts: new Date(fila.ts),
+    sessions: Number(fila.sesiones),
+    blocked: Number(fila.bloqueadas),
+    longestMs: fila.mas_larga === null ? null : Number(fila.mas_larga),
+  }));
+}
+
+/** Descripciones cortas: el nombre del evento no le dice nada a nadie sin esto. */
+export const WAIT_TYPE_HELP: Record<string, string> = {
+  CPU: 'no está esperando nada: está calculando. Si domina, el cuello es CPU o falta un índice.',
+  Lock: 'espera un bloqueo de otra transacción. Se arregla acortando transacciones, no con hardware.',
+  LWLock: 'contención interna del servidor, casi siempre por buffers o WAL bajo mucha concurrencia.',
+  IO: 'espera al disco. Si domina, o falta memoria para caché o el almacenamiento no da más.',
+  Client: 'espera a la aplicación, no al servidor. Suele ser un cliente que lee despacio.',
+  IPC: 'espera a otro proceso del servidor, típicamente en consultas paralelas o replicación.',
+  Timeout: 'espera programada, como un sleep o un intervalo de reintento.',
+  BufferPin: 'espera para acceder a una página del buffer que otro está usando.',
+  Extension: 'espera dentro de una extensión.',
+  Activity: 'procesos de fondo en reposo. Es normal y no indica problema.',
+};

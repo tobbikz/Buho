@@ -26,6 +26,10 @@ export function InstanceTabs({
           { href: `${base}/queries`, label: 'Consultas' },
           { href: `${base}/indexes`, label: 'Índices' },
           { href: `${base}/flow`, label: 'Flujo' },
+          // Sesiones sólo en PostgreSQL: el desglose por wait_event no tiene
+          // equivalente directo en los otros dos motores, y ofrecer una pantalla
+          // vacía sería peor que no ofrecerla.
+          { href: `${base}/sessions`, label: 'Sesiones' },
           { href: `${base}/host`, label: 'Host' },
           { href: `${base}/vacuum`, label: 'Vacuum' },
           { href: `${base}/replication`, label: 'Replicación' },
