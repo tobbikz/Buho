@@ -2,6 +2,7 @@ import { isIP } from 'node:net';
 import { Pool } from 'pg';
 import type { InstanceConfig } from './types';
 import { APPLICATION_NAME } from './pool';
+import { tagged } from './tag';
 
 /**
  * Motores que Búho sabe inventariar.
@@ -77,7 +78,11 @@ class MariadbClient implements EngineClient {
   constructor(private readonly pool: { query: (sql: string) => Promise<unknown>; end: () => Promise<void> }) {}
 
   async query(sql: string): Promise<Record<string, unknown>[]> {
-    const [rows] = (await this.pool.query(sql)) as [unknown, unknown];
+    // Marca al final, igual que en PostgreSQL: los digests de
+    // performance_schema y la caché de planes de SQL Server guardan el texto
+    // completo, así que sin la marca el ranking de consultas lo domina el
+    // propio monitor.
+    const [rows] = (await this.pool.query(tagged(sql))) as [unknown, unknown];
     // SHOW REPLICA STATUS devuelve un arreglo vacío cuando no hay replicación,
     // y las sentencias sin resultado devuelven un OkPacket que no es arreglo.
     return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
@@ -99,7 +104,7 @@ class MssqlClient implements EngineClient {
   ) {}
 
   async query(sql: string): Promise<Record<string, unknown>[]> {
-    const result = await this.pool.request().query(sql);
+    const result = await this.pool.request().query(tagged(sql));
     return (result.recordset as Record<string, unknown>[] | undefined) ?? [];
   }
 

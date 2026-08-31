@@ -36,6 +36,14 @@ export { discover, expandRange, isPrivateAddress, DEFAULT_PORTS } from './discov
 export { runExplain, analyzePlan, isReadOnly, statementKind } from './explain';
 export { sampleVacuum, vacuumSamples } from './vacuum';
 export type { VacuumSnapshot, VacuumTable, VacuumProgress } from './vacuum';
+export { sampleActors, inspectActors, ActorAccumulator } from './actors';
+export type { ActorObservation, ActorSupport } from './actors';
+export { statementObjects } from './sqlobjects';
+export type { StatementObjects, StatementOperation, FlowWeight } from './sqlobjects';
+export { suggestIndexes, mergeSuggestions, columnsFromPredicate } from './advisor';
+export type { IndexSuggestion, IndexEvidence, SuggestionKind } from './advisor';
+export { inspectPgstattuple, measureBloat } from './bloat';
+export type { BloatMeasurement, BloatMode, PgstattupleState } from './bloat';
 export { inspectLogging, readLog, parseEntries, parseLine, fingerprint } from './logs';
 export type {
   LogConfig,
@@ -54,3 +62,19 @@ export type {
   SecuritySeverity,
   SecurityCategory,
 } from './security';
+
+// Paridad de motores: MariaDB y SQL Server con métricas, consultas, bloqueos y log.
+export {
+  probeForeign,
+  foreignCollectorsFor,
+  runForeignCollectors,
+  MARIADB_COLLECTORS,
+  MSSQL_COLLECTORS,
+  ForeignStatementTracker,
+  sampleForeignStatements,
+  sampleForeignBlocking,
+  readForeignLog,
+  inspectForeignLogging,
+  digestToQueryid,
+} from './foreign';
+export type { ForeignCaps, ForeignCollector, ForeignRunResult } from './foreign';

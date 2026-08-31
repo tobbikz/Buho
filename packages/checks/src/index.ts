@@ -100,3 +100,51 @@ export async function runChecks(pool: Pool, caps: Capabilities): Promise<CheckRu
 
   return { results, errors, healthScore: healthScore(results) };
 }
+
+// --------------------------------------------------- chequeos de otros motores
+
+import type { EngineClient, ForeignCaps } from '@buho/core';
+import { MARIADB_CHECKS } from './mariadb';
+import { MSSQL_CHECKS } from './mssql';
+import type { ForeignCheckDefinition } from './mariadb';
+
+export { MARIADB_CHECKS } from './mariadb';
+export { MSSQL_CHECKS } from './mssql';
+export type { ForeignCheckDefinition } from './mariadb';
+
+/**
+ * Corre el catálogo del motor que corresponda.
+ *
+ * Misma forma que `runChecks` y mismo puntaje: un hallazgo de MariaDB pesa lo
+ * mismo que uno de PostgreSQL, así que la pantalla de flota puede ordenar
+ * instancias de los tres motores por salud sin corregir nada.
+ */
+export async function runForeignChecks(client: EngineClient, caps: ForeignCaps): Promise<CheckRunSummary> {
+  const catalogo: ForeignCheckDefinition[] =
+    caps.engine === 'mariadb' ? MARIADB_CHECKS : caps.engine === 'mssql' ? MSSQL_CHECKS : [];
+
+  const results: CheckResult[] = [];
+  const errors: CheckRunError[] = [];
+
+  for (const check of catalogo) {
+    if (check.appliesTo && !check.appliesTo(caps)) continue;
+    try {
+      const sql = check.sql(caps);
+      const rows = sql ? await client.query(sql) : [];
+      for (const finding of check.evaluate(rows, caps)) {
+        results.push({ ...finding, checkId: check.id, title: check.title });
+      }
+    } catch (error) {
+      errors.push({ checkId: check.id, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  results.sort(
+    (a, b) =>
+      SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] ||
+      a.checkId.localeCompare(b.checkId) ||
+      (b.value ?? 0) - (a.value ?? 0),
+  );
+
+  return { results, errors, healthScore: healthScore(results) };
+}

@@ -1,0 +1,146 @@
+'use client';
+
+import { useMemo } from 'react';
+import { WEEKDAY_LABEL, type HeatCell } from '@/lib/heat-types';
+import { formatUnit, type Unit } from '@/lib/units';
+
+/**
+ * Rejilla de uso: 7 días por 24 horas.
+ *
+ * Decisiones que importan para que se pueda leer:
+ *
+ * - **Los huecos se dibujan como huecos**, no como cero. Una celda sin datos y
+ *   una celda con carga cero son cosas distintas: la primera dice "no estaba
+ *   mirando" y la segunda "no pasaba nada". Confundirlas hace que un servidor
+ *   recién instalado parezca tranquilo a las horas que nadie midió.
+ * - **La escala es relativa a la propia rejilla**, así que el color no compara
+ *   entre instancias. El número absoluto va en el tooltip y en los extremos.
+ * - Se usa una escala secuencial de un solo tono. Las de arcoíris inventan
+ *   fronteras donde el dato es continuo: el salto de verde a amarillo se lee
+ *   como un umbral que no existe.
+ */
+
+/** Azul de la casa, de claro a oscuro. Cinco pasos: más no se distinguen. */
+const ESCALA = ['#eaf2fb', '#c3daf2', '#8ab8e4', '#4a8ccf', '#005eb8'];
+
+function colorFor(value: number, max: number): string {
+  if (max <= 0) return ESCALA[0] ?? '#eaf2fb';
+  // Raíz cuadrada en vez de lineal: la carga suele tener un pico que aplasta
+  // todo lo demás, y con escala lineal la rejilla queda casi toda del color más
+  // claro y no se ve la forma de la semana.
+  const proporcion = Math.sqrt(Math.min(value / max, 1));
+  const indice = Math.min(ESCALA.length - 1, Math.floor(proporcion * ESCALA.length));
+  return ESCALA[indice] ?? ESCALA[0] ?? '#eaf2fb';
+}
+
+export function Heatmap({
+  cells,
+  max,
+  unit,
+  minSamples = 1,
+}: {
+  cells: HeatCell[];
+  max: number;
+  unit: Unit;
+  /** Debajo de esto la celda se marca como poco fiable. */
+  minSamples?: number;
+}) {
+  const porClave = useMemo(() => {
+    const mapa = new Map<string, HeatCell>();
+    for (const celda of cells) mapa.set(`${celda.weekday}-${celda.hour}`, celda);
+    return mapa;
+  }, [cells]);
+
+  const horas = Array.from({ length: 24 }, (_, hora) => hora);
+  // Lunes primero: la semana laboral se lee mejor junta, y el fin de semana
+  // abajo es donde uno busca la ventana de mantenimiento.
+  const dias = [1, 2, 3, 4, 5, 6, 0];
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="border-separate" style={{ borderSpacing: '2px' }}>
+        <thead>
+          <tr>
+            <th />
+            {horas.map((hora) => (
+              <th
+                key={hora}
+                className="font-mono text-[9px] font-normal text-foreground-muted"
+                style={{ width: 20 }}
+              >
+                {hora % 3 === 0 ? String(hora).padStart(2, '0') : ''}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {dias.map((dia) => (
+            <tr key={dia}>
+              <td className="pr-1 text-right font-mono text-[10px] text-foreground-muted">
+                {WEEKDAY_LABEL[dia]}
+              </td>
+              {horas.map((hora) => {
+                const celda = porClave.get(`${dia}-${hora}`);
+                if (!celda) {
+                  return (
+                    <td key={hora}>
+                      {/* Hueco: sin dato, no cero. El rayado lo distingue del
+                          color más claro de la escala. */}
+                      <div
+                        title={`${WEEKDAY_LABEL[dia]} ${String(hora).padStart(2, '0')}:00 · sin datos`}
+                        style={{
+                          width: 20,
+                          height: 16,
+                          background:
+                            'repeating-linear-gradient(45deg, transparent, transparent 2px, var(--border, #e5e7eb) 2px, var(--border, #e5e7eb) 3px)',
+                        }}
+                      />
+                    </td>
+                  );
+                }
+                const pocoFiable = celda.samples < minSamples;
+                return (
+                  <td key={hora}>
+                    <div
+                      title={
+                        `${WEEKDAY_LABEL[dia]} ${String(hora).padStart(2, '0')}:00 · ${formatUnit(celda.value, unit)}` +
+                        ` · ${celda.samples} hora${celda.samples === 1 ? '' : 's'} medida${celda.samples === 1 ? '' : 's'}` +
+                        (pocoFiable ? ' · pocos datos' : '')
+                      }
+                      style={{
+                        width: 20,
+                        height: 16,
+                        background: colorFor(celda.value, max),
+                        opacity: pocoFiable ? 0.45 : 1,
+                      }}
+                    />
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div className="mt-2 flex items-center gap-2 text-[10px] text-foreground-muted">
+        <span>0</span>
+        {ESCALA.map((color) => (
+          <span key={color} className="inline-block" style={{ width: 20, height: 8, background: color }} />
+        ))}
+        <span>{formatUnit(max, unit)}</span>
+        <span className="ml-3 inline-flex items-center gap-1">
+          <span
+            className="inline-block"
+            style={{
+              width: 20,
+              height: 8,
+              background:
+                'repeating-linear-gradient(45deg, transparent, transparent 2px, var(--border, #e5e7eb) 2px, var(--border, #e5e7eb) 3px)',
+            }}
+          />
+          sin datos
+        </span>
+      </div>
+    </div>
+  );
+}

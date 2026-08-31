@@ -84,9 +84,23 @@ function toBase64Url(bytes: ArrayBuffer | Uint8Array): string {
     .replace(/=+$/, '');
 }
 
+/** Los bytes crudos: sirven para verificar la firma. */
 function fromBase64Url(value: string): string {
   const padded = value.replace(/-/g, '+').replace(/_/g, '/');
   return atob(padded + '='.repeat((4 - (padded.length % 4)) % 4));
+}
+
+/**
+ * El texto, interpretando los bytes como UTF-8.
+ *
+ * `atob` devuelve un byte por carácter, así que leer el payload directamente de
+ * ahí parte cualquier letra acentuada en dos: un usuario llamado «José» entraba
+ * y la consola lo saludaba como «JosÃ©». La firma se sigue verificando sobre los
+ * bytes, que es lo que se firmó.
+ */
+function textFromBase64Url(value: string): string {
+  const bytes = Uint8Array.from(fromBase64Url(value), (character) => character.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
 }
 
 export async function issueSession(
@@ -123,7 +137,7 @@ export async function readSession(
   if (!valid) return null;
 
   try {
-    const payload = JSON.parse(fromBase64Url(encoded)) as { u?: string; r?: string; e?: number };
+    const payload = JSON.parse(textFromBase64Url(encoded)) as { u?: string; r?: string; e?: number };
     const expiresAt = Number(payload.e);
     if (!Number.isFinite(expiresAt) || expiresAt < now) return null;
     const role: Role = payload.r === 'admin' ? 'admin' : 'viewer';

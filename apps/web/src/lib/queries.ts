@@ -494,12 +494,16 @@ const STATEMENT_ORDER_SQL: Record<StatementOrder, string> = {
 
 /**
  * Las consultas del propio monitor dominan cualquier ranking por número de
- * llamadas, así que se pueden esconder. El filtro es exacto porque el colector
- * prefija su SQL con `/* buho *&#47;` y pg_stat_statements conserva los
- * comentarios: filtrar por patrones como `pg_stat_%` escondería también las
- * consultas legítimas del DBA sobre el catálogo.
+ * llamadas, así que se pueden esconder. El filtro busca la marca en cualquier
+ * posición y no como prefijo: el colector la escribe **al final**, porque
+ * pg_stat_statements descarta los comentarios que preceden a la sentencia. Con
+ * el patrón anclado al inicio el filtro no coincidía nunca y las consultas del
+ * monitor se colaban en todos los rankings.
+ *
+ * Filtrar por la marca y no por patrones como `pg_stat_%` es lo que evita
+ * esconder también las consultas legítimas del DBA sobre el catálogo.
  */
-const MONITOR_QUERY_TAG = '/* buho */%';
+const MONITOR_QUERY_TAG = '%/* buho */%';
 
 export async function getTopStatements(
   instanceId: number,

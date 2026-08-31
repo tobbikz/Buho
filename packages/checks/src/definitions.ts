@@ -128,6 +128,92 @@ const xidWraparound: CheckDefinition = {
   },
 };
 
+/**
+ * Wraparound de la tabla, no de la base.
+ *
+ * `age(datfrozenxid)` avisa de que la base se acerca al límite, pero no dice
+ * qué congelar. Y la respuesta rara vez es "todo": lo normal es que una o dos
+ * tablas arrastren a las demás, porque tienen autovacuum apagado, porque nunca
+ * se escriben y nadie las visita, o porque son tan grandes que el vacuum de
+ * congelamiento no termina antes de que llegue el siguiente.
+ *
+ * Los multixact se miran aparte porque llegan al límite por su cuenta: los
+ * generan las claves foráneas y los `SELECT FOR SHARE`, no las escrituras, así
+ * que una tabla puede estar tranquila de XID y apretada de mxid.
+ */
+const xidWraparoundTable: CheckDefinition = {
+  id: 'xid_wraparound_table',
+  title: 'Tablas que empujan el wraparound',
+  description: 'Edad de relfrozenxid y relminmxid por tabla, contra su freeze_max_age efectivo',
+  sql: () => `
+    select n.nspname as schema_name,
+           c.relname,
+           case when c.relfrozenxid = '0'::xid then 0 else age(c.relfrozenxid) end as xid_age,
+           case when c.relminmxid = '0'::xid then 0 else mxid_age(c.relminmxid) end as mxid_age,
+           coalesce(
+             (select option_value::numeric from pg_options_to_table(c.reloptions)
+               where option_name = 'autovacuum_freeze_max_age'),
+             current_setting('autovacuum_freeze_max_age')::numeric
+           ) as freeze_max_age,
+           coalesce(
+             (select option_value::numeric from pg_options_to_table(c.reloptions)
+               where option_name = 'autovacuum_multixact_freeze_max_age'),
+             current_setting('autovacuum_multixact_freeze_max_age')::numeric
+           ) as multixact_freeze_max_age,
+           coalesce(
+             (select option_value from pg_options_to_table(c.reloptions)
+               where option_name = 'autovacuum_enabled'),
+             'true'
+           ) as autovacuum_enabled,
+           pg_size_pretty(pg_total_relation_size(c.oid)) as size_pretty
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+     -- Sin 'p': la tabla particionada no guarda filas, su relfrozenxid es 0 y
+     -- el wraparound se mide en cada partición por separado.
+     where c.relkind in ('r', 'm', 't')
+       and n.nspname not in ('pg_catalog', 'information_schema', 'pg_toast')
+     order by xid_age desc
+     limit 20`,
+  evaluate: (rows) => {
+    const findings: Finding[] = [];
+    for (const row of rows) {
+      const object = `${text(row['schema_name'])}.${text(row['relname'])}`;
+      const size = text(row['size_pretty']);
+      const apagado = text(row['autovacuum_enabled']) === 'false';
+
+      const xidAge = num(row['xid_age']);
+      const xidMax = num(row['freeze_max_age']);
+      const xidPct = xidMax > 0 ? (xidAge / xidMax) * 100 : 0;
+
+      const mxidAge = num(row['mxid_age']);
+      const mxidMax = num(row['multixact_freeze_max_age']);
+      const mxidPct = mxidMax > 0 && mxidAge > 0 ? (mxidAge / mxidMax) * 100 : 0;
+
+      // Debajo del 60 % la tabla está donde autovacuum quiere que esté: el
+      // congelamiento es un ciclo normal, no un problema, y avisar antes sería
+      // enseñar a ignorar la pantalla.
+      const peor = Math.max(xidPct, mxidPct);
+      if (peor < 60 && !(apagado && peor >= 40)) continue;
+
+      const cual = mxidPct > xidPct ? 'multixact' : 'transacciones';
+      const edad = mxidPct > xidPct ? mxidAge : xidAge;
+      findings.push({
+        severity: peor >= 90 ? 'critical' : peor >= 75 ? 'warning' : 'info',
+        object,
+        message:
+          `La edad de ${cual} está al ${formatPct(peor)} del límite que fuerza el vacuum ` +
+          `(${Math.round(edad).toLocaleString('es-CR')} sobre ${Math.round(mxidPct > xidPct ? mxidMax : xidMax).toLocaleString('es-CR')}), ` +
+          `tabla de ${size}${apagado ? ', con autovacuum apagado' : ''}.`,
+        remediation: apagado
+          ? 'Esta tabla tiene autovacuum apagado y sigue envejeciendo: el vacuum de congelamiento va a llegar igual, forzado y en el peor momento. Devolverla al ciclo normal con ALTER TABLE ... RESET (autovacuum_enabled), o congelarla a mano en una ventana elegida con VACUUM (FREEZE).'
+          : 'Congelarla en una ventana tranquila con VACUUM (FREEZE, VERBOSE) antes de que autovacuum lo haga solo: forzado no se puede cancelar y bloquea el ALTER TABLE. Si vuelve a subir sin bajar, lo que retiene los XID está afuera de la tabla: transacción abierta, slot de replicación inactivo o prepared transaction huérfana.',
+        value: peor,
+      });
+    }
+    return findings;
+  },
+};
+
 const deadTuples: CheckDefinition = {
   id: 'dead_tuples',
   title: 'Tuplas muertas y autovacuum atrasado',
@@ -859,6 +945,7 @@ export const CHECKS: CheckDefinition[] = [
   idleInTransaction,
   blockingChain,
   xidWraparound,
+  xidWraparoundTable,
   deadTuples,
   redundantIndexes,
   unusedIndexes,

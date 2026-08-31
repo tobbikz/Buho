@@ -221,6 +221,63 @@ const deadTuples: MetricCollector = {
   },
 };
 
+/**
+ * Actividad por tabla: quién se lleva las escrituras y las lecturas.
+ *
+ * `pg_stat_database` dice cuántas filas se insertaron en la base; esto dice en
+ * *qué tabla*. Es la pieza que convierte "la base escribe mucho" en "el 80 % de
+ * las escrituras cae en esta tabla", que es la única forma de la pregunta que se
+ * puede accionar.
+ *
+ * Son contadores acumulados desde el último `stats_reset`, así que van marcados
+ * como tales y el store calcula la tasa. El `limit` ordena por actividad
+ * acumulada, no por la del último intervalo: una tabla que fue muy caliente el
+ * mes pasado sigue apareciendo con tasa cero, y eso es preferible a que las
+ * tablas entren y salgan de la lista entre muestras y rompan las series.
+ */
+const tableActivity: MetricCollector = {
+  id: 'table_activity',
+  tier: 'normal',
+  description: 'DML y escaneos por tabla (base conectada)',
+  sql: () => `
+    select schemaname, relname,
+           n_tup_ins, n_tup_upd, n_tup_del, n_tup_hot_upd,
+           seq_scan, seq_tup_read, idx_scan, idx_tup_fetch,
+           (select stats_reset from pg_stat_database where datname = current_database()) as stats_reset
+      from pg_stat_user_tables
+     where n_tup_ins + n_tup_upd + n_tup_del > 0
+        or seq_scan > 0
+        or coalesce(idx_scan, 0) > 0
+     order by (n_tup_ins + n_tup_upd + n_tup_del) desc,
+              (seq_scan + coalesce(idx_scan, 0)) desc
+     limit 30`,
+  toSamples: (rows) => {
+    const samples: Sample[] = [];
+    for (const row of rows) {
+      const labels = { schema: str(row['schemaname']), table: str(row['relname']) };
+      const statsReset = resetMarker(row['stats_reset']);
+      const counters: Record<string, unknown> = {
+        table_tup_inserted: row['n_tup_ins'],
+        table_tup_updated: row['n_tup_upd'],
+        table_tup_deleted: row['n_tup_del'],
+        // HOT: la actualización que no tocó ningún índice. La proporción sobre
+        // el total de updates es el indicador más directo de si los índices
+        // están encareciendo las escrituras.
+        table_tup_hot_updated: row['n_tup_hot_upd'],
+        table_seq_scans: row['seq_scan'],
+        table_seq_tup_read: row['seq_tup_read'],
+        table_idx_scans: row['idx_scan'],
+        table_idx_tup_fetched: row['idx_tup_fetch'],
+      };
+      for (const [metric, raw] of Object.entries(counters)) {
+        if (raw === null || raw === undefined) continue;
+        samples.push({ metric, value: num(raw), labels, counter: true, statsReset });
+      }
+    }
+    return samples;
+  },
+};
+
 const tableSizes: MetricCollector = {
   id: 'table_sizes',
   tier: 'slow',
@@ -426,6 +483,7 @@ export const COLLECTORS: MetricCollector[] = [
   databaseSizes,
   wraparound,
   deadTuples,
+  tableActivity,
   tableSizes,
   replication,
   replicationStandby,

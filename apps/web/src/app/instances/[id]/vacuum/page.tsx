@@ -8,6 +8,16 @@ import { Topbar } from '@/components/Topbar';
 import { formatAgo, formatBytes, formatNumber } from '@/lib/format';
 import { getInstanceEngine } from '@/lib/estate';
 import { getInstance, getSeries } from '@/lib/queries';
+import { MeasureBloat } from '@/components/MeasureBloat';
+import { PollWhilePending } from '@/components/PollWhilePending';
+import { currentSession } from '@/lib/session';
+import {
+  getLatestBloat,
+  getPgstattupleState,
+  hasPending,
+  requestBloat,
+  type BloatMode,
+} from '@/lib/bloat';
 import {
   getVacuumProgress,
   getVacuumTables,
@@ -24,6 +34,7 @@ const ORDERS: { key: VacuumOrder; label: string }[] = [
   { key: 'bloat', label: 'Más espacio desperdiciado' },
   { key: 'antiguedad', label: 'Hace más que no pasa' },
   { key: 'tamano', label: 'Más grandes' },
+  { key: 'wraparound', label: 'Más cerca del wraparound' },
 ];
 
 /**
@@ -115,15 +126,72 @@ function lastPass(row: VacuumTableRow): { text: string; tone: string } {
   };
 }
 
+
+/**
+ * Qué tan cerca está la tabla del vacuum de congelamiento forzado.
+ *
+ * Se muestra el peor de los dos relojes —transacciones y multixact— porque el
+ * que llegue primero es el que va a disparar el vacuum, y avanzan por causas
+ * distintas: las escrituras mueven uno, las claves foráneas y los locks
+ * compartidos mueven el otro.
+ */
+function freezeCell(row: VacuumTableRow) {
+  const xid = row.xidPct ?? 0;
+  const mxid = row.mxidPct ?? 0;
+  const peor = Math.max(xid, mxid);
+  if (row.freezeMaxAge <= 0) return <span className="text-foreground-muted">—</span>;
+
+  const cual = mxid > xid ? 'multixact' : 'transacciones';
+  const tono = peor >= 90 ? 'text-[var(--error)]' : peor >= 75 ? 'text-[var(--warning)]' : '';
+  return (
+    <span
+      className={tono}
+      title={`edad de ${cual}: ${Math.round(mxid > xid ? row.mxidAge : row.xidAge).toLocaleString('es-CR')} sobre ${row.freezeMaxAge.toLocaleString('es-CR')}`}
+    >
+      {peor.toFixed(0)}%
+      {peor >= 60 && <span className="ml-1 text-[10px] text-foreground-muted">{cual}</span>}
+    </span>
+  );
+}
+
+/**
+ * Encola una medición con pgstattuple.
+ *
+ * Sólo admin: la medición exacta lee la tabla completa en la base del cliente.
+ * Un viewer puede ver el resultado de lo que otro midió, pero no provocar el
+ * escaneo.
+ */
+async function pedirMedicion(formData: FormData): Promise<void> {
+  'use server';
+
+  const session = await currentSession();
+  const instanceId = Number(formData.get('instanceId'));
+  const schema = String(formData.get('schema') ?? '');
+  const table = String(formData.get('table') ?? '');
+  const mode = String(formData.get('mode')) as BloatMode;
+  const crudo = String(formData.get('estimatedPct') ?? '');
+  const estimatedPct = crudo === '' ? null : Number(crudo);
+
+  if (session.role !== 'admin') {
+    redirect(`/instances/${instanceId}/vacuum?error=${encodeURIComponent('Medir el bloat requiere rol de administrador.')}`);
+  }
+  if (!schema || !table || (mode !== 'exacto' && mode !== 'aproximado')) {
+    redirect(`/instances/${instanceId}/vacuum?error=${encodeURIComponent('Encargo de medición incompleto.')}`);
+  }
+
+  await requestBloat(instanceId, schema, table, mode, session.username, estimatedPct);
+  redirect(`/instances/${instanceId}/vacuum`);
+}
+
 export default async function VacuumPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ orden?: string }>;
+  searchParams: Promise<{ orden?: string; error?: string }>;
 }) {
   const { id } = await params;
-  const { orden } = await searchParams;
+  const { orden, error: aviso } = await searchParams;
 
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
@@ -158,12 +226,18 @@ export default async function VacuumPage({
   let progress: VacuumProgressRow[];
   let totals: Awaited<ReturnType<typeof getVacuumTotals>>;
   let series: Awaited<ReturnType<typeof getSeries>>;
+  let medidas: Awaited<ReturnType<typeof getLatestBloat>>;
+  let session: Awaited<ReturnType<typeof currentSession>>;
+  let pgstattuple: Awaited<ReturnType<typeof getPgstattupleState>>;
   try {
-    [tables, progress, totals, series] = await Promise.all([
+    [tables, progress, totals, series, medidas, session, pgstattuple] = await Promise.all([
       getVacuumTables(instanceId, order, 40),
       getVacuumProgress(instanceId),
       getVacuumTotals(instanceId),
       getSeries(instanceId, ['bloat_estimated_bytes', 'vacuum_running'], 1440, 300),
+      getLatestBloat(instanceId),
+      currentSession(),
+      getPgstattupleState(instanceId),
     ]);
   } catch (error) {
     return (
@@ -193,6 +267,12 @@ export default async function VacuumPage({
         </header>
 
         <InstanceTabs instanceId={instanceId} />
+
+        {aviso && <div className="notice notice--warn">{aviso}</div>}
+
+        {/* Una medición exacta puede tardar minutos: se refresca solo mientras
+            haya alguna en cola, y se deja de molestar cuando terminan. */}
+        {hasPending(medidas.values()) && <PollWhilePending intervalMs={3000} />}
 
         {totals.tables === 0 && (
           <div className="notice notice--warn">
@@ -230,6 +310,18 @@ export default async function VacuumPage({
             value={formatNumber(totals.missingAnalyze)}
             tone={totals.missingAnalyze > 0 ? 'warn' : 'ok'}
             hint="no se puede estimar ni planificar bien"
+          />
+          <StatCard
+            label="Peor tabla ante el wraparound"
+            value={totals.worstXidPct === null ? '—' : `${totals.worstXidPct.toFixed(0)}%`}
+            tone={
+              (totals.worstXidPct ?? 0) >= 90
+                ? 'error'
+                : (totals.worstXidPct ?? 0) >= 75
+                  ? 'warn'
+                  : 'ok'
+            }
+            hint="del límite que fuerza el congelamiento"
           />
           <StatCard
             label="Autovacuum apagado"
@@ -310,6 +402,8 @@ export default async function VacuumPage({
                     <th className="text-right">Último analyze</th>
                     <th className="text-right">Tamaño</th>
                     <th className="text-right">Desperdicio estimado</th>
+                    <th className="text-right">Medido</th>
+                    <th className="text-right">Congelamiento</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -371,6 +465,24 @@ export default async function VacuumPage({
                             </>
                           )}
                         </td>
+                        <td className="num">
+                          <MeasureBloat
+                            action={pedirMedicion}
+                            instanceId={instanceId}
+                            schema={row.schema}
+                            table={row.table}
+                            sizeBytes={row.sizeBytes}
+                            estimatedPct={row.bloatPct}
+                            measurement={medidas.get(`${row.schema}.${row.table}`) ?? null}
+                            canMeasure={session.role === 'admin' && pgstattuple.executable}
+                            blockedReason={
+                              session.role !== 'admin'
+                                ? 'Medir el bloat requiere rol de administrador.'
+                                : pgstattuple.reason
+                            }
+                          />
+                        </td>
+                        <td className="num">{freezeCell(row)}</td>
                       </tr>
                     );
                   })}

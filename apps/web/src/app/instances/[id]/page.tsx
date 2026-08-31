@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { AnomalyPanel } from '@/components/AnomalyPanel';
 import { FindingsPanel } from '@/components/FindingsPanel';
 import { InstanceTabs } from '@/components/InstanceTabs';
-import { InventoryInstance } from '@/components/InventoryInstance';
+import { ForeignSummary } from '@/components/ForeignSummary';
 import { LabeledBars, type BarRow } from '@/components/LabeledBars';
 import { StatCard, toneForMinimum, toneForPct, toneForScore } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
@@ -19,7 +19,7 @@ import {
   formatVersion,
 } from '@/lib/format';
 import { getAnomalies, getBaselineCoverage } from '@/lib/baselines';
-import { ENGINE_LABEL, getInstanceEngine, getInstanceInventory } from '@/lib/estate';
+import { ENGINE_LABEL, getInstanceEngine } from '@/lib/estate';
 import {
   getEvents,
   getFindings,
@@ -96,11 +96,11 @@ export default async function InstancePage({
   }
   if (!instance) notFound();
 
-  // MariaDB y SQL Server no tienen series ni checks: se les da la vista de
-  // inventario en vez de la plantilla de PostgreSQL con la edad de XID vacía.
+  // MariaDB y SQL Server tienen su propio resumen: las mismas preguntas, con
+  // los indicadores que cada motor sí puede contestar. El inventario, que antes
+  // era toda su pantalla, ahora es una pestaña más.
   const engine = await getInstanceEngine(instanceId);
-  if (engine && engine !== 'postgres') {
-    const inventory = await getInstanceInventory(instanceId);
+  if (engine === 'mariadb' || engine === 'mssql') {
     return (
       <>
         <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: instance.alias }]} />
@@ -108,22 +108,41 @@ export default async function InstancePage({
           <header className="page-header">
             <div>
               <h1 className="page-title">{instance.alias}</h1>
-              <p className="page-sub">
-                {instance.host}:{instance.port} · {ENGINE_LABEL[engine] ?? engine}
-                {inventory.engine?.capturedAt ? ` · inventariado ${formatAgo(inventory.engine.capturedAt)}` : ''}
+              <p className="page-sub font-mono">
+                {instance.host}:{instance.port}
+                {instance.database ? `/${instance.database}` : ''}
               </p>
+              <div className="mt-[0.375rem] flex flex-wrap items-center gap-1">
+                <span className="tag tag--muted">{instance.environment}</span>
+                <span className="tag tag--info">{ENGINE_LABEL[engine] ?? engine}</span>
+                <span className="font-mono text-[10px] text-foreground-muted">
+                  visto {formatAgo(instance.lastSeenAt)}
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-1">
-              <span className="tag tag--muted">{instance.environment}</span>
-              <span className="tag tag--info">{ENGINE_LABEL[engine] ?? engine}</span>
+              {WINDOWS.map((candidate) => (
+                <Link
+                  key={candidate.key}
+                  href={`/instances/${instanceId}?w=${candidate.key}`}
+                  className={`tag ${candidate.key === window.key ? 'tag--info' : 'tag--muted'}`}
+                >
+                  {candidate.key}
+                </Link>
+              ))}
             </div>
           </header>
-          <InstanceTabs instanceId={instanceId} engine={engine} />
-          <InventoryInstance
+          <InstanceTabs
             instanceId={instanceId}
-            alias={instance.alias}
             engine={engine}
-            inventory={inventory}
+            blockedCount={instance.blockedSessions ?? 0}
+          />
+          <ForeignSummary
+            instanceId={instanceId}
+            engine={engine}
+            windowMinutes={window.minutes}
+            bucketSeconds={window.bucketSeconds}
+            windowHint={windowHint}
           />
         </div>
       </>

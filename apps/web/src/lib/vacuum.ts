@@ -20,6 +20,11 @@ export interface VacuumTableRow {
   bloatBytes: number | null;
   bloatPct: number | null;
   bloatNote: string | null;
+  xidAge: number;
+  mxidAge: number;
+  freezeMaxAge: number;
+  xidPct: number | null;
+  mxidPct: number | null;
   capturedAt: Date;
 }
 
@@ -49,15 +54,18 @@ export interface VacuumTotals {
   autovacuumDisabled: number;
   /** Tablas que ya pasaron su umbral y siguen esperando turno. */
   overdue: number;
+  /** Lo más cerca que está una tabla del vacuum forzado de congelamiento. */
+  worstXidPct: number | null;
   oldestAutovacuum: Date | null;
   capturedAt: Date | null;
 }
 
-export type VacuumOrder = 'muertas' | 'bloat' | 'antiguedad' | 'tamano';
+export type VacuumOrder = 'muertas' | 'bloat' | 'antiguedad' | 'tamano' | 'wraparound';
 
 const ORDER_SQL: Record<VacuumOrder, string> = {
   muertas: 'dead_tuples desc, size_bytes desc',
   bloat: 'bloat_bytes desc nulls last',
+  wraparound: 'greatest(coalesce(xid_pct, 0), coalesce(mxid_pct, 0)) desc',
   // `nulls first` a propósito: una tabla que nunca tuvo autovacuum es el caso
   // más grave de "antigüedad", no el menos.
   antiguedad: 'greatest(last_autovacuum, last_vacuum) asc nulls first',
@@ -89,6 +97,11 @@ function toRow(row: Record<string, unknown>): VacuumTableRow {
     bloatBytes: maybe(row['bloat_bytes']),
     bloatPct: maybe(row['bloat_pct']),
     bloatNote: (row['bloat_note'] as string | null) ?? null,
+    xidAge: Number(row['xid_age'] ?? 0),
+    mxidAge: Number(row['mxid_age'] ?? 0),
+    freezeMaxAge: Number(row['freeze_max_age'] ?? 0),
+    xidPct: row['xid_pct'] === null || row['xid_pct'] === undefined ? null : Number(row['xid_pct']),
+    mxidPct: row['mxid_pct'] === null || row['mxid_pct'] === undefined ? null : Number(row['mxid_pct']),
     capturedAt: row['captured_at'] as Date,
   };
 }
@@ -141,6 +154,7 @@ export async function getVacuumTotals(instanceId: number): Promise<VacuumTotals>
             count(*) filter (where bloat_note like '%ANALYZE%')         as missing_analyze,
             count(*) filter (where not autovacuum_enabled)              as autovacuum_disabled,
             count(*) filter (where remaining < 0)                       as overdue,
+            max(greatest(coalesce(xid_pct, 0), coalesce(mxid_pct, 0)))  as worst_xid_pct,
             min(greatest(last_autovacuum, last_vacuum))                 as oldest_autovacuum,
             max(captured_at)                                            as captured_at
        from buho.vacuum_tables
@@ -157,6 +171,10 @@ export async function getVacuumTotals(instanceId: number): Promise<VacuumTotals>
     missingAnalyze: Number(row['missing_analyze'] ?? 0),
     autovacuumDisabled: Number(row['autovacuum_disabled'] ?? 0),
     overdue: Number(row['overdue'] ?? 0),
+    worstXidPct:
+      row['worst_xid_pct'] === null || row['worst_xid_pct'] === undefined
+        ? null
+        : Number(row['worst_xid_pct']),
     oldestAutovacuum: (row['oldest_autovacuum'] as Date | null) ?? null,
     capturedAt: (row['captured_at'] as Date | null) ?? null,
   };

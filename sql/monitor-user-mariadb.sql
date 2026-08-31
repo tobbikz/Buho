@@ -84,3 +84,30 @@ flush privileges;
 --     select count(*) from information_schema.tables;         -- tamaños visibles
 --
 -- Lo que falle indica exactamente qué permiso falta.
+
+
+-- --------------------------------------------- analítica de consultas y log
+--
+-- El digest de consultas sale de performance_schema, que en varias
+-- distribuciones viene apagado. Encenderlo requiere reiniciar el servidor y
+-- cuesta alrededor de un 5 % de CPU:
+--
+--   [mysqld]
+--   performance_schema = ON
+--
+-- Con esto basta para leerlo (ya está en el grant de arriba si se usó
+-- performance_schema.*), pero el slow log guardado en tabla necesita su propio
+-- SELECT:
+grant select on mysql.slow_log to 'buho_monitor'@'%';
+
+-- Y para que el slow log tenga algo que leer:
+--
+--   [mysqld]
+--   slow_query_log = ON
+--   long_query_time = 0.1
+--   log_output = TABLE
+--
+-- Los deadlocks salen de SHOW ENGINE INNODB STATUS, que ya cubre PROCESS. Ojo:
+-- InnoDB sólo guarda el último, así que dos deadlocks seguidos entre lecturas
+-- dejan uno sin registrar. Con log_output = TABLE y el slow log encendido queda
+-- rastro de las consultas que participaron.

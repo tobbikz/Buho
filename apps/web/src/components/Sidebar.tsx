@@ -46,7 +46,7 @@ export function Sidebar({
     <aside className="sidebar">
       <div className="sidebar__brand">
         <span className="text-[15px]">Búho</span>
-        <span className="tag tag--muted">v0.1</span>
+        <span className="tag tag--muted">v0.2</span>
       </div>
 
       <nav className="sidebar__section">
@@ -59,6 +59,12 @@ export function Sidebar({
           className={`sidebar__link ${pathname.startsWith('/checks') ? 'is-active' : ''}`}
         >
           Chequeos
+        </Link>
+        <Link
+          href="/flow"
+          className={`sidebar__link ${pathname === '/flow' ? 'is-active' : ''}`}
+        >
+          Flujo
         </Link>
         <Link
           href="/report"

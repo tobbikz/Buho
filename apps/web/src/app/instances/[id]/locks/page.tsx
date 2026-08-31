@@ -97,7 +97,9 @@ export default async function LocksPage({ params }: { params: Promise<{ id: stri
   // de un MariaDB o un SQL Server, se lo devuelve a su inventario en vez de
   // mostrarle paneles vacíos que parecen un fallo.
   const engineKind = await getInstanceEngine(instanceId);
-  if (engineKind && engineKind !== 'postgres') redirect(`/instances/${instanceId}`);
+  // Bloqueos, métricas, consultas y log existen en los tres motores desde la
+  // paridad; sólo Vacuum, Host y Replicación siguen siendo de PostgreSQL.
+  const engine = engineKind ?? 'postgres';
 
 
   let instance;
@@ -159,7 +161,7 @@ export default async function LocksPage({ params }: { params: Promise<{ id: stri
           </div>
         </header>
 
-        <InstanceTabs instanceId={instanceId} blockedCount={active.length} />
+        <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={active.length} />
 
         <div className="stat-grid">
           <StatCard

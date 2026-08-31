@@ -164,6 +164,8 @@ if (ids.length === 0) {
   await ver('Instancia: vacuum', `/instances/${id}/vacuum`);
   await ver('Instancia: replicación', `/instances/${id}/replication`);
   await ver('Instancia: log', `/instances/${id}/logs`);
+  await ver('Flota: flujo del parque', '/flow');
+  await ver('Instancia: flujo y uso', `/instances/${id}/flow`);
 }
 
 await browser.close();

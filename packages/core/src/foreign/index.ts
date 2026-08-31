@@ -1,0 +1,38 @@
+/**
+ * Paridad de motores.
+ *
+ * Todo lo que hace falta para que MariaDB y SQL Server tengan lo mismo que
+ * PostgreSQL: métricas cada pocos segundos, analítica de consultas, captura de
+ * bloqueos, chequeos y lectura del log.
+ *
+ * La decisión de fondo: **no** hay un adaptador universal que traduzca las
+ * vistas de los tres motores a un molde común. Cada motor tiene sus colectores,
+ * su SQL y sus límites, y lo único compartido es el formato de salida —`Sample`,
+ * `StatementDelta`, `BlockedSession`—. Así las pantallas comunes funcionan para
+ * los tres, y cuando un motor no puede medir algo se dice en vez de rellenarlo
+ * con un cero que parece un dato.
+ */
+export { probeForeign, parseVersion } from './capabilities';
+export { MARIADB_COLLECTORS } from './mariadb';
+export { MSSQL_COLLECTORS } from './mssql';
+export { runForeignCollectors } from './types';
+export type { ForeignCaps, ForeignCollector, ForeignRunResult } from './types';
+export { ForeignStatementTracker, sampleForeignStatements, digestToQueryid } from './statements';
+export { sampleForeignBlocking } from './blocking';
+export { readForeignLog, inspectForeignLogging } from './logs';
+
+import type { EngineKind } from '../engine';
+import { MARIADB_COLLECTORS } from './mariadb';
+import { MSSQL_COLLECTORS } from './mssql';
+import type { ForeignCaps, ForeignCollector } from './types';
+
+export function foreignCollectorsFor(caps: ForeignCaps, tier?: string): ForeignCollector[] {
+  const catalogo: Record<Exclude<EngineKind, 'postgres'>, ForeignCollector[]> = {
+    mariadb: MARIADB_COLLECTORS,
+    mssql: MSSQL_COLLECTORS,
+  };
+  const lista = caps.engine === 'postgres' ? [] : catalogo[caps.engine];
+  return lista.filter(
+    (collector) => (!tier || collector.tier === tier) && (!collector.appliesTo || collector.appliesTo(caps)),
+  );
+}

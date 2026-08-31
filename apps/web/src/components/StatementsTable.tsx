@@ -35,10 +35,17 @@ function firstLine(query: string): string {
 }
 
 export function StatementsTable({
+  explainable = true,
   rows,
   totalExecMs,
   instanceId,
 }: {
+  /**
+   * Si esta consulta se puede explicar. El EXPLAIN sólo está implementado para
+   * PostgreSQL: el plan de MariaDB y el de SQL Server tienen otra forma, y
+   * ofrecer el botón para después decir "no se pudo" es peor que no ofrecerlo.
+   */
+  explainable?: boolean;
   rows: StatementRow[];
   totalExecMs: number;
   instanceId: number;
@@ -114,13 +121,15 @@ export function StatementsTable({
                       que la expansión funcione. stopPropagation evita que el
                       clic además despliegue la fila que se está abandonando. */}
                   <td>
-                    <Link
-                      href={`/instances/${instanceId}/queries/${row.queryid}`}
-                      className="whitespace-nowrap text-[11px] text-accent hover:underline"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      plan →
-                    </Link>
+                    {explainable ? (
+                      <Link
+                        href={`/instances/${instanceId}/queries/${row.queryid}`}
+                        className="whitespace-nowrap text-[11px] text-accent hover:underline"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        plan →
+                      </Link>
+                    ) : null}
                   </td>
                 </tr>
                 {isOpen && (
@@ -143,14 +152,16 @@ export function StatementsTable({
                       <div className="query-block" style={{ maxHeight: '18rem' }}>
                         {row.query}
                       </div>
-                      <div className="pt-2">
-                        <Link
-                          href={`/instances/${instanceId}/queries/${row.queryid}`}
-                          className="btn btn--primary"
-                        >
-                          Explicar el plan
-                        </Link>
-                      </div>
+                      {explainable ? (
+                        <div className="pt-2">
+                          <Link
+                            href={`/instances/${instanceId}/queries/${row.queryid}`}
+                            className="btn btn--primary"
+                          >
+                            Explicar el plan
+                          </Link>
+                        </div>
+                      ) : null}
                     </td>
                   </tr>
                 )}

@@ -9,3 +9,4 @@ config.json
 !config.example.json
 *.log
 .DS_Store
+respaldos/

@@ -89,7 +89,9 @@ export default async function AnalysisPage({
   // de un MariaDB o un SQL Server, se lo devuelve a su inventario en vez de
   // mostrarle paneles vacíos que parecen un fallo.
   const engineKind = await getInstanceEngine(instanceId);
-  if (engineKind && engineKind !== 'postgres') redirect(`/instances/${instanceId}`);
+  // Bloqueos, métricas, consultas y log existen en los tres motores desde la
+  // paridad; sólo Vacuum, Host y Replicación siguen siendo de PostgreSQL.
+  const engine = engineKind ?? 'postgres';
 
 
   const window = WINDOWS.find((candidate) => candidate.key === w) ?? WINDOWS[1];
@@ -273,7 +275,7 @@ export default async function AnalysisPage({
           </div>
         </header>
 
-        <InstanceTabs instanceId={instanceId} blockedCount={instance.blockedSessions ?? 0} />
+        <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
 
         <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-[19rem_minmax(0,1fr)]">
           <MetricPicker

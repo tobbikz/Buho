@@ -133,7 +133,9 @@ export default async function LogsPage({
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
 
   const engineKind = await getInstanceEngine(instanceId);
-  if (engineKind && engineKind !== 'postgres') redirect(`/instances/${instanceId}`);
+  // Bloqueos, métricas, consultas y log existen en los tres motores desde la
+  // paridad; sólo Vacuum, Host y Replicación siguen siendo de PostgreSQL.
+  const engine = engineKind ?? 'postgres';
 
   const hours = WINDOWS.some((w) => String(w.hours) === ventana) ? Number(ventana) : 24;
   const filter = FILTERS.find((entry) => entry.key === tipo) ?? FILTERS[0]!;
@@ -204,7 +206,7 @@ export default async function LogsPage({
           <AutoRefresh intervalMs={30000} />
         </header>
 
-        <InstanceTabs instanceId={instanceId} />
+        <InstanceTabs instanceId={instanceId} engine={engine} />
 
         {!coverage && (
           <div className="notice notice--warn">

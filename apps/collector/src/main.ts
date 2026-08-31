@@ -8,7 +8,7 @@
  * propio manejo de errores: una instancia enferma no puede tumbar el ciclo de
  * las demás.
  */
-import { runChecks } from '@buho/checks';
+import { runChecks, runForeignChecks } from '@buho/checks';
 import {
   capabilityWarnings,
   auditSecurity,
@@ -26,6 +26,10 @@ import {
   HostTracker,
   readHostSnapshot,
   inspectLogging,
+  measureBloat,
+  sampleActors,
+  inspectActors,
+  ActorAccumulator,
   readLog,
   sampleVacuum,
   vacuumSamples,
@@ -34,8 +38,15 @@ import {
   sampleStatements,
   StatementTracker,
   runExplain,
+  probeForeign,
+  foreignCollectorsFor,
+  runForeignCollectors,
+  ForeignStatementTracker,
+  sampleForeignStatements,
+  sampleForeignBlocking,
+  readForeignLog,
 } from '@buho/core';
-import type { Capabilities, InstanceConfig, Tier } from '@buho/core';
+import type { Capabilities, EngineClient, InstanceConfig, Tier } from '@buho/core';
 import { Store } from '@buho/store';
 import type { Pool } from 'pg';
 
@@ -75,6 +86,17 @@ const MAINTENANCE_INTERVAL_MS = 900_000;
 // que sólo contiene los pendientes, y del otro lado hay una persona esperando
 // que el plan aparezca en la pantalla.
 const PLAN_QUEUE_INTERVAL_MS = 1_000;
+// Una medición de bloat puede tardar minutos; no tiene sentido revisar la cola
+// cada segundo, y mirar cada dos segundos ya se siente inmediato en la consola.
+// Cada cinco segundos se mira quién está activo y cada minuto se escribe lo
+// acumulado: la foto tiene que ser frecuente para no perderse las consultas
+// cortas, la escritura no.
+const ACTOR_SAMPLE_INTERVAL_MS = 5_000;
+const ACTOR_FLUSH_INTERVAL_MS = 60_000;
+const BLOAT_QUEUE_INTERVAL_MS = 2_000;
+// Media hora es más de lo que cualquiera va a esperar mirando la pantalla, pero
+// menos que dejar el escaneo colgado para siempre sobre una tabla de terabytes.
+const BLOAT_TIMEOUT_MS = 30 * 60_000;
 
 const config = await loadConfig();
 const store = new Store(config.store.url);
@@ -83,6 +105,7 @@ const deltas = new DeltaEngine();
 let stopping = false;
 const timers = new Set<NodeJS.Timeout>();
 const pools: Pool[] = [];
+const foreignClients: EngineClient[] = [];
 
 function log(level: 'info' | 'warn' | 'error', message: string): void {
   const stamp = new Date().toISOString();
@@ -205,11 +228,6 @@ function startSecurityLoop(instance: InstanceConfig, instanceId: number, pool?: 
 }
 
 /**
- * MariaDB y SQL Server entran sólo por el inventario. El pipeline de métricas de
- * 5 s y los 22 checks son de PostgreSQL, y forzar sus vistas de estadísticas a
- * un molde común terminaría mintiendo sobre lo que mide cada motor.
- */
-/**
  * Atiende los encargos de EXPLAIN que deja la consola.
  *
  * Está acá y no en la web porque el colector es el único proceso con
@@ -253,6 +271,91 @@ function startPlanQueueLoop(instance: InstanceConfig, instanceId: number, pool: 
       const message = error instanceof Error ? error.message : String(error);
       await store.failPlanRequest(job.requestId, message);
       log('warn', `${instance.alias}/planes: ${job.mode} falló: ${message}`);
+    }
+  });
+}
+
+/**
+ * Cola de mediciones de bloat con pgstattuple.
+ *
+ * De a una y con timeout: cada medición exacta es un escaneo secuencial de la
+ * tabla, así que dos en paralelo sobre la misma instancia sería el monitor
+ * haciéndole daño al servidor que vigila.
+ */
+function startBloatQueueLoop(instance: InstanceConfig, instanceId: number, pool: Pool): void {
+  startLoop(`${instance.alias}/bloat`, BLOAT_QUEUE_INTERVAL_MS, async () => {
+    const job = await store.claimBloatRequest(instanceId);
+    if (!job) return;
+
+    const objeto = `${job.schema}.${job.table}`;
+    const started = Date.now();
+    try {
+      const medicion = await measureBloat(pool, job.schema, job.table, job.mode, BLOAT_TIMEOUT_MS);
+      await store.finishBloatRequest(job.requestId, medicion);
+      log(
+        'info',
+        `${instance.alias}/bloat: ${objeto} ${job.mode} para ${job.requestedBy} en ` +
+          `${Math.round((Date.now() - started) / 1000)} s, ${medicion.deadPct.toFixed(1)} % muerto y ` +
+          `${medicion.freePct.toFixed(1)} % libre`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await store.failBloatRequest(job.requestId, message);
+      log('warn', `${instance.alias}/bloat: ${objeto} falló: ${message}`);
+    }
+  });
+}
+
+/**
+ * Muestreo de quién ejecuta qué, para atribuir el tráfico por aplicación.
+ *
+ * Dos ritmos distintos a propósito: se mira `pg_stat_activity` seguido, porque
+ * es una foto y sólo ve lo que está corriendo en ese instante, y se escribe una
+ * vez por minuto con lo acumulado. Muestrear poco perdería las consultas
+ * cortas; escribir cada muestra guardaría doce filas por minuto casi idénticas.
+ *
+ * Si la instancia no puede dar el identificador de consulta, el bucle no
+ * arranca y se registra el motivo: la consola lo muestra en vez de enseñar una
+ * atribución vacía que parecería "nadie usa esta base".
+ */
+function startActorLoop(
+  instance: InstanceConfig,
+  instanceId: number,
+  pool: Pool,
+  caps: Capabilities,
+): void {
+  const acumulador = new ActorAccumulator();
+  let comprobado = false;
+  let disponible = false;
+  let ultimaEscritura = Date.now();
+
+  startLoop(`${instance.alias}/actors`, ACTOR_SAMPLE_INTERVAL_MS, async () => {
+    if (!comprobado) {
+      const soporte = await inspectActors(pool, caps.versionNum);
+      comprobado = true;
+      disponible = soporte.available;
+      if (!soporte.available) {
+        log('info', `${instance.alias}/actors: sin atribución por aplicación (${soporte.reason})`);
+        await store.logEvent(
+          instanceId,
+          'info',
+          'actors',
+          soporte.reason ?? 'sin atribución por aplicación',
+        );
+        return;
+      }
+    }
+    if (!disponible) return;
+
+    acumulador.add(await sampleActors(pool));
+
+    if (Date.now() - ultimaEscritura < ACTOR_FLUSH_INTERVAL_MS) return;
+    ultimaEscritura = Date.now();
+
+    const observaciones = acumulador.drain();
+    const escritas = await store.saveQueryActors(instanceId, new Date(), observaciones);
+    if (escritas > 0) {
+      log('info', `${instance.alias}/actors: ${escritas} combinación(es) de aplicación y consulta`);
     }
   });
 }
@@ -304,17 +407,145 @@ function startLogLoop(instance: InstanceConfig, instanceId: number, pool: Pool):
   });
 }
 
-async function monitorInventoryOnly(instance: InstanceConfig): Promise<void> {
+/**
+ * Ciclo completo para MariaDB y SQL Server.
+ *
+ * Mismo trato que PostgreSQL: métricas por tier, consultas, bloqueos, chequeos y
+ * log. Lo que cambia es de dónde sale cada cosa, y eso vive en los colectores de
+ * cada motor.
+ *
+ * Una diferencia de fondo con PostgreSQL: acá se mantiene **una** conexión viva
+ * para todo el ciclo en vez de un pool. Los dos drivers reconectan solos, el
+ * volumen de consultas es el mismo, y una sesión por instancia es más fácil de
+ * justificar ante el DBA del cliente que un pool que abre y cierra.
+ */
+async function monitorForeign(instance: InstanceConfig): Promise<void> {
   const engine = engineOf(instance);
   const instanceId = await store.upsertInstance(instance);
-  log('info', `${instance.alias} (${ENGINE_LABEL[engine]}): inventario y seguridad del parque`);
+  const key = instanceKey(instance);
+
+  const client = await openEngine(instance, {
+    statementTimeoutMs: config.collector.statementTimeoutMs,
+    connectTimeoutMs: config.collector.connectTimeoutMs,
+  });
+  foreignClients.push(client);
+
+  let caps = await probeForeign(client);
+  log(
+    'info',
+    `${instance.alias} (${ENGINE_LABEL[engine]}): ${caps.versionText}, ${caps.role}, ` +
+      `consultas=${caps.features.statementDigests ? 'sí' : 'no'}`,
+  );
+  for (const limite of caps.limitations) {
+    log('warn', `${instance.alias}: ${limite}`);
+    await store.logEvent(instanceId, 'warn', 'capability_probe', limite);
+  }
+
+  for (const tier of Object.keys(TIER_INTERVAL_MS) as Tier[]) {
+    startLoop(`${instance.alias}/${tier}`, TIER_INTERVAL_MS[tier], async () => {
+      const collectors = foreignCollectorsFor(caps, tier);
+      if (collectors.length === 0) return;
+
+      const result = await runForeignCollectors(client, caps, collectors);
+      const { rates, discarded } = deltas.rates(key, result.samples);
+      const written = await store.insertSamples(instanceId, [...result.samples, ...rates]);
+
+      for (const error of result.errors) {
+        log('warn', `${instance.alias}/${tier}: colector ${error.collectorId}: ${error.message}`);
+        await store.logEvent(instanceId, 'warn', `collector:${error.collectorId}`, error.message);
+      }
+      if (discarded > 0) {
+        log('info', `${instance.alias}/${tier}: ${discarded} contadores descartados por reset de estadísticas`);
+      }
+      log('info', `${instance.alias}/${tier}: ${written} muestras (${result.latencyMs.toFixed(1)} ms)`);
+    });
+  }
+
   startInventoryLoop(instance, instanceId);
   startSecurityLoop(instance, instanceId);
+
+  startLoop(`${instance.alias}/locks`, LOCKS_INTERVAL_MS, async () => {
+    const blocked = await sampleForeignBlocking(client, caps);
+    if (blocked.length === 0) return;
+    await store.saveLockEpisodes(instanceId, blocked);
+    const worst = blocked[0];
+    log(
+      'info',
+      `${instance.alias}/locks: ${blocked.length} sesión(es) bloqueada(s)` +
+        `${worst ? `, la peor ${worst.waitSeconds.toFixed(1)} s` : ''}`,
+    );
+  });
+
+  const statements = new ForeignStatementTracker();
+  startLoop(`${instance.alias}/statements`, STATEMENTS_INTERVAL_MS, async () => {
+    if (!caps.features.statementDigests) return;
+
+    const rows = await sampleForeignStatements(client, caps);
+    const { deltas: activity, discarded } = statements.deltas(rows, caps);
+    if (discarded > 0) {
+      log('info', `${instance.alias}/statements: ${discarded} consulta(s) descartada(s) por reset de estadísticas`);
+    }
+    if (activity.length === 0) return;
+
+    const written = await store.saveStatements(instanceId, activity);
+    const totalMs = activity.reduce((sum, delta) => sum + delta.execMs, 0);
+    log(
+      'info',
+      `${instance.alias}/statements: ${written} consulta(s) con actividad, ${totalMs.toFixed(0)} ms de ejecución`,
+    );
+  });
+
+  startLoop(`${instance.alias}/logs`, LOG_INTERVAL_MS, async () => {
+    const cursor = await store.logCursor(instanceId);
+    const result = await readForeignLog(client, caps, cursor);
+    const written = await store.saveLogEntries(instanceId, result.entries);
+    await store.saveLogCursor(instanceId, result.source, result.cursor, result.detail, result.warnings, written);
+
+    if (written === 0) return;
+    const graves = result.entries.filter(
+      (entry) => entry.kind === 'error' || entry.kind === 'fatal' || entry.kind === 'deadlock',
+    ).length;
+    log(
+      'info',
+      `${instance.alias}/logs: ${written} entrada(s) de ${result.detail}` +
+        (graves > 0 ? `, ${graves} con severidad de error` : ''),
+    );
+  });
+
+  startLoop(`${instance.alias}/checks`, CHECKS_INTERVAL_MS, async () => {
+    const summary = await runForeignChecks(client, caps);
+    await store.saveCheckResults(instanceId, summary.results, summary.healthScore);
+    for (const error of summary.errors) {
+      log('warn', `${instance.alias}/checks: ${error.checkId}: ${error.message}`);
+    }
+    const critical = summary.results.filter((result) => result.severity === 'critical').length;
+    log(
+      'info',
+      `${instance.alias}/checks: score ${summary.healthScore}/100, ${summary.results.length} hallazgos` +
+        `${critical > 0 ? ` (${critical} críticos)` : ''}`,
+    );
+  });
+
+  // Se vuelve a preguntar qué se puede medir: performance_schema, Query Store o
+  // un permiso nuevo aparecen sin reiniciar nada, y el ciclo tiene que
+  // aprovecharlos sin que nadie reinicie Búho.
+  startLoop(`${instance.alias}/reprobe`, REPROBE_INTERVAL_MS, async () => {
+    const fresh = await probeForeign(client);
+    if (fresh.versionNum !== caps.versionNum) {
+      log('warn', `${instance.alias}: cambió la versión (${caps.versionText} → ${fresh.versionText})`);
+      deltas.reset(key);
+      statements.reset();
+    }
+    if (fresh.features.statementDigests && !caps.features.statementDigests) {
+      log('info', `${instance.alias}: la analítica de consultas quedó disponible`);
+    }
+    caps = fresh;
+  });
 }
 
 async function monitorInstance(instance: InstanceConfig): Promise<void> {
   if (engineOf(instance) !== 'postgres') {
-    await monitorInventoryOnly(instance);
+    await monitorForeign(instance);
     return;
   }
 
@@ -381,6 +612,8 @@ async function monitorInstance(instance: InstanceConfig): Promise<void> {
   startInventoryLoop(instance, instanceId, pool);
   startSecurityLoop(instance, instanceId, pool);
   startPlanQueueLoop(instance, instanceId, pool);
+  startBloatQueueLoop(instance, instanceId, pool);
+  startActorLoop(instance, instanceId, pool, caps);
 
   startLoop(`${instance.alias}/locks`, LOCKS_INTERVAL_MS, async () => {
     const blocked = await sampleBlocking(pool);
@@ -475,6 +708,7 @@ async function shutdown(signal: string): Promise<void> {
   for (const timer of timers) clearTimeout(timer);
   timers.clear();
   await Promise.allSettled(pools.map((pool) => pool.end()));
+  await Promise.allSettled(foreignClients.map((client) => client.close()));
   await store.close();
   process.exit(0);
 }

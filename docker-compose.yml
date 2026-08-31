@@ -69,5 +69,26 @@ services:
       - "127.0.0.1:${BUHO_WEB_PORT:-3100}:3000"
     restart: unless-stopped
 
+  # El único dato que no se reconstruye es la historia del store: las instancias
+  # salen de config.json. Por eso el respaldo es un servicio y no una nota en la
+  # documentación que nadie leyó.
+  backup:
+    image: postgres:18-alpine
+    depends_on:
+      store:
+        condition: service_healthy
+    environment:
+      BUHO_STORE_URL: postgres://buho:${BUHO_STORE_PASSWORD:-buho}@store:5432/buho
+      BUHO_BACKUP_EVERY: ${BUHO_BACKUP_EVERY:-86400}
+      BUHO_BACKUP_KEEP: ${BUHO_BACKUP_KEEP:-7}
+      TZ: ${BUHO_TZ:-UTC}
+    volumes:
+      - ./scripts/backup-store.sh:/backup-store.sh:ro
+      # Ruta del host a propósito: un respaldo dentro de un volumen de docker se
+      # borra con el mismo `down -v` que borra lo que se quería respaldar.
+      - ${BUHO_BACKUP_DIR:-./respaldos}:/respaldos
+    entrypoint: ["/bin/sh", "/backup-store.sh"]
+    restart: unless-stopped
+
 volumes:
   buho_store:

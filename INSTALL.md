@@ -76,7 +76,39 @@ ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements';
 ALTER SYSTEM SET track_io_timing = on;   -- este sí es recargable
 -- reiniciar, y después, dentro de cada base:
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+-- Bloat medido de verdad, para el botón "medir" de la pantalla de vacuum.
+-- Sin esto el bloat sigue estimándose, que es honesto pero aproximado.
+CREATE EXTENSION IF NOT EXISTS pgstattuple;
+GRANT pg_stat_scan_tables TO buho_monitor;   -- estadísticas, no datos
 ```
+
+### Extras opcionales de MariaDB
+
+Sin `performance_schema` no hay analítica de consultas: la pantalla de consultas
+queda vacía y lo dice. Encenderlo requiere reiniciar y cuesta cerca de un 5 % de
+CPU. Sin `log_bin` no hay métricas de binlog ni de replicación.
+
+```ini
+[mysqld]
+performance_schema = ON
+slow_query_log     = ON
+long_query_time    = 0.1
+log_output         = TABLE   ; para que Búho lea el slow log por SQL
+```
+
+### Extras opcionales de SQL Server
+
+Las consultas salen de la caché de planes, que se vacía al reiniciar el servicio
+y bajo presión de memoria. Para que sobrevivan, Query Store, que es por base:
+
+```sql
+ALTER DATABASE [MiBase] SET QUERY_STORE = ON;
+GRANT EXECUTE ON sys.xp_readerrorlog TO buho_monitor;  -- log de errores
+```
+
+Los deadlocks completos ya salen de la sesión `system_health`, que viene
+encendida por omisión y no hay que configurar.
 
 ---
 
@@ -253,6 +285,25 @@ falla, así que sirve en CI o después de actualizar.
 Necesita Playwright instalado en el host donde se corre:
 `npx playwright install chromium`.
 
+### Ensayar la instalación completa antes de tocar un servidor de un cliente
+
+```bash
+npm run ensayo:instalacion          # instala, comprueba y borra
+npm run ensayo:instalacion -- --dejar   # deja todo arriba para mirarlo
+```
+
+Levanta un PostgreSQL nuevo, crea el usuario de monitoreo con
+`sql/monitor-user.sql`, instala Búho en una copia limpia del proyecto con puertos
+propios (3200 y 55433, para no chocar con nada) y verifica de punta a punta:
+muestras escritas, chequeos corridos, consola accesible con la contraseña de
+arranque, todas las pantallas respondiendo, y una segunda corrida que no
+regenera los secretos ni pierde datos.
+
+Es la prueba que conviene correr después de cualquier cambio en `install.sh`, en
+el `docker-compose.yml`, en los scripts de `sql/` o en el arranque del colector:
+son exactamente las partes que funcionan en una máquina ya configurada y fallan
+en una limpia.
+
 ---
 
 ## Operación
@@ -271,11 +322,34 @@ reiniciarlo.
 ### Respaldo del store
 
 Lo único que hay que respaldar es el store; todo lo demás se reconstruye desde
-`config.json`.
+`config.json`. Y es justo lo que el cliente está pagando: la historia.
+
+El respaldo viene automatizado como un servicio del compose. Corre solo, cada
+día, conserva las últimas siete copias y deja el resultado en
+**Instancia → eventos del colector**, para que un respaldo que falla se vea en
+la consola en vez de descubrirse el día que hay que restaurar.
+
+En `.env`:
 
 ```bash
-docker compose exec -T store pg_dump -U buho buho | gzip > buho-$(date +%F).sql.gz
+BUHO_BACKUP_DIR=/var/backups/buho   # ruta del host, no un volumen de docker
+BUHO_BACKUP_EVERY=86400             # segundos entre copias
+BUHO_BACKUP_KEEP=7                  # cuántas conservar
 ```
+
+La ruta es del host a propósito: un respaldo guardado dentro de un volumen de
+docker se borra con el mismo `docker compose down -v` que borra el store.
+
+Para restaurar en un store vacío:
+
+```bash
+docker compose up -d store
+docker compose exec -T store pg_restore -U buho -d buho --no-owner < buho-FECHA.dump
+docker compose up -d
+```
+
+El formato es el propio de `pg_dump` (`-Fc`), así que se puede restaurar en
+paralelo (`-j 4`) o sólo una tabla.
 
 ### Actualizar
 

@@ -43,6 +43,23 @@ export interface VacuumTable {
   bloatPct: number | null;
   /** Por qué no se pudo estimar, cuando no se pudo. */
   bloatNote: string | null;
+  /**
+   * Wraparound por tabla.
+   *
+   * El riesgo de wraparound se suele mirar por base con `age(datfrozenxid)`,
+   * pero la edad de la base es la de su tabla más vieja: cuando el número de la
+   * base sube, la pregunta siguiente es siempre *qué tabla* lo está empujando, y
+   * esa es la que hay que congelar. Estas columnas la contestan.
+   */
+  xidAge: number;
+  /** Edad de los multixact, que llegan al límite por su cuenta con FK y locks. */
+  mxidAge: number;
+  /** `autovacuum_freeze_max_age` efectivo, con la opción por tabla si la hay. */
+  freezeMaxAge: number;
+  /** Porcentaje del camino recorrido hacia el vacuum forzado de congelamiento. */
+  xidPct: number | null;
+  /** Lo mismo para los multixact. */
+  mxidPct: number | null;
 }
 
 export interface VacuumProgress {
@@ -72,7 +89,10 @@ with ajustes as (
   select
     (select setting::numeric from pg_settings where name = 'autovacuum_vacuum_threshold')     as base,
     (select setting::numeric from pg_settings where name = 'autovacuum_vacuum_scale_factor') as factor,
-    (select setting::numeric from pg_settings where name = 'block_size')                     as block_size
+    (select setting::numeric from pg_settings where name = 'block_size')                     as block_size,
+    (select setting::numeric from pg_settings where name = 'autovacuum_freeze_max_age')      as freeze_max_age,
+    (select setting::numeric from pg_settings
+      where name = 'autovacuum_multixact_freeze_max_age')                                    as multixact_freeze_max_age
 ),
 -- Ancho promedio de la tupla según las estadísticas del planificador. Es la
 -- pieza que convierte "páginas ocupadas" en "páginas necesarias".
@@ -124,7 +144,28 @@ select
     (select option_value::numeric from pg_options_to_table(c.reloptions)
       where option_name = 'fillfactor'),
     100
-  )                                              as fillfactor
+  )                                              as fillfactor,
+  -- Wraparound de esta tabla. age() sobre relfrozenxid dice cuántas
+  -- transacciones pasaron desde que se congeló, y es el número que autovacuum
+  -- compara contra freeze_max_age para lanzar un vacuum que no se puede evitar.
+  -- Una tabla particionada no tiene filas propias y su relfrozenxid es 0:
+  -- medir su edad devuelve el rango entero de XID, que en pantalla parece una
+  -- emergencia inventada. El wraparound de una partición se mira en la
+  -- partición.
+  case when c.relfrozenxid = '0'::xid then 0 else age(c.relfrozenxid) end as xid_age,
+  -- relminmxid puede ser 0 en tablas sin multixact; medir su edad no significa
+  -- nada en ese caso, así que se devuelve 0.
+  case when c.relminmxid = '0'::xid then 0 else mxid_age(c.relminmxid) end as mxid_age,
+  coalesce(
+    (select option_value::numeric from pg_options_to_table(c.reloptions)
+      where option_name = 'autovacuum_freeze_max_age'),
+    (select freeze_max_age from ajustes)
+  )                                              as freeze_max_age,
+  coalesce(
+    (select option_value::numeric from pg_options_to_table(c.reloptions)
+      where option_name = 'autovacuum_multixact_freeze_max_age'),
+    (select multixact_freeze_max_age from ajustes)
+  )                                              as multixact_freeze_max_age
 from pg_stat_user_tables st
 join pg_class c on c.oid = st.relid
 left join anchos a on a.schemaname = st.schemaname and a.tablename = st.relname
@@ -251,6 +292,10 @@ export async function sampleVacuum(pool: Pool, caps: Capabilities): Promise<Vacu
     const dead = number(row['dead_tuples']);
     const threshold = maybeNumber(row['threshold']);
     const sizeBytes = number(row['size_bytes']);
+    const xidAge = number(row['xid_age']);
+    const mxidAge = number(row['mxid_age']);
+    const freezeMaxAge = number(row['freeze_max_age']);
+    const mxidMax = number(row['multixact_freeze_max_age']);
 
     const bloat = estimateBloat(
       number(row['rel_tuples']),
@@ -283,6 +328,11 @@ export async function sampleVacuum(pool: Pool, caps: Capabilities): Promise<Vacu
       bloatBytes: bloat.bytes,
       bloatPct: bloat.pct,
       bloatNote: bloat.note,
+      xidAge,
+      mxidAge,
+      freezeMaxAge,
+      xidPct: freezeMaxAge > 0 ? (xidAge / freezeMaxAge) * 100 : null,
+      mxidPct: mxidMax > 0 && mxidAge > 0 ? (mxidAge / mxidMax) * 100 : null,
     };
   });
 
@@ -327,7 +377,15 @@ export function vacuumSamples(snapshot: VacuumSnapshot): Sample[] {
     if (table.remaining !== null) {
       samples.push({ metric: 'table_autovacuum_remaining', value: table.remaining, labels });
     }
+    if (table.xidPct !== null) {
+      samples.push({ metric: 'table_xid_age_pct', value: table.xidPct, labels });
+    }
   }
+
+  // La edad de la tabla más vieja: es el número que va a determinar cuándo la
+  // base entera entra en vacuum forzado, y el que conviene tener en una serie.
+  const peorXid = snapshot.tables.reduce((peor, table) => Math.max(peor, table.xidPct ?? 0), 0);
+  if (peorXid > 0) samples.push({ metric: 'worst_table_xid_age_pct', value: peorXid });
 
   samples.push({
     metric: 'vacuum_running',

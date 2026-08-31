@@ -191,6 +191,31 @@ create table if not exists buho.statement_texts (
 alter table buho.statement_texts
   add column if not exists truncated boolean not null default false;
 
+-- ------------------------------------------- atribución por aplicación
+--
+-- Observaciones de qué aplicación estaba ejecutando qué consulta. Es un
+-- muestreo de pg_stat_activity, no una cuenta: se guarda el número de veces que
+-- se vio activa cada combinación, y con eso se reparte después el peso que
+-- pg_stat_statements sí midió. Particionada porque es una serie de tiempo y se
+-- purga con la misma política que las demás muestras crudas.
+create table if not exists buho.query_actors (
+  instance_id bigint      not null references buho.instances (instance_id) on delete cascade,
+  ts          timestamptz not null,
+  queryid     bigint      not null,
+  application text        not null,
+  username    text        not null,
+  database    text        not null,
+  samples     integer     not null
+) partition by range (ts);
+
+create table if not exists buho.query_actors_default
+  partition of buho.query_actors default;
+
+create index if not exists query_actors_lookup
+  on buho.query_actors (instance_id, ts desc);
+create index if not exists query_actors_by_query
+  on buho.query_actors (instance_id, queryid, ts desc);
+
 -- La primera versión de esta tabla no estaba particionada. Una tabla plana no
 -- se convierte con ALTER, así que se renombra, se recrea particionada y se
 -- copian las filas (que caen en la partición por defecto y de ahí las mueve la
@@ -508,12 +533,27 @@ create table if not exists buho.vacuum_tables (
   -- Por qué no se pudo estimar. Un cero diría "está bien" y eso es justo lo que
   -- no se sabe cuando falta un ANALYZE.
   bloat_note         text,
+  -- Wraparound por tabla: la edad de la base es la de su tabla más vieja, así
+  -- que para actuar hay que saber cuál es.
+  xid_age            bigint  not null default 0,
+  mxid_age           bigint  not null default 0,
+  freeze_max_age     bigint  not null default 0,
+  xid_pct            double precision,
+  mxid_pct           double precision,
   captured_at        timestamptz not null default now(),
   primary key (instance_id, schema_name, table_name)
 );
 
 create index if not exists vacuum_tables_dead on buho.vacuum_tables (instance_id, dead_tuples desc);
 create index if not exists vacuum_tables_bloat on buho.vacuum_tables (instance_id, bloat_bytes desc nulls last);
+
+alter table buho.vacuum_tables add column if not exists xid_age        bigint not null default 0;
+alter table buho.vacuum_tables add column if not exists mxid_age       bigint not null default 0;
+alter table buho.vacuum_tables add column if not exists freeze_max_age bigint not null default 0;
+alter table buho.vacuum_tables add column if not exists xid_pct        double precision;
+alter table buho.vacuum_tables add column if not exists mxid_pct       double precision;
+
+create index if not exists vacuum_tables_xid on buho.vacuum_tables (instance_id, xid_pct desc nulls last);
 
 -- Vacuums y analyzes en curso. Se borra y se reescribe: es un estado vivo.
 create table if not exists buho.vacuum_progress (
@@ -641,6 +681,50 @@ create index if not exists plan_requests_pending_idx
 
 create index if not exists plan_requests_history_idx
   on buho.plan_requests (instance_id, queryid, requested_at desc);
+
+-- --------------------------------------------------- bloat medido: pgstattuple
+--
+-- La pantalla de vacuum estima el bloat con el ancho promedio de tupla, que es
+-- gratis pero se equivoca cuando las filas son de tamaño muy variable. La
+-- medida real la da pgstattuple, y cuesta una lectura completa de la tabla: en
+-- una de 200 GB eso es media hora de I/O que nadie pidió.
+--
+-- Por eso es a demanda y en cola, igual que el EXPLAIN: el operador elige la
+-- tabla, ve lo que va a costar antes de aceptar, y el colector la mide de a una.
+create table if not exists buho.bloat_requests (
+  request_id   bigint      generated always as identity primary key,
+  instance_id  bigint      not null references buho.instances (instance_id) on delete cascade,
+  schema_name  text        not null,
+  table_name   text        not null,
+  -- 'exacto' lee toda la tabla; 'aproximado' usa pgstattuple_approx, que sólo
+  -- visita el mapa de visibilidad y las páginas sucias.
+  mode         text        not null check (mode in ('exacto', 'aproximado')),
+  state        text        not null default 'pendiente'
+    check (state in ('pendiente', 'corriendo', 'listo', 'error')),
+  requested_by text        not null,
+  requested_at timestamptz not null default now(),
+  started_at   timestamptz,
+  finished_at  timestamptz,
+  error        text,
+  -- Lo que devuelve pgstattuple, en las unidades en que lo devuelve.
+  table_bytes    bigint,
+  tuple_count    bigint,
+  tuple_bytes    bigint,
+  dead_count     bigint,
+  dead_bytes     bigint,
+  free_bytes     bigint,
+  free_pct       double precision,
+  dead_pct       double precision,
+  -- Lo que la estimación decía antes de medir, para poder comparar las dos.
+  estimated_pct  double precision
+);
+
+create index if not exists bloat_requests_pending_idx
+  on buho.bloat_requests (requested_at)
+  where state in ('pendiente', 'corriendo');
+
+create index if not exists bloat_requests_history_idx
+  on buho.bloat_requests (instance_id, schema_name, table_name, requested_at desc);
 
 -- ------------------------------------------------- consola: usuarios y ajustes
 

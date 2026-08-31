@@ -14,12 +14,22 @@
 
 -- ---------------------------------------------------------------- el rol
 
+-- La creación va con \gexec y no dentro de un bloque DO porque psql no
+-- interpola sus variables dentro de literales entre comillas de dólar: allí
+-- :'buho_password' se quedaría escrito tal cual y el CREATE ROLE nunca llegaría
+-- a ejecutarse. Con \gexec la sustitución ocurre en el SELECT, que sí la
+-- recibe, y el WHERE NOT EXISTS mantiene el script repetible sin pisar la
+-- contraseña de un rol que ya existía.
+select format('create role buho_monitor login password %L', :'buho_password')
+ where not exists (select 1 from pg_roles where rolname = 'buho_monitor');
+\gexec
+
 do $$
 begin
-  if not exists (select 1 from pg_roles where rolname = 'buho_monitor') then
-    execute format('create role buho_monitor login password %L', :'buho_password');
+  if exists (select 1 from pg_roles where rolname = 'buho_monitor') then
+    raise notice 'buho_monitor listo';
   else
-    raise notice 'buho_monitor ya existe; no se toca su contraseña';
+    raise exception 'no se pudo crear buho_monitor';
   end if;
 end
 $$;
@@ -141,3 +151,17 @@ grant connect on database :"DBNAME" to buho_monitor;
 -- O más corto, desde la máquina de Búho:
 --
 --     npm run check -- --instance ALIAS
+
+
+-- ---------------------------------------------------------- bloat medido
+--
+-- Opcional, y sólo si se va a usar el botón "medir" de la pantalla de vacuum.
+--
+-- pgstattuple es SECURITY INVOKER: exige ser dueño de la tabla o miembro de
+-- pg_stat_scan_tables. Un rol con sólo pg_monitor no lo hereda, así que sin este
+-- grant el botón aparece y la medición falla con un error de permisos.
+--
+-- pg_stat_scan_tables da permiso de leer estadísticas de las tablas, no sus
+-- datos: no permite un SELECT.
+create extension if not exists pgstattuple;
+grant pg_stat_scan_tables to buho_monitor;

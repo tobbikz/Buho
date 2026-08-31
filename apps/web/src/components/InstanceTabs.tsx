@@ -15,28 +15,35 @@ export function InstanceTabs({
   const pathname = usePathname();
   const base = `/instances/${instanceId}`;
 
-  // Ofrecer "Consultas" o "Bloqueos" en un SQL Server sería prometer algo que
-  // no existe: esas pantallas leen vistas de PostgreSQL.
-  if (engine !== 'postgres') {
-    return (
-      <nav className="tabs">
-        <Link href={base} className="tab is-active">
-          Inventario
-        </Link>
-      </nav>
-    );
-  }
-
-  const tabs = [
-    { href: base, label: 'Resumen' },
-    { href: `${base}/analysis`, label: 'Análisis' },
-    { href: `${base}/queries`, label: 'Consultas' },
-    { href: `${base}/host`, label: 'Host' },
-    { href: `${base}/vacuum`, label: 'Vacuum' },
-    { href: `${base}/replication`, label: 'Replicación' },
-    { href: `${base}/locks`, label: 'Bloqueos', badge: blockedCount },
-    { href: `${base}/logs`, label: 'Log' },
-  ];
+  // Vacuum y Host son de PostgreSQL: el primero no existe como concepto en los
+  // otros motores, y el segundo lee /proc por SSH. El resto —métricas,
+  // consultas, bloqueos, log, inventario— existe en los tres.
+  const tabs =
+    engine === 'postgres'
+      ? [
+          { href: base, label: 'Resumen' },
+          { href: `${base}/analysis`, label: 'Análisis' },
+          { href: `${base}/queries`, label: 'Consultas' },
+          { href: `${base}/indexes`, label: 'Índices' },
+          { href: `${base}/flow`, label: 'Flujo' },
+          { href: `${base}/host`, label: 'Host' },
+          { href: `${base}/vacuum`, label: 'Vacuum' },
+          { href: `${base}/replication`, label: 'Replicación' },
+          { href: `${base}/locks`, label: 'Bloqueos', badge: blockedCount },
+          { href: `${base}/logs`, label: 'Log' },
+        ]
+      : [
+          { href: base, label: 'Resumen' },
+          { href: `${base}/analysis`, label: 'Análisis' },
+          { href: `${base}/queries`, label: 'Consultas' },
+          // Flujo funciona en los tres motores: la atribución sale del texto de
+          // la consulta, que se recoge igual en todos. Lo que cambia es el panel
+          // de contadores por tabla, que sólo PostgreSQL expone.
+          { href: `${base}/flow`, label: 'Flujo' },
+          { href: `${base}/locks`, label: 'Bloqueos', badge: blockedCount },
+          { href: `${base}/logs`, label: 'Log' },
+          { href: `${base}/inventory`, label: 'Inventario' },
+        ];
 
   return (
     <nav className="tabs">

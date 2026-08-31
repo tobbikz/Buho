@@ -91,6 +91,61 @@ function ActivationAssistant({ state }: { state: string | null }) {
   );
 }
 
+
+/**
+ * Por qué la pantalla de consultas puede estar vacía en MariaDB o SQL Server.
+ *
+ * No es lo mismo "no hay consultas" que "no puedo verlas", y la diferencia es
+ * distinta en cada motor: en MariaDB hace falta encender performance_schema
+ * (con reinicio); en SQL Server la caché de planes se vacía sola y basta con
+ * esperar tráfico.
+ */
+function ForeignQueriesNotice({ engine, instanceId }: { engine: string; instanceId: number }) {
+  const esMaria = engine === 'mariadb';
+  return (
+    <section className="panel" style={{ borderLeft: '3px solid var(--warning)' }}>
+      <div className="panel-header">
+        <span className="panel-title">
+          {esMaria ? 'performance_schema podría estar apagado' : 'todavía no hay consultas registradas'}
+        </span>
+      </div>
+      <div className="panel-body text-[12px]">
+        {esMaria ? (
+          <>
+            <p>
+              MariaDB agrupa las consultas por digest en{' '}
+              <span className="font-mono">performance_schema.events_statements_summary_by_digest</span>, y esa vista
+              está vacía si <span className="font-mono">performance_schema</span> está apagado. Es el valor por
+              omisión en varias distribuciones.
+            </p>
+            <div className="query-block mt-2">{'[mysqld]\nperformance_schema = ON'}</div>
+            <p className="mt-2">
+              Requiere reiniciar el servidor; el costo típico es de un 5 % de CPU. El colector deja escrito el motivo
+              exacto en los{' '}
+              <Link href={`/instances/${instanceId}`} className="text-accent">
+                eventos de la instancia
+              </Link>
+              .
+            </p>
+          </>
+        ) : (
+          <>
+            <p>
+              Las consultas salen de <span className="font-mono">sys.dm_exec_query_stats</span>, que vive en la caché
+              de planes: se vacía al reiniciar el servicio, al recompilar un plan y bajo presión de memoria. Con
+              tráfico, las filas aparecen en el primer ciclo de un minuto.
+            </p>
+            <p className="mt-2">
+              Si tiene que sobrevivir a un reinicio, hay que encender Query Store en la base:{' '}
+              <span className="font-mono">ALTER DATABASE … SET QUERY_STORE = ON</span>.
+            </p>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default async function QueriesPage({
   params,
   searchParams,
@@ -107,7 +162,9 @@ export default async function QueriesPage({
   // de un MariaDB o un SQL Server, se lo devuelve a su inventario en vez de
   // mostrarle paneles vacíos que parecen un fallo.
   const engineKind = await getInstanceEngine(instanceId);
-  if (engineKind && engineKind !== 'postgres') redirect(`/instances/${instanceId}`);
+  // Bloqueos, métricas, consultas y log existen en los tres motores desde la
+  // paridad; sólo Vacuum, Host y Replicación siguen siendo de PostgreSQL.
+  const engine = engineKind ?? 'postgres';
 
 
   const window = WINDOWS.find((candidate) => candidate.key === w) ?? WINDOWS[1];
@@ -196,10 +253,12 @@ export default async function QueriesPage({
           </div>
         </header>
 
-        <InstanceTabs instanceId={instanceId} blockedCount={instance.blockedSessions ?? 0} />
+        <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
 
-        {instance.statStatements !== 'active' ? (
+        {engine === 'postgres' && instance.statStatements !== 'active' ? (
           <ActivationAssistant state={instance.statStatements} />
+        ) : engine !== 'postgres' && statements.length === 0 ? (
+          <ForeignQueriesNotice engine={engine} instanceId={instanceId} />
         ) : failure ? (
           <StoreError message={failure} />
         ) : (
@@ -268,6 +327,7 @@ export default async function QueriesPage({
               </div>
               <StatementsTable
                 instanceId={instanceId}
+                explainable={engine === 'postgres'}
                 totalExecMs={totalExecMs}
                 rows={statements.map((row) => {
                   const points = trends.get(row.queryid) ?? [];

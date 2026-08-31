@@ -105,3 +105,21 @@ go
 --     select count(*) from msdb.dbo.sysjobs;          -- trabajos
 --
 -- Lo que falle indica exactamente qué permiso falta.
+
+
+-- ----------------------------------------------- log de errores y deadlocks
+--
+-- El log de errores se lee con xp_readerrorlog, que es un procedimiento no
+-- documentado y exige pertenecer a securityadmin o tener permiso explícito. Si
+-- no se concede, Búho lo dice como limitación en vez de fallar en silencio:
+grant execute on sys.xp_readerrorlog to buho_monitor;
+
+-- Los deadlocks completos salen de la sesión de eventos extendidos
+-- system_health, que viene encendida por omisión y ya está cubierta por
+-- VIEW SERVER STATE. No hay que crear nada.
+--
+-- Query Store, en cambio, es por base y no viene encendido. Sin él las
+-- consultas salen de la caché de planes, que se vacía al reiniciar el servicio
+-- y bajo presión de memoria:
+--
+--   alter database [MiBase] set query_store = on;

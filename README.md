@@ -166,6 +166,9 @@ Sigue siendo *agentless*: no hay proceso residente en el servidor del cliente, s
 - Las métricas del host requieren Linux (`/proc`) y quedan desactivadas si no se declaran.
 - La auditoría de seguridad **no prueba explotar nada**: sólo lee catálogos. No escanea puertos, no intenta iniciar sesión ni ejecuta pruebas de penetración. La única comprobación activa es la de contraseñas de diccionario en SQL Server, que usa `PWDCOMPARE` contra el hash guardado y por eso no genera intentos fallidos ni bloquea cuentas.
 - La auditoría de seguridad cubre el servidor, no los datos: no clasifica columnas sensibles ni revisa permisos objeto por objeto. Eso es un producto distinto.
+- El sugeridor de índices sólo opina de consultas cuyo plan alguien pidió con ANALYZE: no recorre `pg_stat_statements` por su cuenta. Menos ideas, todas verificables.
+- La medición de bloat con `pgstattuple` exige la extensión instalada y que el rol la pueda ejecutar (`pg_stat_scan_tables`). Si falta, la celda lo dice en vez de ofrecer un botón que va a fallar.
+- El sugeridor y el vacuum son de PostgreSQL. MariaDB y SQL Server tienen métricas, chequeos, consultas, bloqueos y log, pero no tienen un equivalente de vacuum ni planes en el mismo formato.
 - Sin alerting: no notifica por correo ni webhook. Es una decisión de alcance, no un pendiente de implementación.
 - No hay detección de crecimiento anómalo: exige comparar contra el historial del store, no una consulta a la instancia, y por eso no cabe en el modelo de checks actual.
 
@@ -180,7 +183,7 @@ packages/store    schema, particiones, rollups, escritura
 apps/collector    proceso de recolección 24/7
 apps/cli          informe por consola
 apps/web          consola Next.js 16 (App Router, server components)
-scripts/          verificación de los flujos de sesión y permisos de la consola
+scripts/          verificación de pantallas y sondas de paridad, bloat y sugeridor
 sql/              usuario de monitoreo
 ```
 
@@ -194,9 +197,19 @@ Una instancia declara su motor en el config; si no lo declara, es PostgreSQL:
   "database": "master", "user": "buho_monitor", "password": "..." }
 ```
 
-**El alcance es deliberadamente asimétrico.** PostgreSQL tiene el pipeline completo: métricas cada 5 s, 22 checks, análisis por consulta, host. MariaDB y SQL Server entran sólo por el **inventario del parque**, que se lee una vez por hora.
+**Los tres motores tienen el ciclo completo.** Métricas cada 5 s, chequeos, analítica de consultas, bloqueos y lectura del log: lo mismo para PostgreSQL, MariaDB y SQL Server. Lo que sigue siendo exclusivo de PostgreSQL son las dos cosas que no tienen equivalente en los otros —vacuum y bloat, y las métricas del host por SSH— más el sugeridor de índices, que se apoya en los planes de PostgreSQL.
 
-La razón no es falta de tiempo: las vistas de estadísticas de los tres motores no se parecen, y forzarlas a un molde común termina mintiendo sobre lo que mide cada una. El inventario sí se puede unificar, porque son preguntas de negocio — "¿esta versión tiene soporte?", "¿cuándo fue el último backup?" — y no de implementación.
+Que el ciclo sea el mismo no significa que los números sean los mismos. Las vistas de estadísticas de los tres no se parecen, así que cada motor mide lo que puede medir y **lo que no puede se dice en vez de rellenarse con un cero**. Cuando dos motores miden lo mismo, la métrica se llama igual: `db_cache_hit_pct` es el ratio del buffer pool en MariaDB y el del buffer cache en SQL Server, y la misma pantalla sirve para los dos.
+
+Lo que cada motor no puede dar sale como limitación explícita al sondear:
+
+| Falta | Motor | Consecuencia |
+|---|---|---|
+| `performance_schema` apagado | MariaDB | Sin analítica de consultas. La pantalla lo dice y da el `my.cnf` |
+| Sin privilegio `PROCESS` | MariaDB | Sólo ve sus propias sesiones: conexiones y bloqueos en cero |
+| `log_bin` apagado | MariaDB | Sin métricas de binlog ni de replicación |
+| Sin `VIEW SERVER STATE` | SQL Server | Sin sesiones, esperas ni I/O por archivo |
+| Caché de planes vacía | SQL Server | Consultas vacías hasta que haya tráfico; Query Store lo hace persistente |
 
 ### Los siete dominios no se reparten igual entre motores
 
@@ -547,6 +560,69 @@ incluidos el número no significa nada— y marca las tablas cuyas estadísticas
 están viejas, donde la estimación no vale. Medirlo de verdad exige
 `pgstattuple`, que lee la tabla entera; no se corre sin que alguien lo pida.
 
+### Bloat medido, cuando alguien lo pide
+
+Cada fila de la tabla tiene un botón **medir**, con dos modos:
+
+- **aproximado** (`pgstattuple_approx`) salta las páginas que el mapa de
+  visibilidad marca como limpias: cuesta una fracción y yerra por décimas.
+- **exacto** (`pgstattuple`) lee cada página y cada tupla. Es la verdad, y es un
+  escaneo secuencial completo de la tabla contra la base del cliente.
+
+Va por cola, de a una y con timeout de media hora, por la misma razón que el
+EXPLAIN: sólo el colector tiene credenciales de las instancias, y dos mediciones
+en paralelo serían el monitor haciéndole daño al servidor que vigila. Sólo admin
+puede encolarla; un viewer ve el resultado de lo que otro midió.
+
+Cuando la medición existe, la pantalla la pone al lado de la estimación y avisa
+si se equivocaba por más de 5 puntos. Ese es el dato que decide si en ese
+servidor hay que volver a medir o si la estimación gratis alcanza.
+
+### Wraparound por tabla
+
+`age(datfrozenxid)` avisa de que la base se acerca al límite pero no dice qué
+congelar, y la respuesta casi nunca es "todo": lo normal es que una o dos tablas
+arrastren a las demás. La columna **congelamiento** muestra, por tabla, el peor
+de los dos relojes —transacciones y multixact— como porcentaje del
+`freeze_max_age` que le aplica, con la opción por tabla si la tiene.
+
+Los multixact se miran aparte porque avanzan por su cuenta: los generan las
+claves foráneas y los `SELECT FOR SHARE`, no las escrituras. Una tabla puede
+estar tranquila de XID y apretada de mxid.
+
+Una tabla particionada no guarda filas y su `relfrozenxid` es cero: medir su edad
+devuelve el rango entero de XID, que en pantalla parece una emergencia inventada.
+Se reporta cero y el wraparound se mira en cada partición.
+
+---
+
+## Sugeridor de índices
+
+Parte de los planes que ya se ejecutaron con ANALYZE, y sólo de esos. Un
+sugeridor que mira `pg_stat_user_tables` ve muchos escaneos secuenciales y dice
+"falta un índice" sin saber sobre qué columna, ni si la consulta lee media tabla
+—donde el secuencial es correcto—, ni si el índice ya existe y el planificador lo
+descartó por estadísticas viejas. Del plan, en cambio, sale la condición exacta,
+cuántas filas descartó, cuántas veces se repitió y cuánto costó.
+
+Tres patrones:
+
+| Patrón | Qué se vio | Qué propone |
+|---|---|---|
+| Secuencial filtrado | Leyó N filas y descartó más del 90 % después de leerlas | Índice sobre las columnas de la condición |
+| Índice que no filtra | El índice encontró las filas y el filtro descartó miles al traerlas | **Ampliar** el índice que ya se usa, no crear otro |
+| Orden en disco | El `Sort` usó más de 4 MB de disco | Medir `work_mem` antes; índice sólo si el orden se repite |
+
+La extracción de columnas es deliberadamente conservadora: sólo identificadores
+simples a la izquierda de un comparador, las de igualdad al frente y las de rango
+al final. Funciones, casts y condiciones con `OR` se descartan en vez de
+adivinarse, porque un DDL que no compila destruye la confianza en la pantalla
+entera.
+
+Cada sugerencia trae su contraindicación al lado y la evidencia debajo, con enlace
+a la consulta que la motivó. Al pie aparece lo que los chequeos ya dicen de los
+índices de esa instancia: antes de agregar uno conviene ver si sobra alguno.
+
 `pg_stat_progress_vacuum` da el avance del vacuum en curso por fases, que es lo
 que contesta la pregunta real durante un incidente: si conviene esperar o matarlo.
 
@@ -648,3 +724,146 @@ archivo salen de la misma consulta, así que no pueden discrepar.
 
 Cuando el monitoreo no cubrió toda la semana, el informe lo dice en la instancia
 afectada en vez de promediar sobre los huecos y callarse.
+
+---
+
+## Atribución por aplicación (v0.2)
+
+La primera columna del diagrama de flujo puede ser el **rol** o la
+**aplicación**, y las dos no valen lo mismo.
+
+El rol es exacto: `pg_stat_statements` lo guarda. La aplicación no está ahí —el
+`application_name` no se acumula con las estadísticas—, así que sale de mirar
+`pg_stat_activity` cada cinco segundos, apuntar qué aplicación estaba
+ejecutando qué `query_id`, y repartir después el peso medido en esa proporción.
+Si `portal-web` se vio 30 veces con una consulta y `etl-nocturno` 10, el peso de
+esa consulta se parte 75/25.
+
+Es un **muestreo**, y la pantalla lo dice y lo cuantifica: las consultas que
+nunca se vieron activas se agrupan como «no observado», con su porcentaje. Una
+consulta que dura menos que el intervalo puede no aparecer jamás; una que dura
+mucho aparece en varias fotos seguidas. A cambio no cuesta nada extra —esa vista
+ya se consultaba cada ciclo— y no exige tocar ninguna aplicación.
+
+Requiere PostgreSQL 14 o más y `compute_query_id` activo. Con `auto` hace falta
+además que `pg_stat_statements` esté precargado, porque «auto» significa «sólo si
+alguien lo pide» y quien lo pide es esa extensión. Si falta, el colector lo
+registra con el motivo en vez de dejar la pantalla vacía: el propio store de
+Búho es un caso real de esto, y se ve en el log como tal.
+
+Las observaciones se acumulan en memoria y se escriben una fila por minuto
+(`buho.query_actors`), particionada y purgada con la misma política que el resto
+de las muestras crudas.
+
+## Flujo del parque
+
+`/flow` responde la pregunta que la vista por instancia no podía: **de todos los
+servidores, qué tabla recibe más escritura**. Las columnas pasan a ser
+instancia → esquema → tabla, porque a nivel de parque lo primero que se busca es
+en qué máquina está el volumen.
+
+El esquema va calificado por instancia: dos servidores pueden tener cada uno su
+`public`, y unirlos fundiría en una sola cinta el tráfico de máquinas distintas.
+Se calcula por instancia y se suma, no con una consulta global, porque el esquema
+por omisión depende del motor: `public` en PostgreSQL, `dbo` en SQL Server, el
+nombre de la base en MariaDB.
+
+Debajo hay una tabla que sí falta en la mayoría de los monitores: **las
+instancias que no aportaron nada**, con cuántas consultas se les vieron. Una
+instancia ausente del diagrama porque no llega tráfico y otra ausente porque le
+falta `pg_stat_statements` se ven igual en el dibujo, y no son lo mismo.
+
+## Ensayo de instalación
+
+`npm run ensayo:instalacion` instala Búho desde cero como lo haría alguien que
+nunca lo vio, y comprueba que funcione.
+
+Hace una copia limpia del proyecto —sin `.env`, sin `config.json`, sin
+`node_modules`—, levanta un PostgreSQL nuevo para monitorear, crea el usuario de
+monitoreo **con el script documentado** (`sql/monitor-user.sql`, no a mano),
+corre `install.sh` en puertos distintos a los de desarrollo y verifica que el
+colector escriba muestras, que los chequeos corran, que la consola deje entrar
+con la contraseña de arranque y que todas las pantallas respondan. Al final lo
+corre otra vez para confirmar que actualizar no regenera los secretos ni pierde
+datos, y borra todo.
+
+Ese ensayo destapó tres fallos que sólo aparecen en una máquina limpia:
+
+• **`sql/monitor-user.sql` no creaba el usuario.** El `CREATE ROLE` iba dentro de
+  un bloque `DO`, y psql no interpola sus variables dentro de literales entre
+  comillas de dólar: `:'buho_password'` quedaba escrito tal cual y el rol nunca
+  se creaba. Todo el script documentado para dar mínimo privilegio fallaba en el
+  primer paso. Ahora se crea con `\gexec`, donde la sustitución sí ocurre.
+• **El propio ensayo se daba por bueno sin recolectar nada.** Buscaba la palabra
+  «muestras» en la salida del instalador, que también aparece en el aviso «sin
+  muestras todavía». Una prueba que pasa cuando el producto no funciona es peor
+  que no tenerla.
+• **Los nombres con acentos salían partidos en la consola.** La cookie de sesión
+  se leía con `atob`, que devuelve un byte por carácter, así que un usuario
+  «José» entraba y la consola lo saludaba como «JosÃ©». La firma se sigue
+  verificando sobre los bytes, que es lo que se firma; el payload ahora se
+  interpreta como UTF-8.
+
+## Flujo del tráfico y mapa de uso
+
+Dos preguntas que ninguna serie de tiempo contesta: **quién le pega a qué** y
+**cuándo**.
+
+El diagrama de flujo cruza tres columnas —rol → esquema → tabla— y el grosor de
+cada cinta es el peso elegido. Se puede pesar por filas ("dónde cae el
+volumen"), por tiempo ("dónde se gasta el servidor") o por llamadas ("qué se
+llama más"); cambiar de una a otra suele reordenar el diagrama entero, y ver ese
+cambio es parte del diagnóstico. La dirección se elige: en escritura la tabla es
+el destino del DML, en lectura son las tablas del `from` y los `join`.
+
+Funciona en los tres motores, porque la atribución sale del texto de la
+consulta, que se recoge igual en todos.
+
+### La atribución es aproximada, y se dice
+
+Ninguna de las dos fuentes sirve sola: `pg_stat_statements` sabe el rol, las
+llamadas, las filas y el tiempo pero no la tabla; el texto de la consulta sabe
+la tabla pero no cuánto se ejecutó. El cruce es análisis léxico del texto, no un
+parser, así que la pantalla muestra **qué porcentaje del peso pudo atribuir** al
+lado del diagrama.
+
+Tres decisiones para que el número no engañe:
+
+- Cuando una consulta toca varias tablas, su peso **se reparte** entre ellas.
+  Cargarlo entero a cada una multiplicaría el tráfico.
+- Los esquemas del sistema quedan fuera (`pg_catalog`, `information_schema`,
+  `performance_schema`, `mysql`): ese tráfico es del monitoreo y de las
+  herramientas.
+- Los nombres de CTE **no** se cuentan como tablas. `from mi_cte` es idéntico a
+  `from mi_tabla`, y sin distinguirlos las consultas de monitoreo —que son casi
+  todas CTEs— llenaban el diagrama de tablas que no existen.
+
+El contraste honesto va debajo, y sólo en PostgreSQL: los contadores de
+`pg_stat_user_tables` por tabla, que no dependen de haber entendido ninguna
+consulta. Si no cuadran con el diagrama, ellos tienen razón; la atribución se
+pierde con triggers, cascadas de claves foráneas y consultas que se cayeron de
+`pg_stat_statements`. Ahí va también la proporción **HOT**: por debajo del 50 %,
+cada `update` está reescribiendo índices.
+
+MariaDB y SQL Server no exponen contadores de filas por tabla, así que en esos
+motores el diagrama es la única fuente y la pantalla lo aclara. En SQL Server,
+además, el DML no aporta filas a `dm_exec_query_stats`, así que las escrituras
+hay que pesarlas por tiempo o por llamadas.
+
+### El mapa de uso
+
+Una rejilla de 7 días por 24 horas sobre `metric_rollup_1h`, que guarda 400 días:
+ver un año no cuesta más que ver una semana. Contesta "cuándo se puede tocar este
+servidor", que es la pregunta que una curva de 24 horas no puede contestar —un
+lunes a las 3 de la tarde y un domingo a las 3 de la mañana son el mismo punto
+del día y dos mundos distintos.
+
+Se elige entre escrituras, transacciones, conexiones, lecturas de disco y
+sesiones bloqueadas, y entre el promedio ("cómo es una hora típica") o el máximo
+("qué tan mal se puso alguna vez a esa hora"). Debajo, en palabras, la hora más
+cargada y la más tranquila: ahí va la ventana de mantenimiento.
+
+Los huecos se dibujan **como huecos** y no como cero. Una celda sin datos y una
+celda con carga cero son cosas distintas: la primera dice "no estaba mirando".
+El color es relativo a la propia rejilla, así que no compara entre instancias, y
+la hora es la del operador, no la del store.

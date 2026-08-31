@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 import type {
+  BloatMeasurement,
   LogEntry,
   VacuumSnapshot,
   BlockedSession,
@@ -16,6 +17,14 @@ import type {
 import type { CheckResult } from '@buho/checks';
 
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
+
+export interface BloatRequestJob {
+  requestId: number;
+  schema: string;
+  table: string;
+  mode: 'exacto' | 'aproximado';
+  requestedBy: string;
+}
 
 export interface PlanRequestJob {
   requestId: number;
@@ -392,6 +401,89 @@ export class Store {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Toma la siguiente medición de bloat pendiente. Mismo patrón que la cola de
+   * planes: `for update skip locked` para que dos ciclos no midan la misma
+   * tabla, y de a una porque cada medición es un escaneo completo.
+   */
+  async claimBloatRequest(instanceId: number): Promise<BloatRequestJob | null> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      const result = await client.query<{
+        request_id: string;
+        schema_name: string;
+        table_name: string;
+        mode: 'exacto' | 'aproximado';
+        requested_by: string;
+      }>(
+        `select request_id, schema_name, table_name, mode, requested_by
+           from buho.bloat_requests
+          where instance_id = $1 and state = 'pendiente'
+          order by requested_at
+          limit 1
+            for update skip locked`,
+        [instanceId],
+      );
+
+      const row = result.rows[0];
+      if (!row) {
+        await client.query('commit');
+        return null;
+      }
+
+      await client.query(
+        `update buho.bloat_requests set state = 'corriendo', started_at = now() where request_id = $1`,
+        [row.request_id],
+      );
+      await client.query('commit');
+
+      return {
+        requestId: Number(row.request_id),
+        schema: row.schema_name,
+        table: row.table_name,
+        mode: row.mode,
+        requestedBy: row.requested_by,
+      };
+    } catch (error) {
+      await client.query('rollback').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async finishBloatRequest(requestId: number, measurement: BloatMeasurement): Promise<void> {
+    await this.pool.query(
+      `update buho.bloat_requests
+          set state = 'listo', finished_at = now(), error = null,
+              table_bytes = $2, tuple_count = $3, tuple_bytes = $4,
+              dead_count = $5, dead_bytes = $6, free_bytes = $7,
+              free_pct = $8, dead_pct = $9
+        where request_id = $1`,
+      [
+        requestId,
+        measurement.tableBytes,
+        measurement.tupleCount,
+        measurement.tupleBytes,
+        measurement.deadCount,
+        measurement.deadBytes,
+        measurement.freeBytes,
+        measurement.freePct,
+        measurement.deadPct,
+      ],
+    );
+  }
+
+  async failBloatRequest(requestId: number, message: string): Promise<void> {
+    await this.pool.query(
+      `update buho.bloat_requests
+          set state = 'error', finished_at = now(), error = $2
+        where request_id = $1`,
+      [requestId, message],
+    );
   }
 
   async finishPlanRequest(requestId: number, result: PlanResult): Promise<void> {
@@ -785,6 +877,54 @@ export class Store {
    * tabla que se borró o que salió del top, y dejarla ahí mostraría un
    * "último autovacuum" congelado en el tiempo como si fuera actual.
    */
+  /**
+   * Guarda las observaciones de qué aplicación ejecutaba qué consulta.
+   *
+   * Llega ya agregado por minuto desde el colector, así que aquí sólo se
+   * escribe. Se ignoran las combinaciones sin observaciones para no llenar la
+   * tabla de ceros.
+   */
+  async saveQueryActors(
+    instanceId: number,
+    at: Date,
+    observations: {
+      application: string;
+      username: string;
+      database: string;
+      queryid: string;
+      samples: number;
+    }[],
+  ): Promise<number> {
+    const utiles = observations.filter((observation) => observation.samples > 0);
+    if (utiles.length === 0) return 0;
+
+    const values: unknown[] = [];
+    const tuples: string[] = [];
+    utiles.forEach((observation, index) => {
+      const base = index * 7;
+      tuples.push(
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`,
+      );
+      values.push(
+        instanceId,
+        at,
+        observation.queryid,
+        observation.application,
+        observation.username,
+        observation.database,
+        observation.samples,
+      );
+    });
+
+    await this.pool.query(
+      `insert into buho.query_actors
+              (instance_id, ts, queryid, application, username, database, samples)
+       values ${tuples.join(', ')}`,
+      values,
+    );
+    return utiles.length;
+  }
+
   async saveVacuum(instanceId: number, snapshot: VacuumSnapshot): Promise<void> {
     const client = await this.pool.connect();
     try {
@@ -794,9 +934,9 @@ export class Store {
         const values: unknown[] = [];
         const tuples: string[] = [];
         snapshot.tables.forEach((table, index) => {
-          const base = index * 20;
+          const base = index * 25;
           tuples.push(
-            `(${Array.from({ length: 20 }, (_, offset) => `$${base + offset + 1}`).join(', ')}, now())`,
+            `(${Array.from({ length: 25 }, (_, offset) => `$${base + offset + 1}`).join(', ')}, now())`,
           );
           values.push(
             instanceId,
@@ -819,6 +959,11 @@ export class Store {
             table.bloatBytes === null ? null : Math.round(table.bloatBytes),
             table.bloatPct,
             table.bloatNote,
+            Math.round(table.xidAge),
+            Math.round(table.mxidAge),
+            Math.round(table.freezeMaxAge),
+            table.xidPct,
+            table.mxidPct,
           );
         });
 
@@ -827,7 +972,8 @@ export class Store {
              (instance_id, schema_name, table_name, live_tuples, dead_tuples, dead_pct,
               last_autovacuum, last_vacuum, last_autoanalyze, last_analyze,
               autovacuum_count, analyze_count, threshold, remaining, autovacuum_enabled,
-              size_bytes, heap_bytes, bloat_bytes, bloat_pct, bloat_note, captured_at)
+              size_bytes, heap_bytes, bloat_bytes, bloat_pct, bloat_note,
+              xid_age, mxid_age, freeze_max_age, xid_pct, mxid_pct, captured_at)
            values ${tuples.join(', ')}
            on conflict (instance_id, schema_name, table_name) do update
               set live_tuples = excluded.live_tuples,
@@ -847,6 +993,11 @@ export class Store {
                   bloat_bytes = excluded.bloat_bytes,
                   bloat_pct = excluded.bloat_pct,
                   bloat_note = excluded.bloat_note,
+                  xid_age = excluded.xid_age,
+                  mxid_age = excluded.mxid_age,
+                  freeze_max_age = excluded.freeze_max_age,
+                  xid_pct = excluded.xid_pct,
+                  mxid_pct = excluded.mxid_pct,
                   captured_at = excluded.captured_at`,
           values,
         );
@@ -1034,6 +1185,7 @@ export class Store {
     const created = await this.pool.query<{ created: number }>(
       `select buho.ensure_partitions('metric_samples', $1)
             + buho.ensure_partitions('statement_stats', $1)
+            + buho.ensure_partitions('query_actors', $1)
             + buho.ensure_partitions('log_events', $1) as created`,
       [3],
     );
@@ -1057,6 +1209,7 @@ export class Store {
     const dropped = await this.pool.query<{ dropped: number }>(
       `select buho.prune_partitions('metric_samples', $1)
             + buho.prune_partitions('statement_stats', $2)
+            + buho.prune_partitions('query_actors', $2)
             + buho.prune_partitions('log_events', $3) as dropped`,
       [retention.rawDays, retention.statementDays, retention.logDays],
     );
