@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { AutoRefresh } from '@/components/AutoRefresh';
 import { FlowSankey, OperationBars } from '@/components/FlowSankey';
+import { LiveFlow } from '@/components/LiveFlow';
 import { Heatmap } from '@/components/Heatmap';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StatCard } from '@/components/StatCard';
@@ -59,13 +60,14 @@ export default async function FlowPage({
     v?: string;
     dir?: string;
     quien?: string;
+    vista?: string;
     calor?: string;
     cv?: string;
     agg?: string;
   }>;
 }) {
   const { id } = await params;
-  const { peso, v, dir, quien, calor, cv, agg } = await searchParams;
+  const { peso, v, dir, quien, vista, calor, cv, agg } = await searchParams;
 
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
@@ -76,6 +78,10 @@ export default async function FlowPage({
   const window = WINDOWS.find((entrada) => entrada.key === v) ?? WINDOWS[2]!;
   const direction: FlowDirection = dir === 'lectura' ? 'lectura' : 'escritura';
   const actor: FlowActor = quien === 'aplicacion' ? 'aplicacion' : 'rol';
+  // El lienzo vivo es lo primero que se ve porque contesta la pregunta más
+  // frecuente al abrir la pantalla —"¿está pasando algo ahora?"—, y el diagrama
+  // acumulado queda a un clic para la pregunta de después: "¿qué pasó hoy?".
+  const enVivo = vista !== 'acumulado';
   const heatOption = HEAT_OPTIONS.find((entrada) => entrada.key === calor) ?? HEAT_OPTIONS[0]!;
   const heatWindow = HEAT_WINDOWS.find((entrada) => entrada.key === cv) ?? HEAT_WINDOWS[1]!;
   const heatAgg: HeatAgg = agg === 'max' ? 'max' : 'avg';
@@ -115,6 +121,7 @@ export default async function FlowPage({
       v: window.key,
       dir: direction,
       quien: actor,
+      vista: enVivo ? 'vivo' : 'acumulado',
       calor: heatOption.key,
       cv: heatWindow.key,
       agg: heatAgg,
@@ -208,6 +215,21 @@ export default async function FlowPage({
               {direction === 'escritura' ? 'Quién escribe en qué' : 'Quién lee de dónde'}
             </span>
             <div className="flex flex-wrap items-center gap-1">
+              <Link
+                href={enlace({ vista: 'vivo' })}
+                className={`tag ${enVivo ? 'tag--ok' : 'tag--muted'}`}
+                title="lo que se mueve ahora, en los últimos 5 minutos"
+              >
+                en vivo
+              </Link>
+              <Link
+                href={enlace({ vista: 'acumulado' })}
+                className={`tag ${enVivo ? 'tag--muted' : 'tag--info'}`}
+                title="el total de la ventana elegida"
+              >
+                acumulado
+              </Link>
+              <span className="mx-1 text-foreground-muted">·</span>
               {(['rol', 'aplicacion'] as const).map((opcion) => (
                 <Link
                   key={opcion}
@@ -257,6 +279,16 @@ export default async function FlowPage({
           </div>
 
           <div className="panel-body">
+            {enVivo ? (
+              <LiveFlow
+                scope="instancia"
+                instanceId={instanceId}
+                weight={weight}
+                direction={direction}
+                actor={actor}
+                unit={unidad}
+              />
+            ) : (
             <FlowSankey
               nodes={flow.nodes}
               links={flow.links}
@@ -281,6 +313,7 @@ export default async function FlowPage({
                       : 'Ninguna lectura pudo atribuirse a una tabla en esta ventana.'
               }
             />
+            )}
             {actor === 'aplicacion' && (
               <p className="mt-2 text-[11px] text-foreground-muted">
                 La columna de la izquierda es una <strong>estimación</strong>: el nombre de aplicación no está en las

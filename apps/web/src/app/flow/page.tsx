@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { AutoRefresh } from '@/components/AutoRefresh';
 import { FlowSankey, OperationBars } from '@/components/FlowSankey';
+import { LiveFlow } from '@/components/LiveFlow';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { Topbar } from '@/components/Topbar';
@@ -35,14 +36,15 @@ const ENGINE_LABEL: Record<string, string> = {
 export default async function FleetFlowPage({
   searchParams,
 }: {
-  searchParams: Promise<{ peso?: string; v?: string; dir?: string; quien?: string }>;
+  searchParams: Promise<{ peso?: string; v?: string; dir?: string; quien?: string; vista?: string }>;
 }) {
-  const { peso, v, dir, quien } = await searchParams;
+  const { peso, v, dir, quien, vista } = await searchParams;
 
   const weight = (WEIGHTS.find((entrada) => entrada.key === peso)?.key ?? 'rows') as FlowWeight;
   const window = WINDOWS.find((entrada) => entrada.key === v) ?? WINDOWS[2]!;
   const direction: FlowDirection = dir === 'lectura' ? 'lectura' : 'escritura';
   const actor: FlowActor = quien === 'aplicacion' ? 'aplicacion' : 'rol';
+  const enVivo = vista !== 'acumulado';
 
   let flow;
   try {
@@ -65,6 +67,7 @@ export default async function FleetFlowPage({
       v: window.key,
       dir: direction,
       quien: actor,
+      vista: enVivo ? 'vivo' : 'acumulado',
       ...cambios,
     });
     return `/flow?${parametros.toString()}`;
@@ -127,6 +130,20 @@ export default async function FleetFlowPage({
               Instancia → esquema → tabla · {direction === 'escritura' ? 'escrituras' : 'lecturas'}
             </span>
             <div className="flex flex-wrap items-center gap-1">
+              <Link
+                href={enlace({ vista: 'vivo' })}
+                className={`tag ${enVivo ? 'tag--ok' : 'tag--muted'}`}
+                title="lo que se mueve ahora en todo el parque"
+              >
+                en vivo
+              </Link>
+              <Link
+                href={enlace({ vista: 'acumulado' })}
+                className={`tag ${enVivo ? 'tag--muted' : 'tag--info'}`}
+              >
+                acumulado
+              </Link>
+              <span className="mx-1 text-foreground-muted">·</span>
               {(['rol', 'aplicacion'] as const).map((opcion) => (
                 <Link
                   key={opcion}
@@ -176,6 +193,16 @@ export default async function FleetFlowPage({
           </div>
 
           <div className="panel-body">
+            {enVivo ? (
+              <LiveFlow
+                scope="flota"
+                weight={weight}
+                direction={direction}
+                actor={actor}
+                unit={unidad}
+                height={460}
+              />
+            ) : (
             <FlowSankey
               nodes={flow.nodes}
               links={flow.links}
@@ -187,6 +214,7 @@ export default async function FleetFlowPage({
                   : 'Ninguna lectura del parque pudo atribuirse a una tabla en esta ventana.'
               }
             />
+            )}
             <p className="mt-2 text-[11px] text-foreground-muted">
               El esquema va calificado por instancia: dos servidores pueden tener cada uno su{' '}
               <span className="font-mono">public</span>, y unirlos fundiría en una sola cinta tráfico de máquinas

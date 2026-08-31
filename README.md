@@ -755,6 +755,31 @@ Las observaciones se acumulan en memoria y se escriben una fila por minuto
 (`buho.query_actors`), particionada y purgada con la misma política que el resto
 de las muestras crudas.
 
+## Actividad en vivo
+
+El panel del diagrama tiene dos vistas y contestan preguntas distintas.
+
+**En vivo** (la que se abre por omisión) es un lienzo oscuro donde el tráfico de
+los últimos cinco minutos viaja como partículas entre los nodos. **Acumulado** es
+el diagrama de cintas de siempre, con el total de la ventana elegida. La
+diferencia importa: una tabla que recibió un millón de filas esta mañana domina
+el acumulado y no debe mover una sola partícula si lleva cinco minutos quieta.
+
+Lo que se ve es honesto en un sentido concreto: la posición de cada partícula es
+decorativa —no hay una fila viajando por un cable—, pero **la densidad no lo
+es**. Cada arista emite en proporción a lo que movió por segundo, así que una
+cinta que lanza el doble movió el doble. Si todo está quieto, no hay tráfico, y
+el rótulo lo dice con palabras en vez de dejar un lienzo negro ambiguo.
+
+Arriba a la izquierda van la tasa por segundo, las sesiones activas y las
+bloqueadas, y la edad del dato. Se refresca cada cinco segundos encadenando
+peticiones (no en intervalo fijo), para que una consulta lenta no acumule
+llamadas contra el store. Está dibujado en canvas porque son cientos de
+partículas a sesenta cuadros por segundo, y con un nodo del DOM por partícula el
+navegador se arrodilla.
+
+Está en las dos pantallas: por instancia y para todo el parque.
+
 ## Flujo del parque
 
 `/flow` responde la pregunta que la vista por instancia no podía: **de todos los
