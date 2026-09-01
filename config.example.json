@@ -50,7 +50,7 @@
       "user": "buho_monitor",
       "password": "CAMBIAR",
       "environment": "prod",
-      "_comentario": "MariaDB y SQL Server entran sólo por el inventario del parque: versiones, configuración, disco, replicación, backups, jobs y licencias. El pipeline de métricas de 5 s y los 22 checks son de PostgreSQL.",
+      "_comentario": "MariaDB: métricas, consultas, bloqueos, sesiones, flujo e inventario. Ver INSTALL.md para el usuario de monitoreo.",
       "tags": {
         "grupo": "produccion-cr",
         "equipo": "datos"
@@ -66,6 +66,21 @@
       "password": "CAMBIAR",
       "environment": "prod",
       "_comentario": "En SQL Server el usuario necesita VIEW SERVER STATE y lectura sobre msdb para ver el catálogo de respaldos y los jobs del Agent.",
+      "tags": {
+        "grupo": "produccion-cr",
+        "equipo": "datos"
+      }
+    },
+    {
+      "alias": "mongo-prod",
+      "engine": "mongodb",
+      "host": "10.0.0.40",
+      "port": 27017,
+      "database": "admin",
+      "user": "buho_monitor",
+      "password": "CAMBIAR",
+      "environment": "prod",
+      "_comentario": "MongoDB v0.4: serverStatus, dbStats e inventario. Rol clusterMonitor (o readAnyDatabase + clusterMonitor). Sin profiler todavía.",
       "tags": {
         "grupo": "produccion-cr",
         "equipo": "datos"
