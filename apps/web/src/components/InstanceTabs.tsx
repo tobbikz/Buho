@@ -26,14 +26,23 @@ export function InstanceTabs({
           { href: `${base}/queries`, label: 'Consultas' },
           { href: `${base}/indexes`, label: 'Índices' },
           { href: `${base}/flow`, label: 'Flujo' },
+          { href: `${base}/topology`, label: 'Topología' },
           { href: `${base}/sessions`, label: 'Sesiones' },
+          { href: `${base}/capacity`, label: 'Capacidad' },
           { href: `${base}/host`, label: 'Host' },
           { href: `${base}/vacuum`, label: 'Vacuum' },
           { href: `${base}/replication`, label: 'Replicación' },
           { href: `${base}/locks`, label: 'Bloqueos', badge: blockedCount },
           { href: `${base}/logs`, label: 'Log' },
         ]
-      : [
+      : engine === 'mongodb'
+        ? [
+            { href: base, label: 'Resumen' },
+            { href: `${base}/analysis`, label: 'Análisis' },
+            { href: `${base}/capacity`, label: 'Capacidad' },
+            { href: `${base}/inventory`, label: 'Inventario' },
+          ]
+        : [
           { href: base, label: 'Resumen' },
           { href: `${base}/analysis`, label: 'Análisis' },
           { href: `${base}/queries`, label: 'Consultas' },
@@ -41,10 +50,12 @@ export function InstanceTabs({
           // la consulta, que se recoge igual en todos. Lo que cambia es el panel
           // de contadores por tabla, que sólo PostgreSQL expone.
           { href: `${base}/flow`, label: 'Flujo' },
+          { href: `${base}/topology`, label: 'Topología' },
           // Sesiones: en MariaDB sale de PROCESSLIST y en SQL Server de
           // dm_exec_requests. La taxonomía de esperas se normaliza a las mismas
           // familias que PostgreSQL para que el gráfico se lea igual.
           { href: `${base}/sessions`, label: 'Sesiones' },
+          { href: `${base}/capacity`, label: 'Capacidad' },
           { href: `${base}/locks`, label: 'Bloqueos', badge: blockedCount },
           { href: `${base}/logs`, label: 'Log' },
           { href: `${base}/inventory`, label: 'Inventario' },

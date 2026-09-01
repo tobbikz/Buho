@@ -18,18 +18,20 @@ import { tagged } from './tag';
  * ("¿esta versión tiene soporte?", "¿cuándo fue el último backup?") y no de
  * implementación.
  */
-export type EngineKind = 'postgres' | 'mariadb' | 'mssql';
+export type EngineKind = 'postgres' | 'mariadb' | 'mssql' | 'mongodb';
 
 export const ENGINE_LABEL: Record<EngineKind, string> = {
   postgres: 'PostgreSQL',
   mariadb: 'MariaDB',
   mssql: 'SQL Server',
+  mongodb: 'MongoDB',
 };
 
 export const DEFAULT_PORT: Record<EngineKind, number> = {
   postgres: 5432,
   mariadb: 3306,
   mssql: 1433,
+  mongodb: 27017,
 };
 
 /**
@@ -42,6 +44,11 @@ export const DEFAULT_PORT: Record<EngineKind, number> = {
 export interface EngineClient {
   kind: EngineKind;
   query(sql: string): Promise<Record<string, unknown>[]>;
+  /**
+   * Sólo MongoDB: corre un comando del protocolo (`serverStatus`, `dbStats`).
+   * Los motores SQL no lo implementan.
+   */
+  command?(cmd: Record<string, unknown>): Promise<Record<string, unknown>>;
   close(): Promise<void>;
 }
 
@@ -180,6 +187,25 @@ export async function openEngine(
     );
   }
 
+  if (kind === 'mongodb') {
+    const { MongoClient } = await import('mongodb');
+    const auth =
+      instance.user
+        ? `${encodeURIComponent(instance.user)}:${encodeURIComponent(instance.password ?? '')}@`
+        : '';
+    const dbName = instance.database || 'admin';
+    const params = new URLSearchParams({
+      appName: appName ?? 'buho',
+      directConnection: 'true',
+      serverSelectionTimeoutMS: String(connectTimeout),
+    });
+    if (instance.ssl) params.set('tls', 'true');
+    const uri = `mongodb://${auth}${instance.host}:${instance.port}/${dbName}?${params.toString()}`;
+    const client = new MongoClient(uri);
+    await client.connect();
+    return new MongodbClient(client, dbName);
+  }
+
   // `mssql` es CommonJS: bajo import() dinámico sus exportaciones quedan en
   // `default` y `mssql.ConnectionPool` sale undefined.
   const imported = await import('mssql');
@@ -210,4 +236,44 @@ export async function openEngine(
   });
   await pool.connect();
   return new MssqlClient(pool);
+}
+
+class MongodbClient implements EngineClient {
+  readonly kind = 'mongodb' as const;
+
+  constructor(
+    private readonly client: {
+      db: (name?: string) => {
+        command: (cmd: Record<string, unknown>) => Promise<Record<string, unknown>>;
+        admin: () => { command: (cmd: Record<string, unknown>) => Promise<Record<string, unknown>> };
+      };
+      close: () => Promise<void>;
+    },
+    private readonly database: string,
+  ) {}
+
+  /**
+   * Mongo no habla SQL. Se acepta un JSON de comando como texto para no romper
+   * el contrato de EngineClient; el camino normal es `command()`.
+   */
+  async query(sql: string): Promise<Record<string, unknown>[]> {
+    const trimmed = sql.trim();
+    if (!trimmed.startsWith('{')) {
+      throw new Error('MongoDB no acepta SQL; usar command() o pasar un documento JSON');
+    }
+    const doc = await this.command(JSON.parse(trimmed) as Record<string, unknown>);
+    return [doc];
+  }
+
+  async command(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
+    // dbStats vive en la base configurada; el resto de admin va a admin.
+    const keys = Object.keys(cmd);
+    const local = keys.some((k) => ['dbStats', 'collStats', 'listCollections'].includes(k));
+    const handle = local ? this.client.db(this.database) : this.client.db().admin();
+    return handle.command(cmd);
+  }
+
+  async close(): Promise<void> {
+    await this.client.close();
+  }
 }

@@ -22,6 +22,7 @@ export const ENGINE_LABEL: Record<string, string> = {
   postgres: 'PostgreSQL',
   mariadb: 'MariaDB',
   mssql: 'SQL Server',
+  mongodb: 'MongoDB',
 };
 
 export const NO_GROUP = 'sin-agrupar';

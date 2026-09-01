@@ -499,41 +499,63 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
   }
 
   startInventoryLoop(instance, instanceId);
-  startSecurityLoop(instance, instanceId);
+  if (engine !== 'mongodb') {
+    startSecurityLoop(instance, instanceId);
+  }
 
-  startLoop(`${instance.alias}/locks`, LOCKS_INTERVAL_MS, async () => {
-    const blocked = await sampleForeignBlocking(client, caps);
-    if (blocked.length === 0) return;
-    await store.saveLockEpisodes(instanceId, blocked);
-    const worst = blocked[0];
-    log(
-      'info',
-      `${instance.alias}/locks: ${blocked.length} sesión(es) bloqueada(s)` +
-        `${worst ? `, la peor ${worst.waitSeconds.toFixed(1)} s` : ''}`,
-    );
-  });
-
-  // Misma cadencia que PostgreSQL: el detalle de "qué estaba corriendo" y el
-  // perfil de espera salen de una foto periódica, no de contadores acumulados.
-  startLoop(`${instance.alias}/sesiones`, SESSION_INTERVAL_MS, async () => {
-    const foto = summarizeSessions(await sampleForeignSessions(client, caps));
-    const escritas = await store.saveSessionSnapshot(instanceId, {
-      at: foto.at,
-      waits: foto.waits,
-      detail: foto.detail,
-    });
-    if (escritas === 0) return;
-    if (foto.blockedSessions > 0 || (foto.longestQueryMs ?? 0) > 30_000) {
+  // MongoDB v0.4: métricas + inventario. Sin bloqueos/sesiones/log SQL todavía.
+  if (engine !== 'mongodb') {
+    startLoop(`${instance.alias}/locks`, LOCKS_INTERVAL_MS, async () => {
+      const blocked = await sampleForeignBlocking(client, caps);
+      if (blocked.length === 0) return;
+      await store.saveLockEpisodes(instanceId, blocked);
+      const worst = blocked[0];
       log(
         'info',
-        `${instance.alias}/sesiones: ${foto.activeSessions} activa(s), ` +
-          `${foto.blockedSessions} bloqueada(s)` +
-          (foto.longestQueryMs
-            ? `, la más larga ${(foto.longestQueryMs / 1000).toFixed(1)} s`
-            : ''),
+        `${instance.alias}/locks: ${blocked.length} sesión(es) bloqueada(s)` +
+          `${worst ? `, la peor ${worst.waitSeconds.toFixed(1)} s` : ''}`,
       );
-    }
-  });
+    });
+
+    // Misma cadencia que PostgreSQL: el detalle de "qué estaba corriendo" y el
+    // perfil de espera salen de una foto periódica, no de contadores acumulados.
+    startLoop(`${instance.alias}/sesiones`, SESSION_INTERVAL_MS, async () => {
+      const foto = summarizeSessions(await sampleForeignSessions(client, caps));
+      const escritas = await store.saveSessionSnapshot(instanceId, {
+        at: foto.at,
+        waits: foto.waits,
+        detail: foto.detail,
+      });
+      if (escritas === 0) return;
+      if (foto.blockedSessions > 0 || (foto.longestQueryMs ?? 0) > 30_000) {
+        log(
+          'info',
+          `${instance.alias}/sesiones: ${foto.activeSessions} activa(s), ` +
+            `${foto.blockedSessions} bloqueada(s)` +
+            (foto.longestQueryMs
+              ? `, la más larga ${(foto.longestQueryMs / 1000).toFixed(1)} s`
+              : ''),
+        );
+      }
+    });
+
+    startLoop(`${instance.alias}/logs`, LOG_INTERVAL_MS, async () => {
+      const cursor = await store.logCursor(instanceId);
+      const result = await readForeignLog(client, caps, cursor);
+      const written = await store.saveLogEntries(instanceId, result.entries);
+      await store.saveLogCursor(instanceId, result.source, result.cursor, result.detail, result.warnings, written);
+
+      if (written === 0) return;
+      const graves = result.entries.filter(
+        (entry) => entry.kind === 'error' || entry.kind === 'fatal' || entry.kind === 'deadlock',
+      ).length;
+      log(
+        'info',
+        `${instance.alias}/logs: ${written} entrada(s) de ${result.detail}` +
+          (graves > 0 ? `, ${graves} con severidad de error` : ''),
+      );
+    });
+  }
 
   const statements = new ForeignStatementTracker();
   startLoop(`${instance.alias}/statements`, STATEMENTS_INTERVAL_MS, async () => {
@@ -551,23 +573,6 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
     log(
       'info',
       `${instance.alias}/statements: ${written} consulta(s) con actividad, ${totalMs.toFixed(0)} ms de ejecución`,
-    );
-  });
-
-  startLoop(`${instance.alias}/logs`, LOG_INTERVAL_MS, async () => {
-    const cursor = await store.logCursor(instanceId);
-    const result = await readForeignLog(client, caps, cursor);
-    const written = await store.saveLogEntries(instanceId, result.entries);
-    await store.saveLogCursor(instanceId, result.source, result.cursor, result.detail, result.warnings, written);
-
-    if (written === 0) return;
-    const graves = result.entries.filter(
-      (entry) => entry.kind === 'error' || entry.kind === 'fatal' || entry.kind === 'deadlock',
-    ).length;
-    log(
-      'info',
-      `${instance.alias}/logs: ${written} entrada(s) de ${result.detail}` +
-        (graves > 0 ? `, ${graves} con severidad de error` : ''),
     );
   });
 

@@ -167,6 +167,9 @@ if (ids.length === 0) {
   await ver('Flota: flujo del parque', '/flow');
   await ver('Instancia: sesiones y esperas', `/instances/${id}/sessions`);
   await ver('Instancia: flujo y uso', `/instances/${id}/flow`);
+  await ver('Instancia: capacidad', `/instances/${id}/capacity`);
+  await ver('Instancia: topología', `/instances/${id}/topology`);
+  await ver('Instancia: análisis vs 24h', `/instances/${id}/analysis?m=connections_total&vs=24h`);
 }
 
 await browser.close();

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AutoRefresh } from '@/components/AutoRefresh';
+import { IncidentPanel } from '@/components/IncidentPanel';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { LabeledBars } from '@/components/LabeledBars';
 import { StatCard } from '@/components/StatCard';
@@ -8,6 +9,7 @@ import { StoreError } from '@/components/StoreError';
 import { Topbar } from '@/components/Topbar';
 import { WaitStack } from '@/components/WaitStack';
 import { formatNumber, formatPct } from '@/lib/format';
+import { explainIncident } from '@/lib/incident';
 import { getInstance } from '@/lib/queries';
 import {
   getInterestingMoments,
@@ -55,13 +57,15 @@ export default async function SessionsPage({
   let serie;
   let foto;
   let momentos;
+  let incidente;
   try {
     instancia = await getInstance(instanceId);
-    [esperas, serie, foto, momentos] = await Promise.all([
+    [esperas, serie, foto, momentos, incidente] = await Promise.all([
       getWaitShares(instanceId, window.minutes),
       getWaitTimeline(instanceId, window.minutes),
       getSessionsAt(instanceId, Number.isFinite(momento.getTime()) ? momento : new Date()),
       getInterestingMoments(instanceId, window.minutes),
+      explainIncident(instanceId, window.minutes),
     ]);
   } catch (error) {
     return (
@@ -116,6 +120,13 @@ export default async function SessionsPage({
         </header>
 
         <InstanceTabs instanceId={instanceId} />
+
+        <IncidentPanel
+          headline={incidente.headline}
+          body={incidente.body}
+          tone={incidente.tone}
+          at={incidente.at}
+        />
 
         <div className="stat-grid">
           <StatCard

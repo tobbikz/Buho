@@ -2,8 +2,10 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AnomalyPanel } from '@/components/AnomalyPanel';
 import { FindingsPanel } from '@/components/FindingsPanel';
+import { IncidentPanel } from '@/components/IncidentPanel';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { ForeignSummary } from '@/components/ForeignSummary';
+import { MongoSummary } from '@/components/MongoSummary';
 import { LabeledBars, type BarRow } from '@/components/LabeledBars';
 import { StatCard, toneForMinimum, toneForPct, toneForScore } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
@@ -20,6 +22,7 @@ import {
 } from '@/lib/format';
 import { getAnomalies, getBaselineCoverage } from '@/lib/baselines';
 import { ENGINE_LABEL, getInstanceEngine } from '@/lib/estate';
+import { explainIncident } from '@/lib/incident';
 import {
   getEvents,
   getFindings,
@@ -100,7 +103,7 @@ export default async function InstancePage({
   // los indicadores que cada motor sí puede contestar. El inventario, que antes
   // era toda su pantalla, ahora es una pestaña más.
   const engine = await getInstanceEngine(instanceId);
-  if (engine === 'mariadb' || engine === 'mssql') {
+  if (engine === 'mariadb' || engine === 'mssql' || engine === 'mongodb') {
     return (
       <>
         <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: instance.alias }]} />
@@ -137,13 +140,22 @@ export default async function InstancePage({
             engine={engine}
             blockedCount={instance.blockedSessions ?? 0}
           />
-          <ForeignSummary
-            instanceId={instanceId}
-            engine={engine}
-            windowMinutes={window.minutes}
-            bucketSeconds={window.bucketSeconds}
-            windowHint={windowHint}
-          />
+          {engine === 'mongodb' ? (
+            <MongoSummary
+              instanceId={instanceId}
+              windowMinutes={window.minutes}
+              bucketSeconds={window.bucketSeconds}
+              windowHint={windowHint}
+            />
+          ) : (
+            <ForeignSummary
+              instanceId={instanceId}
+              engine={engine}
+              windowMinutes={window.minutes}
+              bucketSeconds={window.bucketSeconds}
+              windowHint={windowHint}
+            />
+          )}
         </div>
       </>
     );
@@ -170,6 +182,7 @@ export default async function InstancePage({
       hostCpu,
       anomalies,
       baselineCoverage,
+      incident,
     ] = await Promise.all([
         getSeries(
           instanceId,
@@ -227,6 +240,7 @@ export default async function InstancePage({
         ),
         getAnomalies(instanceId, 8),
         getBaselineCoverage(instanceId),
+        explainIncident(instanceId, window.minutes),
       ]);
 
     data = {
@@ -248,6 +262,7 @@ export default async function InstancePage({
       hostCpu,
       anomalies,
       baselineCoverage,
+      incident,
     };
   } catch (error) {
     return (
@@ -454,6 +469,14 @@ export default async function InstancePage({
           />
           <StatCard label="Uptime" value={formatDuration(instance.uptimeSeconds)} tone="neutral" />
         </div>
+
+        <IncidentPanel
+          headline={data.incident.headline}
+          body={data.incident.body}
+          tone={data.incident.tone}
+          at={data.incident.at}
+          href={`/instances/${instanceId}/sessions`}
+        />
 
         <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
           <TimeseriesPanel

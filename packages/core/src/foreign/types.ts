@@ -54,7 +54,13 @@ export interface ForeignCollector {
   tier: Tier;
   description: string;
   appliesTo?: (caps: ForeignCaps) => boolean;
-  sql: (caps: ForeignCaps) => string;
+  /**
+   * SQL para motores relacionales. En MongoDB se usa `command` en su lugar.
+   * Al menos uno de los dos debe existir.
+   */
+  sql?: (caps: ForeignCaps) => string;
+  /** Comando del protocolo MongoDB (`serverStatus`, `dbStats`, …). */
+  command?: (caps: ForeignCaps) => Record<string, unknown>;
   toSamples: (rows: Record<string, unknown>[], caps: ForeignCaps) => Sample[];
 }
 
@@ -83,7 +89,18 @@ export async function runForeignCollectors(
   for (const collector of collectors) {
     if (collector.appliesTo && !collector.appliesTo(caps)) continue;
     try {
-      const rows = await client.query(collector.sql(caps));
+      let rows: Record<string, unknown>[];
+      if (collector.command) {
+        if (!client.command) {
+          throw new Error('este cliente no soporta command() (sólo MongoDB)');
+        }
+        const doc = await client.command(collector.command(caps));
+        rows = [doc];
+      } else if (collector.sql) {
+        rows = await client.query(collector.sql(caps));
+      } else {
+        throw new Error(`el colector ${collector.id} no declara sql ni command`);
+      }
       samples.push(...collector.toSamples(rows, caps));
     } catch (error) {
       errors.push({

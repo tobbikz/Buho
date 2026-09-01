@@ -15,6 +15,7 @@
 export { probeForeign, parseVersion } from './capabilities';
 export { MARIADB_COLLECTORS } from './mariadb';
 export { MSSQL_COLLECTORS } from './mssql';
+export { MONGODB_COLLECTORS } from './mongodb';
 export { runForeignCollectors } from './types';
 export type { ForeignCaps, ForeignCollector, ForeignRunResult } from './types';
 export { ForeignStatementTracker, sampleForeignStatements, digestToQueryid } from './statements';
@@ -25,12 +26,14 @@ export { readForeignLog, inspectForeignLogging } from './logs';
 import type { EngineKind } from '../engine';
 import { MARIADB_COLLECTORS } from './mariadb';
 import { MSSQL_COLLECTORS } from './mssql';
+import { MONGODB_COLLECTORS } from './mongodb';
 import type { ForeignCaps, ForeignCollector } from './types';
 
 export function foreignCollectorsFor(caps: ForeignCaps, tier?: string): ForeignCollector[] {
   const catalogo: Record<Exclude<EngineKind, 'postgres'>, ForeignCollector[]> = {
     mariadb: MARIADB_COLLECTORS,
     mssql: MSSQL_COLLECTORS,
+    mongodb: MONGODB_COLLECTORS,
   };
   const lista = caps.engine === 'postgres' ? [] : catalogo[caps.engine];
   return lista.filter(

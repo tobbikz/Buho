@@ -2,7 +2,7 @@
 
 Monitor de bases de datos **on-prem**: un colector, un store y una consola. Sin Prometheus, sin Grafana, sin agente en el host del cliente.
 
-**PostgreSQL primero** (13–18). El roadmap sigue motor por motor: MSSQL, MariaDB/MySQL, MongoDB.
+**PostgreSQL primero** (13–18). Cubiertos también: MSSQL, MariaDB/MySQL y MongoDB (métricas + inventario en v0.4).
 
 > Búho no solo grafica métricas: corre un catálogo de checks y dice **qué está mal y cómo se arregla**.
 
@@ -188,7 +188,7 @@ sql/              usuario de monitoreo
 ```
 
 
-## Parque multi-motor (PostgreSQL, MariaDB, SQL Server)
+## Parque multi-motor (PostgreSQL, MariaDB, SQL Server, MongoDB)
 
 Una instancia declara su motor en el config; si no lo declara, es PostgreSQL:
 
@@ -761,6 +761,22 @@ lunes. Eso es lo que el cliente de consultoría DBAOps paga.
 Baja `collector` y `web` desde GHCR (`ghcr.io/tobbikz/buho-monitor/...`) y
 levanta el store. El cliente no necesita Node ni `docker build`. Las imágenes se
 publican al etiquetar un release (`v0.3.0`) con el workflow de GitHub Actions.
+
+## Comparar dos momentos, capacidad, topología e incidentes (v0.4)
+
+Cinco piezas pensadas para el DBA que vende diagnóstico, no dashboards:
+
+1. **Antes / ahora** en Análisis (`?vs=24h`, `6h`, `7d`): la misma ventana
+   desplazada, línea punteada = el pasado alineado al eje de ahora. Sirve para
+   “antes del deploy vs. después” sin dos pestañas.
+2. **Qué pasó** — párrafo en español en Resumen y Sesiones, armado con esperas,
+   bloqueos y la consulta más larga del momento peor. Plantilla auditable, no LLM.
+3. **Capacidad** (`/instances/[id]/capacity`) — proyección lineal de disco, XID,
+   CPU y RAM del host: “con este crecimiento, en X semanas se acaba”.
+4. **Topología** (`/instances/[id]/topology`) — congela el grafo app↔tabla del
+   Flujo semana a semana y muestra qué aristas nacieron, murieron o crecieron ≥2×.
+5. **MongoDB** — motor nuevo: `serverStatus` / `dbStats`, inventario del parque,
+   resumen e Análisis. Sin profiler ni bloqueos todavía (se dice en pantalla).
 
 ## Atribución por aplicación (v0.2)
 

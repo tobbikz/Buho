@@ -1321,6 +1321,10 @@ export class Store {
       retention.lockEpisodeDays,
     ]);
     await this.pool.query(
+      `delete from buho.topology_edges where week_start < (current_date - ($1 || ' days')::interval)`,
+      [Math.max(retention.rollup1hDays, 180)],
+    );
+    await this.pool.query(
       `delete from buho.security_posture where captured_at < now() - ($1 || ' days')::interval`,
       [retention.rollup1hDays],
     );

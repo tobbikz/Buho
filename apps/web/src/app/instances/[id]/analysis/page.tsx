@@ -22,6 +22,7 @@ import {
   type ChartPoint,
 } from '@/lib/queries';
 import { MIN_SAMPLES, getBaseline, withBand } from '@/lib/baselines';
+import { COMPARE_OFFSETS, getSeriesRange, mergeCompare } from '@/lib/compare';
 import { getInstanceEngine } from '@/lib/estate';
 
 export const dynamic = 'force-dynamic';
@@ -78,10 +79,17 @@ export default async function AnalysisPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ m?: string | string[]; w?: string; agg?: string; by?: string; base?: string }>;
+  searchParams: Promise<{
+    m?: string | string[];
+    w?: string;
+    agg?: string;
+    by?: string;
+    base?: string;
+    vs?: string;
+  }>;
 }) {
   const { id } = await params;
-  const { m, w, agg, by, base } = await searchParams;
+  const { m, w, agg, by, base, vs } = await searchParams;
 
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
@@ -132,11 +140,15 @@ export default async function AnalysisPage({
   const breakdownKey = single && by && single.labelKeys.includes(by) ? by : null;
 
   const basePath = `/instances/${instanceId}/analysis`;
+  const compareOffset =
+    COMPARE_OFFSETS.find((entry) => entry.key === vs && entry.hours > 0) ?? null;
+
   const pickerParams = {
     w: window.key,
     ...(aggregation ? { agg: aggregation } : {}),
     ...(breakdownKey ? { by: breakdownKey } : {}),
     ...(base === '1' ? { base: '1' } : {}),
+    ...(compareOffset ? { vs: compareOffset.key } : {}),
   };
 
   function linkWith(overrides: Record<string, string | null>): string {
@@ -154,7 +166,7 @@ export default async function AnalysisPage({
     title: string;
     unit: Unit;
     data: ChartPoint[];
-    series: { metric: string; label: string; color: string }[];
+    series: { metric: string; label: string; color: string; dashed?: boolean }[];
     band?: { key: string; medianKey: string; label: string };
   }[] = [];
   let failure: string | null = null;
@@ -162,9 +174,14 @@ export default async function AnalysisPage({
   // La banda sólo se ofrece con una métrica sin desglose: con dos series, dos
   // bandas superpuestas no se leen, y con desglose la línea base sería la del
   // total y no la de cada etiqueta.
+  //
+  // "vs" (antes/después) y "base" (banda histórica) se excluyen mutuamente: tres
+  // capas en el mismo eje no se leen.
   const canCompare = selectedMeta.length === 1 && !breakdownKey;
-  const comparing = canCompare && base === '1';
+  const comparing = canCompare && base === '1' && !compareOffset;
+  const comparingMoments = Boolean(compareOffset) && !breakdownKey;
   let baselineNote: string | null = null;
+  let compareNote: string | null = null;
 
   try {
     if (breakdownKey && single) {
@@ -189,6 +206,40 @@ export default async function AnalysisPage({
           })),
         },
       ];
+    } else if (comparingMoments && compareOffset) {
+      const nowTo = new Date();
+      const nowFrom = new Date(nowTo.getTime() - window.minutes * 60_000);
+      const offsetMs = compareOffset.hours * 3_600_000;
+      const beforeTo = new Date(nowTo.getTime() - offsetMs);
+      const beforeFrom = new Date(nowFrom.getTime() - offsetMs);
+      const groups = groupByUnit(selectedMeta);
+      panels = await Promise.all(
+        [...groups.entries()].map(async ([unit, metas]) => {
+          const metrics = metas.map((meta) => meta.metric);
+          const agg = aggregation ?? metas[0]?.defaultAgg ?? 'sum';
+          const [nowSeries, beforeSeries] = await Promise.all([
+            getSeriesRange(instanceId, metrics, nowFrom, nowTo, window.bucketSeconds, agg),
+            getSeriesRange(instanceId, metrics, beforeFrom, beforeTo, window.bucketSeconds, agg),
+          ]);
+          const data = mergeCompare(nowSeries, beforeSeries, metrics, offsetMs);
+          const series = metas.flatMap((meta, index) => {
+            const color = SERIES_COLORS[selected.indexOf(meta.metric) % SERIES_COLORS.length] as string;
+            return [
+              { metric: meta.metric, label: `${meta.label} · ahora`, color },
+              {
+                metric: `${meta.metric}:antes`,
+                label: `${meta.label} · ${compareOffset.label.replace(/^vs /, '')}`,
+                color,
+                dashed: true,
+              },
+            ];
+          });
+          return { key: unit, title: UNIT_TITLE[unit], unit, data, series };
+        }),
+      );
+      compareNote =
+        `Misma ventana de ${window.key}, desplazada ${compareOffset.label.replace(/^vs /, '')}. ` +
+        'La línea punteada es el pasado alineado al eje de ahora — útil para “antes del deploy vs. después”.';
     } else {
       const groups = groupByUnit(selectedMeta);
       panels = await Promise.all(
@@ -338,7 +389,7 @@ export default async function AnalysisPage({
                       Línea base
                     </span>
                     <Link
-                      href={linkWith({ base: comparing ? null : '1' })}
+                      href={linkWith({ base: comparing ? null : '1', vs: null })}
                       title="Compara la serie contra lo normal para esa hora"
                       className={`tag ${comparing ? 'tag--info' : 'tag--muted'}`}
                     >
@@ -346,6 +397,33 @@ export default async function AnalysisPage({
                     </Link>
                   </span>
                 )}
+
+                <span className="flex items-center gap-1.5">
+                  <span className="font-semibold uppercase tracking-wide text-foreground-muted">
+                    Antes / ahora
+                  </span>
+                  {COMPARE_OFFSETS.map((entry) => (
+                    <Link
+                      key={entry.key}
+                      href={linkWith({
+                        vs: entry.hours === 0 ? null : entry.key,
+                        base: entry.hours > 0 ? null : pickerParams.base ?? null,
+                      })}
+                      title={
+                        entry.hours === 0
+                          ? 'Sólo la ventana actual'
+                          : 'Misma ventana desplazada: útil tras un deploy'
+                      }
+                      className={`tag ${
+                        (entry.hours === 0 && !compareOffset) || compareOffset?.key === entry.key
+                          ? 'tag--info'
+                          : 'tag--muted'
+                      }`}
+                    >
+                      {entry.key === '0' ? 'ahora' : entry.key}
+                    </Link>
+                  ))}
+                </span>
 
                 <span className="ml-auto font-mono text-[10px] text-foreground-muted">
                   ventana {window.key} · {resolution}
@@ -369,6 +447,12 @@ export default async function AnalysisPage({
             {baselineNote && (
               <section className="panel" style={{ borderLeft: '3px solid var(--accent)' }}>
                 <div className="panel-body text-[12px] text-foreground-secondary">{baselineNote}</div>
+              </section>
+            )}
+
+            {compareNote && (
+              <section className="panel" style={{ borderLeft: '3px solid var(--accent)' }}>
+                <div className="panel-body text-[12px] text-foreground-secondary">{compareNote}</div>
               </section>
             )}
 

@@ -20,6 +20,8 @@ export interface SeriesSpec {
   metric: string;
   label: string;
   color: string;
+  /** Línea punteada: la serie "de antes" en comparación de dos momentos. */
+  dashed?: boolean;
 }
 
 // Las funciones no cruzan la frontera servidor→cliente, así que el formato se
@@ -171,7 +173,9 @@ export function TimeseriesPanel({
                   name={spec.label}
                   dataKey={spec.metric}
                   stroke={spec.color}
-                  strokeWidth={1.5}
+                  strokeWidth={spec.dashed ? 1.25 : 1.5}
+                  strokeDasharray={spec.dashed ? '4 3' : undefined}
+                  strokeOpacity={spec.dashed ? 0.85 : 1}
                   dot={false}
                   activeDot={{ r: 2.5 }}
                   connectNulls

@@ -1,5 +1,6 @@
 import type { EngineClient } from '../engine';
 import { collectMariadb } from './mariadb';
+import { collectMongodb } from './mongodb';
 import { collectMssql } from './mssql';
 import { collectPostgres } from './postgres';
 import type { InventorySnapshot } from './types';
@@ -23,5 +24,7 @@ export async function collectInventory(client: EngineClient): Promise<InventoryS
       return collectMariadb(client);
     case 'mssql':
       return collectMssql(client);
+    case 'mongodb':
+      return collectMongodb(client);
   }
 }

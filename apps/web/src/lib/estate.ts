@@ -19,12 +19,13 @@ import { query } from './db';
  * `distinct on (host, port, ...)` que se repite en estas consultas.
  */
 
-export type EngineKind = 'postgres' | 'mariadb' | 'mssql';
+export type EngineKind = 'postgres' | 'mariadb' | 'mssql' | 'mongodb';
 
 export const ENGINE_LABEL: Record<string, string> = {
   postgres: 'PostgreSQL',
   mariadb: 'MariaDB',
   mssql: 'SQL Server',
+  mongodb: 'MongoDB',
 };
 
 export interface EstateInstance {

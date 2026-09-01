@@ -41,6 +41,12 @@ const EOL: Record<EngineKind, Record<string, string>> = {
     '15': '2030-01-08',
     '16': '2033-01-11',
   },
+  // MongoDB: Rapid Release ~30 días; Major (x.0) tiene 3 años de soporte.
+  mongodb: {
+    '6': '2025-07-31',
+    '7': '2026-08-15',
+    '8': '2027-10-02',
+  },
 };
 
 const PRODUCT_NAME: Record<string, string> = {

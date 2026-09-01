@@ -213,5 +213,49 @@ async function probeMssql(client: EngineClient): Promise<ForeignCaps> {
 export async function probeForeign(client: EngineClient): Promise<ForeignCaps> {
   if (client.kind === 'mariadb') return probeMariadb(client);
   if (client.kind === 'mssql') return probeMssql(client);
+  if (client.kind === 'mongodb') return probeMongodb(client);
   throw new Error(`probeForeign no aplica a ${client.kind}`);
+}
+
+async function probeMongodb(client: EngineClient): Promise<ForeignCaps> {
+  if (!client.command) throw new Error('cliente MongoDB sin command()');
+
+  const build = await client.command({ buildInfo: 1 });
+  const hello = await client.command({ hello: 1 });
+  const status = await client.command({
+    serverStatus: 1,
+    repl: 0,
+    metrics: 0,
+    wiredTiger: 0,
+  });
+
+  const versionText = str(build['version'], 'desconocida');
+  const uptime = num(status['uptime']);
+  const setName = hello['setName'] ?? status['setName'];
+  const isRepl = Boolean(setName);
+  const isPrimary = hello['isWritablePrimary'] === true || hello['ismaster'] === true;
+
+  const limitations: string[] = [
+    'MongoDB v0.4: métricas de serverStatus/dbStats. Sin profiler de consultas ni topología de sharding todavía.',
+  ];
+
+  return {
+    engine: 'mongodb',
+    versionText,
+    versionNum: parseVersion(versionText),
+    flavor: str(build['modules'] ? 'MongoDB' : 'MongoDB', 'MongoDB'),
+    startedAt: uptime > 0 ? new Date(Date.now() - uptime * 1000) : null,
+    serverName: str(status['host'], 'desconocido'),
+    role: isRepl ? (isPrimary ? 'primary' : 'replica') : 'primary',
+    features: {
+      statementDigests: false,
+      lockWaits: false,
+      seesAllSessions: true,
+      queryStore: false,
+      alwaysOn: isRepl,
+      slowLog: false,
+      binlog: false,
+    },
+    limitations,
+  };
 }

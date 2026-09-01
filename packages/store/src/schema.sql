@@ -263,6 +263,28 @@ create table if not exists buho.session_samples_default
 create index if not exists session_samples_lookup
   on buho.session_samples (instance_id, ts desc);
 
+-- ------------------------------------- topología app ↔ tabla (semanal)
+--
+-- Congela el grafo vivo del flujo una vez por semana. Sirve para comparar
+-- "antes del deploy vs. ahora" sin rehacer el análisis léxico sobre meses de
+-- statement_stats. No está particionada: son cientos de filas por instancia
+-- y semana, no una serie cruda.
+create table if not exists buho.topology_edges (
+  instance_id  bigint      not null references buho.instances (instance_id) on delete cascade,
+  week_start   date        not null,
+  actor        text        not null,
+  schema_name  text        not null,
+  relation     text        not null,
+  direction    text        not null check (direction in ('escritura', 'lectura')),
+  weight       double precision not null,
+  samples      integer     not null default 0,
+  captured_at  timestamptz not null default now(),
+  primary key (instance_id, week_start, actor, schema_name, relation, direction)
+);
+
+create index if not exists topology_edges_week
+  on buho.topology_edges (instance_id, week_start desc);
+
 -- La primera versión de esta tabla no estaba particionada. Una tabla plana no
 -- se convierte con ALTER, así que se renombra, se recrea particionada y se
 -- copian las filas (que caen en la partición por defecto y de ahí las mueve la
