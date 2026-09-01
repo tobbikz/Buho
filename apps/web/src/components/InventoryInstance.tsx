@@ -10,7 +10,7 @@ const DAY_MS = 86_400_000;
  * Pantalla de instancia para los motores que entran sólo por inventario.
  *
  * Antes esta ruta renderizaba la plantilla de PostgreSQL para cualquier motor:
- * un SQL Server mostraba "edad de XID", "WAL generado por segundo" y un aviso de
+ * un SQL Server mostraba "edad de XID", "WAL generated per second" y un aviso de
  * `pg_stat_statements`, todo vacío. Es peor que no tener la pantalla, porque
  * quien la ve concluye que la herramienta está rota y deja de creerle también a
  * los datos correctos.
@@ -52,38 +52,38 @@ export function InventoryInstance({
     <div className="flex flex-col gap-[0.875rem]">
       <section className="panel">
         <div className="panel-body text-[12.5px]">
-          <strong>{ENGINE_LABEL[engine] ?? engine} entra por el inventario del parque.</strong> Las series de
-          métricas cada cinco segundos, los 22 checks y el análisis por consulta son de PostgreSQL: las vistas de
-          estadísticas de los tres motores no se parecen, y forzarlas a un molde común terminaría mintiendo sobre lo
-          que mide cada una. Lo que sí se unifica es el inventario, que es lo que aparece abajo y en{' '}
+          <strong>{ENGINE_LABEL[engine] ?? engine} comes in through estate inventory.</strong> Five-second
+          metric series, the 22 checks, and per-query analysis are PostgreSQL: the statistics views of
+          the three engines do not match, and forcing them into one mold would lie about what
+          each one measures. What is unified is inventory, which is what appears below and in{' '}
           <Link href="/estate" className="underline decoration-dotted">
-            Parque
+            Estate
           </Link>
           .
         </div>
       </section>
 
       <div className="stat-grid">
-        <StatCard label="Versión" value={shortVersion(info?.versionText)} hint={info?.versionText ?? 'sin inventariar'} />
-        <StatCard label="Edición" value={info?.edition ?? '—'} hint={info?.updateLevel ?? info?.productLevel ?? undefined} />
+        <StatCard label="Version" value={shortVersion(info?.versionText)} hint={info?.versionText ?? 'not inventoried'} />
+        <StatCard label="Edition" value={info?.edition ?? '—'} hint={info?.updateLevel ?? info?.productLevel ?? undefined} />
         <StatCard
           label="Fin de soporte"
           value={info?.eolDate ?? '—'}
-          hint={eolDays === null ? undefined : eolDays < 0 ? `vencido hace ${-eolDays} días` : `en ${eolDays} días`}
+          hint={eolDays === null ? undefined : eolDays < 0 ? `expired ${-eolDays} days ago` : `in ${eolDays} days`}
           tone={eolDays === null ? 'neutral' : eolDays < 0 ? 'error' : eolDays < 180 ? 'warn' : 'ok'}
         />
-        <StatCard label="Núcleos" value={info?.cores ? String(info.cores) : '—'} hint={info?.memoryBytes ? formatBytes(info.memoryBytes) : undefined} />
+        <StatCard label="Cores" value={info?.cores ? String(info.cores) : '—'} hint={info?.memoryBytes ? formatBytes(info.memoryBytes) : undefined} />
         <StatCard label="Datos" value={formatBytes(totalSize)} hint={`${inventory.disks.filter((d) => d.kind === 'database').length} bases`} />
         <StatCard label="Arranque" value={info?.startedAt ? formatAgo(info.startedAt) : '—'} />
         <StatCard
-          label="Jobs con error"
+          label="Jobs with errors"
           value={String(failedJobs.length)}
           hint={`${inventory.jobs.length} tareas`}
           tone={failedJobs.length > 0 ? 'error' : 'ok'}
         />
         <StatCard
           label="Licencia"
-          value={licensing?.productionOk === false ? 'no apta' : licensing?.productionOk === null ? 'libre' : 'apta'}
+          value={licensing?.productionOk === false ? 'not eligible' : licensing?.productionOk === null ? 'libre' : 'apta'}
           hint={licensing?.edition ?? undefined}
           tone={licensing?.productionOk === false ? 'error' : 'ok'}
         />
@@ -94,21 +94,21 @@ export function InventoryInstance({
       <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Respaldos</span>
+            <span className="panel-title">Backups</span>
             <Link href="/estate" className="text-[11px] underline decoration-dotted">
-              ver todo el parque
+              see the whole estate
             </Link>
           </div>
           {inventory.backups.length === 0 ? (
-            <div className="empty">Sin datos de respaldo.</div>
+            <div className="empty">No backup data.</div>
           ) : (
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Base</th>
+                  <th>Database</th>
                   <th>Tipo</th>
-                  <th>Último</th>
-                  <th className="text-right">Tamaño</th>
+                  <th>Last</th>
+                  <th className="text-right">Size</th>
                 </tr>
               </thead>
               <tbody>
@@ -120,7 +120,7 @@ export function InventoryInstance({
                       {row.finishedAt ? (
                         formatAgo(row.finishedAt)
                       ) : (
-                        <span className="tag tag--error">nunca</span>
+                        <span className="tag tag--error">never</span>
                       )}
                     </td>
                     <td className="num">{row.sizeBytes ? formatBytes(row.sizeBytes) : '·'}</td>
@@ -133,17 +133,17 @@ export function InventoryInstance({
 
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Replicación</span>
+            <span className="panel-title">Replication</span>
           </div>
           {inventory.replication.length === 0 ? (
-            <div className="empty">Sin datos de replicación.</div>
+            <div className="empty">No replication data.</div>
           ) : (
             <table className="data-table">
               <thead>
                 <tr>
                   <th>Rol</th>
                   <th>Par</th>
-                  <th>Estado</th>
+                  <th>State</th>
                   <th className="text-right">Lag</th>
                 </tr>
               </thead>
@@ -170,16 +170,16 @@ export function InventoryInstance({
           </Link>
         </div>
         {inventory.jobs.length === 0 ? (
-          <div className="empty">Sin tareas registradas en el motor.</div>
+          <div className="empty">No jobs registered in the engine.</div>
         ) : (
           <table className="data-table">
             <thead>
               <tr>
                 <th>Tarea</th>
-                <th>Categoría</th>
-                <th>Estado</th>
-                <th>Última corrida</th>
-                <th className="text-right">Duración</th>
+                <th>Category</th>
+                <th>State</th>
+                <th>Last run</th>
+                <th className="text-right">Duration</th>
               </tr>
             </thead>
             <tbody>
@@ -189,13 +189,13 @@ export function InventoryInstance({
                   <td className="text-[11px] text-foreground-secondary">{job.scope || '·'}</td>
                   <td>
                     {job.enabled === false ? (
-                      <span className="tag tag--warn">deshabilitado</span>
+                      <span className="tag tag--warn">disabled</span>
                     ) : job.lastStatus === 'falló' ? (
-                      <span className="tag tag--error">falló</span>
+                      <span className="tag tag--error">failed</span>
                     ) : job.lastStatus ? (
                       <span className="tag tag--ok">{job.lastStatus}</span>
                     ) : (
-                      <span className="tag tag--muted">sin historial</span>
+                      <span className="tag tag--muted">no history</span>
                     )}
                   </td>
                   <td className="text-[11px]">{job.lastRunAt ? formatAgo(job.lastRunAt) : '·'}</td>
@@ -211,22 +211,22 @@ export function InventoryInstance({
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Configuración auditada</span>
+          <span className="panel-title">Audited configuration</span>
           <Link href="/estate/configuration" className="text-[11px] underline decoration-dotted">
-            comparar con el parque
+            compare with the estate
           </Link>
         </div>
         {inventory.settings.length === 0 ? (
-          <div className="empty">Sin parámetros inventariados.</div>
+          <div className="empty">No inventoried parameters.</div>
         ) : (
           <div className="table-scroll" style={{ maxHeight: '24rem' }}>
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Parámetro</th>
+                  <th>Parameter</th>
                   <th>Valor</th>
                   <th>Por defecto</th>
-                  <th>Reinicio</th>
+                  <th>Restart</th>
                 </tr>
               </thead>
               <tbody>
@@ -234,11 +234,11 @@ export function InventoryInstance({
                   <tr key={row.name}>
                     <td className="font-mono text-[11px]">{row.name}</td>
                     <td className="font-mono text-[11px]">
-                      {row.value === '' ? '(vacío)' : row.value}
+                      {row.value === '' ? '(empty)' : row.value}
                       {row.unit ? <span className="text-foreground-muted"> {row.unit}</span> : null}
                     </td>
-                    <td>{row.isDefault ? <span className="tag tag--muted">sí</span> : '·'}</td>
-                    <td>{row.requiresRestart ? <span className="tag tag--muted">sí</span> : '·'}</td>
+                    <td>{row.isDefault ? <span className="tag tag--muted">yes</span> : '·'}</td>
+                    <td>{row.requiresRestart ? <span className="tag tag--muted">yes</span> : '·'}</td>
                   </tr>
                 ))}
               </tbody>

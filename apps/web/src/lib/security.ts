@@ -6,7 +6,7 @@ import { ENGINE_LABEL, type EstateInstance } from './estate';
  *
  * A diferencia del parque, acá no se colapsa por (host, puerto). Es tentador
  * hacerlo —dos entradas del config contra el mismo clúster producen los mismos
- * hallazgos— pero el riesgo de esconder un hallazgo real es peor que el de
+ * findings— pero el riesgo de esconder un hallazgo real es peor que el de
  * mostrarlo dos veces: si una de las dos entradas usa un usuario con menos
  * permisos, sus resultados no son los mismos y colapsarlas descartaría
  * precisamente la lectura que sí vio el problema.
@@ -15,21 +15,21 @@ import { ENGINE_LABEL, type EstateInstance } from './estate';
 export type Severity = 'critica' | 'alta' | 'media' | 'baja' | 'ok' | 'no_verificable';
 
 export const SEVERITY_LABEL: Record<Severity, string> = {
-  critica: 'Crítica',
-  alta: 'Alta',
-  media: 'Media',
-  baja: 'Baja',
-  ok: 'Correcto',
-  no_verificable: 'No verificable',
+  critica: 'Critical',
+  alta: 'High',
+  media: 'Medium',
+  baja: 'Low',
+  ok: 'OK',
+  no_verificable: 'Not verifiable',
 };
 
 export const CATEGORY_LABEL: Record<string, string> = {
-  autenticacion: 'Autenticación',
-  privilegios: 'Privilegios',
-  cifrado: 'Cifrado',
-  superficie: 'Superficie de ataque',
-  auditoria: 'Auditoría y registro',
-  acceso_publico: 'Acceso público',
+  autenticacion: 'Authentication',
+  privilegios: 'Privileges',
+  cifrado: 'Encryption',
+  superficie: 'Attack surface',
+  auditoria: 'Audit and logging',
+  acceso_publico: 'Public access',
 };
 
 export const SEVERITY_RANK: Record<Severity, number> = {

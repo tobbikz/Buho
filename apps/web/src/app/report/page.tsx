@@ -12,10 +12,10 @@ const DATE = new Intl.DateTimeFormat('es-CR', { dateStyle: 'long' });
 const DATETIME = new Intl.DateTimeFormat('es-CR', { dateStyle: 'medium', timeStyle: 'short' });
 
 const BACKUP_STATE: Record<BackupState, string> = {
-  sin_recuperacion: 'sin recuperación',
-  atrasado: 'atrasado',
-  no_verificable: 'no verificable',
-  ok: 'al día',
+  sin_recuperacion: 'no recovery',
+  atrasado: 'overdue',
+  no_verificable: 'not verifiable',
+  ok: 'current',
 };
 
 const BACKUP_TAG: Record<BackupState, string> = {
@@ -33,10 +33,10 @@ const BACKUP_KIND: Record<string, string> = {
 };
 
 const WEEKS = [
-  { key: 0, label: 'Últimos 7 días' },
-  { key: 1, label: 'Semana anterior' },
-  { key: 2, label: 'Hace dos semanas' },
-  { key: 3, label: 'Hace tres semanas' },
+  { key: 0, label: 'Last 7 days' },
+  { key: 1, label: 'Previous week' },
+  { key: 2, label: 'Two weeks ago' },
+  { key: 3, label: 'Three weeks ago' },
 ];
 
 function pct(value: number | null, digits = 1): string {
@@ -75,41 +75,41 @@ function Verdict({ report }: { report: WeeklyReport }) {
   const frases: string[] = [];
   if (totals.critical > 0) {
     frases.push(
-      `Hay ${totals.critical} hallazgo${totals.critical === 1 ? '' : 's'} crítico${
+      `There ${totals.critical === 1 ? 'is' : 'are'} ${totals.critical} critical finding${
         totals.critical === 1 ? '' : 's'
-      } abierto${totals.critical === 1 ? '' : 's'} al cierre de la semana`,
+      } open at week close`,
     );
   } else if (totals.warning > 0) {
     frases.push(
-      `Sin hallazgos críticos; quedan ${totals.warning} advertencia${totals.warning === 1 ? '' : 's'}`,
+      `No critical findings; ${totals.warning} warning${totals.warning === 1 ? '' : 's'} remain`,
     );
   } else {
-    frases.push('La semana cierra sin hallazgos críticos ni advertencias');
+    frases.push('The week closes with no critical findings or warnings');
   }
 
   if (trend !== null) {
-    if (Math.abs(trend) < 1) frases.push('la salud del parque se mantuvo estable');
-    else if (trend > 0) frases.push(`la salud del parque mejoró ${trend.toFixed(0)} puntos`);
-    else frases.push(`la salud del parque cayó ${Math.abs(trend).toFixed(0)} puntos`);
+    if (Math.abs(trend) < 1) frases.push('estate health stayed stable');
+    else if (trend > 0) frases.push(`estate health improved ${trend.toFixed(0)} points`);
+    else frases.push(`estate health dropped ${Math.abs(trend).toFixed(0)} points`);
   }
   if (totals.deadlocks > 0) frases.push(totals.deadlocks === 1
-        ? 'se registró un deadlock en el log'
-        : `se registraron ${totals.deadlocks} deadlocks en el log`);
+        ? 'one deadlock was logged'
+        : `${totals.deadlocks} deadlocks were logged`);
   if (totals.lockEpisodes > 0) {
     frases.push(totals.lockEpisodes === 1
-        ? 'una sesión estuvo esperando un lock'
-        : `${totals.lockEpisodes} sesiones estuvieron esperando un lock`);
+        ? 'one session waited on a lock'
+        : `${totals.lockEpisodes} sessions waited on a lock`);
   }
   if (totals.growthBytes !== null && totals.growthBytes > 0) {
-    frases.push(`los datos crecieron ${formatBytes(totals.growthBytes)}`);
+    frases.push(`data grew by ${formatBytes(totals.growthBytes)}`);
   }
   if (totals.lockWaitShare !== null && totals.lockWaitShare >= 0.1) {
     frases.push(
-      `el ${(totals.lockWaitShare * 100).toFixed(0)} % del tiempo de sesión se fue en bloqueos`,
+      `${(totals.lockWaitShare * 100).toFixed(0)} % of session time went to locks`,
     );
   }
   if (totals.ioWaitShare !== null && totals.ioWaitShare >= 0.2) {
-    frases.push(`el ${(totals.ioWaitShare * 100).toFixed(0)} % del tiempo de sesión esperó disco`);
+    frases.push(`${(totals.ioWaitShare * 100).toFixed(0)} % of session time waited on disk`);
   }
 
   return <p className="text-[13px] leading-relaxed">{frases.join(', ')}.</p>;
@@ -141,32 +141,32 @@ function InstanceBlock({ row }: { row: ReportInstance }) {
       : null;
 
   const filas: { label: string; metric: ReportMetric | null; fmt: (v: number | null) => string }[] = [
-    { label: 'Conexiones usadas', metric: row.connectionsPct, fmt: (value: number | null) => pct(value) },
-    { label: 'Aciertos de caché', metric: row.cacheHitPct, fmt: (value: number | null) => pct(value) },
-    { label: 'CPU del host', metric: row.cpuPct, fmt: (value: number | null) => pct(value) },
-    { label: 'Memoria del host', metric: row.memPct, fmt: (value: number | null) => pct(value) },
-    { label: 'Disco usado', metric: row.diskPct, fmt: (value: number | null) => pct(value) },
-    { label: 'Commits por segundo', metric: row.commitsPerSec, fmt: (value: number | null) => formatNumber(value, 1) },
-    { label: 'Edad del XID', metric: row.xidAgePct, fmt: (value: number | null) => pct(value) },
-    { label: 'Lag de replicación', metric: row.replicationLag, fmt: (value: number | null) => seconds(value) },
+    { label: 'Connections used', metric: row.connectionsPct, fmt: (value: number | null) => pct(value) },
+    { label: 'Cache hits', metric: row.cacheHitPct, fmt: (value: number | null) => pct(value) },
+    { label: 'Host CPU', metric: row.cpuPct, fmt: (value: number | null) => pct(value) },
+    { label: 'Host memory', metric: row.memPct, fmt: (value: number | null) => pct(value) },
+    { label: 'Disk used', metric: row.diskPct, fmt: (value: number | null) => pct(value) },
+    { label: 'Commits per second', metric: row.commitsPerSec, fmt: (value: number | null) => formatNumber(value, 1) },
+    { label: 'XID age', metric: row.xidAgePct, fmt: (value: number | null) => pct(value) },
+    { label: 'Replication lag', metric: row.replicationLag, fmt: (value: number | null) => seconds(value) },
   ].filter((fila) => fila.metric && fila.metric.avg !== null);
 
   const incidentes: string[] = [];
   if (row.lockEpisodes > 0) {
     incidentes.push(
-      `${row.lockEpisodes} episodio${row.lockEpisodes === 1 ? '' : 's'} de bloqueo` +
-        `${row.lockWorstSeconds === null ? '' : `, el peor esperó ${seconds(row.lockWorstSeconds)}`}`,
+      `${row.lockEpisodes} lock episode${row.lockEpisodes === 1 ? '' : 's'}` +
+        `${row.lockWorstSeconds === null ? '' : `, worst waited ${seconds(row.lockWorstSeconds)}`}`,
     );
   }
   if (row.logAvailable) {
     if (row.logDeadlocks > 0) {
       incidentes.push(
-        row.logDeadlocks === 1 ? 'un deadlock en el log' : `${row.logDeadlocks} deadlocks en el log`,
+        row.logDeadlocks === 1 ? 'one deadlock in the log' : `${row.logDeadlocks} deadlocks in the log`,
       );
     }
     if (row.logErrors > 0) {
       incidentes.push(
-        row.logErrors === 1 ? 'un error en el log' : `${row.logErrors} errores en el log`,
+        row.logErrors === 1 ? 'one error in the log' : `${row.logErrors} errors in the log`,
       );
     }
   }
@@ -181,18 +181,18 @@ function InstanceBlock({ row }: { row: ReportInstance }) {
         </span>
         <span className="font-mono text-[10.5px] text-foreground-muted">
           {row.environment} · {row.engine}
-          {row.scoreEnd !== null && ` · salud ${row.scoreEnd}`}
+          {row.scoreEnd !== null && ` · health ${row.scoreEnd}`}
           {row.scoreStart !== null &&
             row.scoreEnd !== null &&
             row.scoreStart !== row.scoreEnd &&
-            ` (abrió en ${row.scoreStart})`}
+            ` (opened at ${row.scoreStart})`}
         </span>
       </div>
 
       <div className="panel-body space-y-3">
         {row.coveragePct !== null && row.coveragePct < 95 && (
           <p className="notice notice--warn text-[12px]">
-            El monitoreo cubrió {pct(row.coveragePct, 0)} de las horas de la semana. Los promedios
+            Monitoring covered {pct(row.coveragePct, 0)} of the week's hours. Averages
             excluyen las horas sin muestras.
           </p>
         )}
@@ -203,7 +203,7 @@ function InstanceBlock({ row }: { row: ReportInstance }) {
               <thead>
                 <tr>
                   <th>Indicador</th>
-                  <th className="text-right">Promedio</th>
+                  <th className="text-right">Average</th>
                   <th className="text-right">Pico</th>
                   <th className="text-right">Semana anterior</th>
                   <th className="text-right">Cambio</th>
@@ -227,17 +227,17 @@ function InstanceBlock({ row }: { row: ReportInstance }) {
             </table>
           </div>
         ) : (
-          <p className="empty">No hay muestras de esta instancia en el periodo.</p>
+          <p className="empty">No samples for this instance in the period.</p>
         )}
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-              Crecimiento
+              Growth
             </div>
             <p className="mt-1 text-[12.5px]">
               {growth === null
-                ? 'Sin datos de tamaño en el periodo.'
+                ? 'No size data in the period.'
                 : `De ${formatBytes(row.sizeStartBytes)} a ${formatBytes(row.sizeEndBytes)}: ${
                     growth >= 0 ? '+' : '−'
                   }${formatBytes(Math.abs(growth))}.`}
@@ -251,8 +251,8 @@ function InstanceBlock({ row }: { row: ReportInstance }) {
               {incidentes.length > 0
                 ? `${incidentes.join('; ')}.`
                 : row.logAvailable
-                  ? 'Ninguno: ni bloqueos ni errores en el log.'
-                  : 'Sin bloqueos registrados. El log de esta instancia no se está leyendo, así que los deadlocks y los errores de la aplicación no entran en el informe.'}
+                  ? 'None: no locks and no log errors.'
+                  : 'No locks recorded. This instance log is not being read, so deadlocks and application errors are not in the report.'}
             </p>
           </div>
         </div>
@@ -260,7 +260,7 @@ function InstanceBlock({ row }: { row: ReportInstance }) {
         {row.waitProfile && row.waitProfile.length > 0 && (
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-              En qué se esperó · {row.waitSamples} fotos
+              Where waits went · {row.waitSamples} samples
             </div>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {row.waitProfile.slice(0, 6).map((w) => (
@@ -293,9 +293,9 @@ function InstanceBlock({ row }: { row: ReportInstance }) {
                 <thead>
                   <tr>
                     <th>Tabla</th>
-                    <th className="text-right">Tuplas muertas</th>
+                    <th className="text-right">Dead tuples</th>
                     <th className="text-right">Bloat</th>
-                    <th className="text-right">Último vacuum</th>
+                    <th className="text-right">Last vacuum</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -314,7 +314,7 @@ function InstanceBlock({ row }: { row: ReportInstance }) {
                         )}
                       </td>
                       <td className="text-right font-mono">
-                        {table.lastVacuum ? DATE.format(table.lastVacuum) : 'nunca'}
+                        {table.lastVacuum ? DATE.format(table.lastVacuum) : 'never'}
                       </td>
                     </tr>
                   ))}
@@ -327,7 +327,7 @@ function InstanceBlock({ row }: { row: ReportInstance }) {
         {row.topQueries.length > 0 && (
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-              Consultas que más tiempo consumieron
+              Queries that consumed the most time
             </div>
             <ul className="mt-1 space-y-1.5">
               {row.topQueries.map((q) => (
@@ -338,7 +338,7 @@ function InstanceBlock({ row }: { row: ReportInstance }) {
                   </span>
                   <div className="mt-0.5 truncate font-mono text-[11px] text-foreground-secondary">
                     <Link href={`/instances/${row.instanceId}/queries/${q.queryid}`} className="underline">
-                      {(q.text ?? '(sin texto)').replace(/\s+/g, ' ').slice(0, 160)}
+                      {(q.text ?? '(no text)').replace(/\s+/g, ' ').slice(0, 160)}
                     </Link>
                   </div>
                 </li>
@@ -366,7 +366,7 @@ export default async function ReportPage({
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: 'Informe' }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: 'Report' }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -382,7 +382,7 @@ export default async function ReportPage({
 
   return (
     <>
-      <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: 'Informe semanal' }]} />
+      <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: 'Weekly report' }]} />
 
       <div className="page space-y-[0.875rem]">
         <section className="panel">
@@ -418,32 +418,32 @@ export default async function ReportPage({
 
             <div className="stat-grid">
               <StatCard
-                label="Salud promedio"
+                label="Average health"
                 value={totals.scoreAvg === null ? '—' : totals.scoreAvg.toFixed(0)}
                 tone={toneForScore(totals.scoreAvg)}
                 hint={
                   trend === null
-                    ? 'sin semana anterior para comparar'
+                    ? 'no previous week to compare'
                     : `${trend >= 0 ? '+' : '−'}${Math.abs(trend).toFixed(0)} vs. anterior`
                 }
               />
               <StatCard
-                label="Críticos"
+                label="Criticals"
                 value={String(totals.critical)}
                 tone={totals.critical > 0 ? 'error' : 'ok'}
-                hint="abiertos al cierre"
+                hint="open at close"
               />
               <StatCard
                 label="Advertencias"
                 value={String(totals.warning)}
                 tone={totals.warning > 0 ? 'warn' : 'ok'}
-                hint="abiertas al cierre"
+                hint="open at close"
               />
               <StatCard
-                label="Bloqueos"
+                label="Locks"
                 value={String(totals.lockEpisodes)}
                 tone={totals.lockEpisodes > 0 ? 'warn' : 'ok'}
-                hint="sesiones que esperaron"
+                hint="sessions that waited"
               />
               <StatCard
                 label="Tiempo en Lock"
@@ -455,7 +455,7 @@ export default async function ReportPage({
                       ? 'warn'
                       : 'ok'
                 }
-                hint="del tiempo de sesión"
+                hint="of session time"
               />
               <StatCard
                 label="Tiempo en IO"
@@ -463,20 +463,20 @@ export default async function ReportPage({
                 tone={
                   totals.ioWaitShare !== null && totals.ioWaitShare >= 0.25 ? 'warn' : 'ok'
                 }
-                hint="del tiempo de sesión"
+                hint="of session time"
               />
               <StatCard
                 label="Deadlocks"
                 value={String(totals.deadlocks)}
                 tone={totals.deadlocks > 0 ? 'error' : 'ok'}
-                hint="leídos del log"
+                hint="read from the log"
               />
               <StatCard
-                label="Crecimiento"
+                label="Growth"
                 value={totals.growthBytes === null ? '—' : formatBytes(totals.growthBytes)}
-                hint="datos, en el periodo"
+                hint="data, in the period"
               />
-              <StatCard label="Instancias" value={String(totals.instances)} hint="monitoreadas" />
+              <StatCard label="Instances" value={String(totals.instances)} hint="monitoreadas" />
             </div>
           </div>
         </section>
@@ -497,7 +497,7 @@ export default async function ReportPage({
                     <span
                       className={`tag ${action.severity === 'critical' ? 'tag--error' : 'tag--warn'}`}
                     >
-                      {action.severity === 'critical' ? 'crítico' : 'advertencia'}
+                      {action.severity === 'critical' ? 'critical' : 'warning'}
                     </span>
                     <span className="text-[12.5px] font-semibold">{action.title}</span>
                     <span className="font-mono text-[10.5px] text-foreground-muted">
@@ -518,7 +518,7 @@ export default async function ReportPage({
         {report.backups.length > 0 && (
           <section className="panel">
             <div className="panel-header">
-              <span className="panel-title">Respaldos</span>
+              <span className="panel-title">Backups</span>
             </div>
             <div className="panel-body space-y-2">
               <div className="table-scroll">
@@ -526,11 +526,11 @@ export default async function ReportPage({
                   <thead>
                     <tr>
                       <th>Instancia</th>
-                      <th>Base</th>
+                      <th>Database</th>
                       <th>Tipo</th>
-                      <th>Estado</th>
-                      <th>Último</th>
-                      <th>Origen del dato</th>
+                      <th>State</th>
+                      <th>Last</th>
+                      <th>Data source</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -545,7 +545,7 @@ export default async function ReportPage({
                           </span>
                         </td>
                         <td className="font-mono text-[11px]">
-                          {backup.finishedAt ? DATETIME.format(backup.finishedAt) : 'sin registro'}
+                          {backup.finishedAt ? DATETIME.format(backup.finishedAt) : 'no record'}
                         </td>
                         <td className="font-mono text-[11px] text-foreground-secondary">
                           {backup.source}
@@ -557,7 +557,7 @@ export default async function ReportPage({
               </div>
               <p className="text-[11.5px] text-foreground-muted">
                 Búho reporta lo que el motor sabe de sus propios respaldos. Un respaldo hecho por una
-                herramienta externa que no deja rastro en el motor no aparece aquí, y eso no significa
+                external tool that leaves no trail in the engine does not appear here, and that does not mean
                 que no exista.
               </p>
             </div>

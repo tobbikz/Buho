@@ -24,26 +24,26 @@ export default async function JobsPage() {
     <div className="flex flex-col gap-[0.875rem]">
       <div className="stat-grid">
         <StatCard
-          label="Con error en la última corrida"
+          label="Failed on last run"
           value={String(failed.length)}
           tone={failed.length > 0 ? 'error' : 'ok'}
         />
         <StatCard
           label="Deshabilitados"
           value={String(disabled.length)}
-          hint="un job de respaldo apagado no avisa que no corrió"
+          hint="a disabled backup job will not warn that it did not run"
           tone={disabled.length > 0 ? 'warn' : 'ok'}
         />
         <StatCard
-          label="Sin historial"
+          label="No history"
           value={String(neverRan.length)}
-          hint="definidos pero nunca ejecutados"
+          hint="defined but never run"
           tone={neverRan.length > 0 ? 'warn' : 'ok'}
         />
         <StatCard label="Tareas inventariadas" value={String(rows.length)} />
       </div>
 
-      <NotesPanel notes={notes} title="Dónde viven las tareas de cada motor" />
+      <NotesPanel notes={notes} title="Where each engine keeps its jobs" />
 
       <section className="panel">
         <div className="panel-header">
@@ -63,13 +63,13 @@ export default async function JobsPage() {
               <thead>
                 <tr>
                   <th>Instancia</th>
-                  <th>Motor</th>
+                  <th>Engine</th>
                   <th>Tarea</th>
-                  <th>Categoría</th>
-                  <th>Estado</th>
-                  <th>Última corrida</th>
-                  <th className="text-right">Duración</th>
-                  <th>Próxima</th>
+                  <th>Category</th>
+                  <th>State</th>
+                  <th>Last run</th>
+                  <th className="text-right">Duration</th>
+                  <th>Next</th>
                 </tr>
               </thead>
               <tbody>
@@ -87,13 +87,13 @@ export default async function JobsPage() {
                     <td className="text-[11px] text-foreground-secondary">{row.scope || '·'}</td>
                     <td>
                       {row.enabled === false ? (
-                        <span className="tag tag--warn">deshabilitado</span>
+                        <span className="tag tag--warn">disabled</span>
                       ) : row.lastStatus === 'falló' ? (
-                        <span className="tag tag--error">falló</span>
+                        <span className="tag tag--error">failed</span>
                       ) : row.lastStatus ? (
                         <span className="tag tag--ok">{row.lastStatus}</span>
                       ) : (
-                        <span className="tag tag--muted">sin historial</span>
+                        <span className="tag tag--muted">no history</span>
                       )}
                     </td>
                     <td className="text-[11px]">{row.lastRunAt ? formatAgo(row.lastRunAt) : '·'}</td>
@@ -110,7 +110,7 @@ export default async function JobsPage() {
                           hour12: false,
                         })
                       ) : (
-                        <span className="text-foreground-muted">sin agenda</span>
+                        <span className="text-foreground-muted">no schedule</span>
                       )}
                     </td>
                   </tr>

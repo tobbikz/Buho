@@ -1346,4 +1346,129 @@ export class Store {
       baselines: Number(baselines.rows[0]?.build_baselines ?? 0),
     };
   }
+
+  /**
+   * Targets added from the console. Merged with config.json by the collector.
+   */
+  async listMonitorTargets(enabledOnly = false): Promise<MonitorTargetRow[]> {
+    const result = await this.pool.query<Record<string, unknown>>(
+      `select target_id, tenant, alias, engine, host, port, database, username, password,
+              environment, ssl, tags, enabled, created_at, updated_at, created_by
+         from buho.monitor_targets
+        where ($1::boolean = false or enabled)
+        order by alias`,
+      [enabledOnly],
+    );
+    return result.rows.map(mapMonitorTarget);
+  }
+
+  async upsertMonitorTarget(input: MonitorTargetInput): Promise<number> {
+    const result = await this.pool.query<{ target_id: string }>(
+      `insert into buho.monitor_targets
+         (tenant, alias, engine, host, port, database, username, password,
+          environment, ssl, tags, enabled, created_by, updated_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13, now())
+       on conflict (tenant, alias) do update set
+         engine = excluded.engine,
+         host = excluded.host,
+         port = excluded.port,
+         database = excluded.database,
+         username = excluded.username,
+         password = case when excluded.password = '' then buho.monitor_targets.password
+                         else excluded.password end,
+         environment = excluded.environment,
+         ssl = excluded.ssl,
+         tags = excluded.tags,
+         enabled = excluded.enabled,
+         updated_at = now()
+       returning target_id`,
+      [
+        input.tenant ?? 'default',
+        input.alias,
+        input.engine,
+        input.host,
+        input.port,
+        input.database ?? '',
+        input.username,
+        input.password ?? '',
+        input.environment ?? 'prod',
+        input.ssl ?? false,
+        JSON.stringify(input.tags ?? {}),
+        input.enabled ?? true,
+        input.createdBy ?? null,
+      ],
+    );
+    return Number(result.rows[0]?.target_id);
+  }
+
+  async setMonitorTargetEnabled(targetId: number, enabled: boolean): Promise<void> {
+    await this.pool.query(
+      `update buho.monitor_targets set enabled = $2, updated_at = now() where target_id = $1`,
+      [targetId, enabled],
+    );
+  }
+
+  async deleteMonitorTarget(targetId: number): Promise<void> {
+    await this.pool.query(`delete from buho.monitor_targets where target_id = $1`, [targetId]);
+  }
+}
+
+export interface MonitorTargetInput {
+  tenant?: string;
+  alias: string;
+  engine: string;
+  host: string;
+  port: number;
+  database?: string;
+  username: string;
+  password?: string;
+  environment?: string;
+  ssl?: boolean;
+  tags?: Record<string, string>;
+  enabled?: boolean;
+  createdBy?: string | null;
+}
+
+export interface MonitorTargetRow {
+  targetId: number;
+  tenant: string;
+  alias: string;
+  engine: string;
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password: string;
+  environment: string;
+  ssl: boolean;
+  tags: Record<string, string>;
+  enabled: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  createdBy: string | null;
+}
+
+function mapMonitorTarget(row: Record<string, unknown>): MonitorTargetRow {
+  const tags = row['tags'];
+  return {
+    targetId: Number(row['target_id']),
+    tenant: String(row['tenant']),
+    alias: String(row['alias']),
+    engine: String(row['engine']),
+    host: String(row['host']),
+    port: Number(row['port']),
+    database: String(row['database'] ?? ''),
+    username: String(row['username']),
+    password: String(row['password'] ?? ''),
+    environment: String(row['environment'] ?? 'prod'),
+    ssl: Boolean(row['ssl']),
+    tags:
+      tags && typeof tags === 'object' && !Array.isArray(tags)
+        ? (tags as Record<string, string>)
+        : {},
+    enabled: Boolean(row['enabled']),
+    createdAt: row['created_at'] as Date,
+    updatedAt: row['updated_at'] as Date,
+    createdBy: (row['created_by'] as string | null) ?? null,
+  };
 }

@@ -24,24 +24,24 @@ const COLOR = { accent: '#005eb8', success: '#0a6e42', warning: '#9a4a00', error
 /**
  * El estado vacío es parte del producto, no un placeholder: explica por qué el
  * dato no está y qué hay que escribir para tenerlo, incluyendo el permiso
- * mínimo del lado SSH.
+ * min del lado SSH.
  */
 function NotConfigured({ alias }: { alias: string }) {
   return (
     <section className="panel">
       <div className="panel-header">
-        <span className="panel-title">Recursos del host no configurados</span>
+        <span className="panel-title">Host resources not configured</span>
         <span className="tag tag--muted">opcional</span>
       </div>
       <div className="panel-body">
         <p className="text-[12.5px]">
-          PostgreSQL no expone CPU, memoria ni disco del servidor: no existe ninguna vista que los tenga. El dato vive
-          en <span className="font-mono">/proc</span>, así que hay que ir a leerlo. Búho no instala nada en el servidor
-          vigilado — sólo lee archivos.
+          PostgreSQL does not expose host CPU, memory, or disk: no view has them. The data lives
+          in <span className="font-mono">/proc</span>, so it must be read there. Búho installs nothing on the watched
+          server — it only reads files.
         </p>
 
         <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-          Si Búho corre en el mismo servidor que la base
+          If Búho runs on the same server as the database
         </p>
         <pre className="mt-1 border border-border bg-surface-muted p-2 font-mono text-[11px]">
           {`{
@@ -51,7 +51,7 @@ function NotConfigured({ alias }: { alias: string }) {
         </pre>
 
         <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-          Si la base está en otro servidor (sin agente, sólo SSH de lectura)
+          If the database is on another server (no agent, read-only SSH)
         </p>
         <pre className="mt-1 border border-border bg-surface-muted p-2 font-mono text-[11px]">
           {`{
@@ -65,14 +65,14 @@ function NotConfigured({ alias }: { alias: string }) {
 }`}
         </pre>
         <p className="mt-2 text-[12px] text-foreground-secondary">
-          Basta un usuario sin privilegios con acceso a <span className="font-mono">/proc</span> y a{' '}
-          <span className="font-mono">df</span>. La conexión usa{' '}
+          An unprivileged user with access to <span className="font-mono">/proc</span> and{' '}
+          <span className="font-mono">df</span>. The connection uses{' '}
           <span className="font-mono">BatchMode=yes</span>: si la llave no sirve, el ciclo falla y queda en los eventos
           del colector en vez de quedarse esperando una contraseña.
         </p>
         <p className="mt-2 text-[12px] text-foreground-secondary">
           Mientras no esté configurado, la pestaña de resumen sigue mostrando las aproximaciones que sí salen de la
-          base: sesiones activas por clase de espera, DB time, cache hit y derrame a temporales.
+          base: active sessions por clase de espera, DB time, cache hit y derrame a temporales.
         </p>
       </div>
     </section>
@@ -85,13 +85,13 @@ function Cards({ host }: { host: HostSummary }) {
       <StatCard
         label="CPU"
         value={formatPct(host.cpuPct, 1)}
-        hint={`${formatNumber(host.cores ?? 0)} núcleos`}
+        hint={`${formatNumber(host.cores ?? 0)} cores`}
         tone={toneForPct(host.cpuPct, 75, 90)}
       />
       <StatCard
-        label="Espera de I/O"
+        label="I/O wait"
         value={formatPct(host.iowaitPct, 1)}
-        hint="CPU parada esperando disco"
+        hint="CPU stalled waiting on disk"
         tone={toneForPct(host.iowaitPct, 10, 25)}
       />
       <StatCard
@@ -109,23 +109,23 @@ function Cards({ host }: { host: HostSummary }) {
       <StatCard
         label="Swap usado"
         value={formatPct(host.swapUsedPct, 1)}
-        hint="una base que hace swap está en problemas"
+        hint="a database that is swapping is in trouble"
         tone={toneForPct(host.swapUsedPct, 5, 20)}
       />
       <StatCard
-        label="Carga por núcleo"
+        label="Load per core"
         value={formatNumber(host.loadPerCore, 2)}
         hint="1.00 = saturado"
         tone={toneForPct((host.loadPerCore ?? 0) * 100, 100, 200)}
       />
       <StatCard
-        label="Disco usado"
+        label="Disk used"
         value={formatPct(host.diskUsedPct, 1)}
-        hint={host.mount ? `en ${host.mount}` : 'filesystem del data directory'}
+        hint={host.mount ? `on ${host.mount}` : 'data directory filesystem'}
         tone={toneForPct(host.diskUsedPct, 85, 95)}
       />
       <StatCard
-        label="Disco libre"
+        label="Disk free"
         value={formatBytes(host.diskFreeBytes ?? 0)}
         hint={`medido hace ${formatAgo(host.at)}`}
         tone="neutral"
@@ -154,7 +154,7 @@ export default async function HostPage({
 
 
   const window = WINDOWS.find((candidate) => candidate.key === w) ?? WINDOWS[1];
-  const windowHint = `ventana ${window.key} · ${seriesSource(window.minutes).label}`;
+  const windowHint = `window ${window.key} · ${seriesSource(window.minutes).label}`;
 
   let instance;
   try {
@@ -162,7 +162,7 @@ export default async function HostPage({
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: id }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -189,7 +189,7 @@ export default async function HostPage({
     <>
       <Topbar
         crumbs={[
-          { label: 'Flota', href: '/' },
+          { label: 'Fleet', href: '/' },
           { label: instance.alias, href: `/instances/${instanceId}` },
           { label: 'Host' },
         ]}
@@ -199,7 +199,7 @@ export default async function HostPage({
           <div>
             <h1 className="page-title">Host · {instance.alias}</h1>
             <p className="page-sub">
-              CPU, memoria y disco del servidor, leídos de <span className="font-mono">/proc</span>. Es el único dato de
+              Server CPU, memory, and disk, read from <span className="font-mono">/proc</span>. It is the only
               esta consola que no sale de PostgreSQL.
             </p>
           </div>
@@ -233,8 +233,8 @@ export default async function HostPage({
                 data={cpu}
                 unit="pct"
                 series={[
-                  { metric: 'host_cpu_pct', label: 'Uso total', color: COLOR.accent },
-                  { metric: 'host_cpu_iowait_pct', label: 'Espera de I/O', color: COLOR.warning },
+                  { metric: 'host_cpu_pct', label: 'Total usage', color: COLOR.accent },
+                  { metric: 'host_cpu_iowait_pct', label: 'I/O wait', color: COLOR.warning },
                   { metric: 'host_cpu_steal_pct', label: 'Robada', color: COLOR.error },
                 ]}
               />
@@ -249,18 +249,18 @@ export default async function HostPage({
                 ]}
               />
               <TimeseriesPanel
-                title="Carga por núcleo"
+                title="Load per core"
                 hint={windowHint}
                 data={load}
                 unit="count"
-                series={[{ metric: 'host_load1_per_core', label: 'Carga / núcleo', color: COLOR.success }]}
+                series={[{ metric: 'host_load1_per_core', label: 'Load / core', color: COLOR.success }]}
               />
               <TimeseriesPanel
-                title="Disco usado"
+                title="Disk used"
                 hint={host.mount ? `filesystem de ${host.mount}` : windowHint}
                 data={disk}
                 unit="pct"
-                series={[{ metric: 'host_disk_used_pct', label: 'Disco', color: COLOR.warning }]}
+                series={[{ metric: 'host_disk_used_pct', label: 'Disk', color: COLOR.warning }]}
               />
             </div>
           </>

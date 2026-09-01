@@ -2,7 +2,7 @@ import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { query } from './db';
 
 /**
- * Usuarios de la consola. **Sólo corre en el runtime de Node**, nunca en el
+ * Usuarios de la consola. **Sólo corre en el runtime de Node**, never en el
  * middleware: usa node:crypto y consulta el store.
  *
  * La división con `auth.ts` es deliberada. Verificar una sesión en cada request

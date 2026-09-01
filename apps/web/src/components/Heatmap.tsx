@@ -9,7 +9,7 @@ import { formatUnit, type Unit } from '@/lib/units';
  *
  * Decisiones que importan para que se pueda leer:
  *
- * - **Los huecos se dibujan como huecos**, no como cero. Una celda sin datos y
+ * - **Los huecos se dibujan como huecos**, no como cero. Una celda no data y
  *   una celda con carga cero son cosas distintas: la primera dice "no estaba
  *   mirando" y la segunda "no pasaba nada". Confundirlas hace que un servidor
  *   recién instalado parezca tranquilo a las horas que nadie midió.
@@ -53,7 +53,7 @@ export function Heatmap({
 
   const horas = Array.from({ length: 24 }, (_, hora) => hora);
   // Lunes primero: la semana laboral se lee mejor junta, y el fin de semana
-  // abajo es donde uno busca la ventana de mantenimiento.
+  // abajo es donde uno busca la window de mantenimiento.
   const dias = [1, 2, 3, 4, 5, 6, 0];
 
   return (
@@ -87,7 +87,7 @@ export function Heatmap({
                       {/* Hueco: sin dato, no cero. El rayado lo distingue del
                           color más claro de la escala. */}
                       <div
-                        title={`${WEEKDAY_LABEL[dia]} ${String(hora).padStart(2, '0')}:00 · sin datos`}
+                        title={`${WEEKDAY_LABEL[dia]} ${String(hora).padStart(2, '0')}:00 · no data`}
                         style={{
                           width: 20,
                           height: 16,
@@ -105,7 +105,7 @@ export function Heatmap({
                       title={
                         `${WEEKDAY_LABEL[dia]} ${String(hora).padStart(2, '0')}:00 · ${formatUnit(celda.value, unit)}` +
                         ` · ${celda.samples} hora${celda.samples === 1 ? '' : 's'} medida${celda.samples === 1 ? '' : 's'}` +
-                        (pocoFiable ? ' · pocos datos' : '')
+                        (pocoFiable ? ' · sparse data' : '')
                       }
                       style={{
                         width: 20,
@@ -138,7 +138,7 @@ export function Heatmap({
                 'repeating-linear-gradient(45deg, transparent, transparent 2px, var(--border, #e5e7eb) 2px, var(--border, #e5e7eb) 3px)',
             }}
           />
-          sin datos
+          no data
         </span>
       </div>
     </div>

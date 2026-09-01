@@ -14,7 +14,7 @@ export { WEEKDAY_LABEL } from './heat-types';
  *
  * Sale de `metric_rollup_1h`, que es exactamente la granularidad que la rejilla
  * necesita, así que ver un año no cuesta más que ver una semana. La hora se
- * calcula en la zona del operador: el store puede estar en UTC, pero la ventana
+ * calcula en la zona del operador: el store puede estar en UTC, pero la window
  * de mantenimiento la vive alguien en su horario.
  */
 
@@ -50,9 +50,9 @@ export interface HeatOption {
 /**
  * Rejilla de una métrica.
  *
- * `agg` decide la pregunta: el promedio dice cómo es una hora típica, el máximo
- * dice qué tan mal se puso alguna vez a esa hora. Para elegir ventana de
- * mantenimiento sirve el máximo; para entender la forma de la carga, el
+ * `agg` decide la pregunta: el promedio dice what a typical hour looks like, el max
+ * dice how bad it ever got at that hour. Para elegir window de
+ * mantenimiento sirve el max; para entender la forma de la carga, el
  * promedio.
  */
 export async function getHeatmap(
@@ -63,7 +63,7 @@ export async function getHeatmap(
 ): Promise<Heatmap> {
   // Dos pasos a propósito. El de adentro junta, dentro de cada hora, todas las
   // etiquetas y todas las métricas de la opción: seis bases de datos y tres
-  // contadores de DML son una sola cifra de escrituras por segundo. El de
+  // contadores de DML son una sola cifra de escrituras per second. El de
   // afuera agrega esas horas en la celda de la rejilla.
   const rows = await query<{
     weekday: number;
@@ -121,7 +121,7 @@ export async function getHeatmap(
  *
  * Es la conclusión práctica de la rejilla, y conviene calcularla y escribirla en
  * palabras en vez de dejar que cada quien la deduzca mirando colores. Se exige
- * un mínimo de muestras: la celda más fría puede ser simplemente la que casi no
+ * un min de muestras: la celda más fría puede ser simplemente la que casi no
  * tiene datos.
  */
 export function quietestHour(
@@ -159,37 +159,37 @@ export function busiestHour(
 export const HEAT_OPTIONS: HeatOption[] = [
   {
     key: 'escrituras',
-    label: 'Escrituras',
+    label: 'Writes',
     metrics: ['db_tup_inserted_per_sec', 'db_tup_updated_per_sec', 'db_tup_deleted_per_sec'],
     unit: 'rate',
-    hint: 'filas insertadas, actualizadas y borradas por segundo, sumando todas las bases del servidor',
+    hint: 'rows inserted, updated, and deleted per second across all databases on the server',
   },
   {
-    key: 'transacciones',
-    label: 'Transacciones',
+    key: 'transactions',
+    label: 'Transactions',
     metrics: ['db_xact_commit_per_sec'],
     unit: 'rate',
-    hint: 'commits por segundo: la medida más cercana a "cuánto trabajo le está entrando"',
+    hint: 'commits per second: the closest measure of how much work is coming in',
   },
   {
-    key: 'conexiones',
-    label: 'Conexiones',
+    key: 'connections',
+    label: 'Connections',
     metrics: ['connections_total'],
     unit: 'count',
-    hint: 'sesiones abiertas, activas o no',
+    hint: 'open sessions, active or not',
   },
   {
     key: 'lecturas',
-    label: 'Lecturas de disco',
+    label: 'Disk reads',
     metrics: ['db_blks_read_per_sec'],
     unit: 'rate',
-    hint: 'bloques que no estaban en caché: donde esto sube, el disco está trabajando',
+    hint: 'blocks that were not in cache: when this rises, the disk is working',
   },
   {
     key: 'bloqueos',
-    label: 'Sesiones bloqueadas',
+    label: 'Blocked sessions',
     metrics: ['blocked_sessions'],
     unit: 'count',
-    hint: 'cuándo aparece la contención, que rara vez es a cualquier hora',
+    hint: 'when contention appears — rarely at a random hour',
   },
 ];

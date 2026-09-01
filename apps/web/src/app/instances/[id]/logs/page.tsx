@@ -30,8 +30,8 @@ const WINDOWS = [
 
 const FILTERS: { key: string; label: string; kinds: LogKind[] }[] = [
   { key: 'fallas', label: 'Fallas', kinds: FAILURE_KINDS },
-  { key: 'deadlocks', label: 'Deadlocks y bloqueos', kinds: ['deadlock', 'lock_wait'] },
-  { key: 'conexiones', label: 'Conexiones', kinds: ['connection'] },
+  { key: 'deadlocks', label: 'Deadlocks and locks', kinds: ['deadlock', 'lock_wait'] },
+  { key: 'connections', label: 'Connections', kinds: ['connection'] },
   { key: 'mantenimiento', label: 'Mantenimiento', kinds: ['checkpoint', 'autovacuum', 'temp_file'] },
   {
     key: 'todo',
@@ -88,20 +88,20 @@ function GroupRow({ group }: { group: LogGroup }) {
               SQLSTATE <span className="font-mono">{group.sqlstate}</span>
             </span>
           )}
-          {group.databases.length > 0 && <span>base {group.databases.join(', ')}</span>}
+          {group.databases.length > 0 && <span>database {group.databases.join(', ')}</span>}
           {group.users.length > 0 && <span>rol {group.users.join(', ')}</span>}
         </div>
 
         {group.detail && (
           <div>
-            <div className="log-group__label">Detalle</div>
+            <div className="log-group__label">Detail</div>
             <div className="query-block">{group.detail}</div>
           </div>
         )}
 
         {group.sampleQuery && (
           <div>
-            <div className="log-group__label">Sentencia de la última ocurrencia</div>
+            <div className="log-group__label">Statement from the last occurrence</div>
             <div className="query-block">{group.sampleQuery}</div>
           </div>
         )}
@@ -113,7 +113,7 @@ function GroupRow({ group }: { group: LogGroup }) {
           </div>
         )}
 
-        {group.hint && <p className="text-[11.5px] text-foreground-secondary">Sugerencia del servidor: {group.hint}</p>}
+        {group.hint && <p className="text-[11.5px] text-foreground-secondary">Server hint: {group.hint}</p>}
       </div>
     </details>
   );
@@ -124,10 +124,10 @@ export default async function LogsPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ ventana?: string; tipo?: string }>;
+  searchParams: Promise<{ window?: string; tipo?: string }>;
 }) {
   const { id } = await params;
-  const { ventana, tipo } = await searchParams;
+  const { window, tipo } = await searchParams;
 
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
@@ -137,7 +137,7 @@ export default async function LogsPage({
   // paridad; sólo Vacuum, Host y Replicación siguen siendo de PostgreSQL.
   const engine = engineKind ?? 'postgres';
 
-  const hours = WINDOWS.some((w) => String(w.hours) === ventana) ? Number(ventana) : 24;
+  const hours = WINDOWS.some((w) => String(w.hours) === window) ? Number(window) : 24;
   const filter = FILTERS.find((entry) => entry.key === tipo) ?? FILTERS[0]!;
 
   let instance;
@@ -146,7 +146,7 @@ export default async function LogsPage({
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: id }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -156,7 +156,7 @@ export default async function LogsPage({
   if (!instance) notFound();
 
   const crumbs = [
-    { label: 'Flota', href: '/' },
+    { label: 'Fleet', href: '/' },
     { label: instance.alias, href: `/instances/${instanceId}` },
     { label: 'Log' },
   ];
@@ -183,9 +183,9 @@ export default async function LogsPage({
     );
   }
 
-  const link = (next: { ventana?: number; tipo?: string }) => {
+  const link = (next: { window?: number; tipo?: string }) => {
     const search = new URLSearchParams();
-    search.set('ventana', String(next.ventana ?? hours));
+    search.set('window', String(next.window ?? hours));
     search.set('tipo', next.tipo ?? filter.key);
     return `/instances/${instanceId}/logs?${search.toString()}`;
   };
@@ -198,9 +198,9 @@ export default async function LogsPage({
           <div>
             <h1 className="page-title">Log · {instance.alias}</h1>
             <p className="page-sub">
-              Lo que no aparece en ninguna vista de estadísticas: el reporte completo de cada deadlock con las dos
-              consultas que se cruzaron, y los errores que vio la aplicación. Agrupado por mensaje, porque cien
-              errores del mismo insert son un problema y no cien.
+              What no statistics view shows: the full report of each deadlock with the two
+              queries that crossed, and the errors the application saw. Grouped by message, because a hundred
+              errors from the same insert are one problem, not a hundred.
             </p>
           </div>
           <AutoRefresh intervalMs={30000} />
@@ -210,16 +210,16 @@ export default async function LogsPage({
 
         {!coverage && (
           <div className="notice notice--warn">
-            <strong>Esta instancia no tiene lectura de log configurada.</strong> El colector no lee journald ni
-            archivos si no se lo pide: declarar <span className="font-mono">logs</span> en config.json. Ver{' '}
+            <strong>This instance has no log reading configured.</strong> El colector no lee journald ni
+            files unless asked: set <span className="font-mono">logs</span> in config.json. See{' '}
             <span className="font-mono">sql/monitor-user.sql</span> para las dos formas y lo que cada una necesita.
           </div>
         )}
 
         {coverage && coverage.warnings.length > 0 && (
           <div className="notice">
-            <strong>Qué no se está viendo.</strong> Una pantalla sin errores puede significar que no hubo o que no se
-            pudieron leer; esto dice cuál de las dos.
+            <strong>What is not being seen.</strong> A screen with no errors can mean there were none or that they could not be
+            read; this says which of the two.
             <ul className="mt-1 list-disc pl-4">
               {coverage.warnings.map((warning) => (
                 <li key={warning}>{warning}</li>
@@ -233,46 +233,46 @@ export default async function LogsPage({
             label="Fatales"
             value={formatNumber(totals.fatal)}
             tone={totals.fatal > 0 ? 'error' : 'ok'}
-            hint="sesión terminada por el servidor"
+            hint="session terminated by the server"
           />
           <StatCard
-            label="Errores"
+            label="Errors"
             value={formatNumber(totals.error)}
             tone={totals.error > 0 ? 'warn' : 'ok'}
-            hint="fallas que vio la aplicación"
+            hint="failures the application saw"
           />
           <StatCard
             label="Deadlocks"
             value={formatNumber(totals.deadlock)}
             tone={totals.deadlock > 0 ? 'error' : 'ok'}
-            hint={totals.deadlock > 0 ? 'con las consultas cruzadas' : 'ninguno en la ventana'}
+            hint={totals.deadlock > 0 ? 'with correlated queries' : 'none in the window'}
           />
           <StatCard
             label="Canceladas"
             value={formatNumber(totals.cancelled)}
             tone={totals.cancelled > 0 ? 'warn' : 'ok'}
-            hint="por timeout o intervención"
+            hint="by timeout or intervention"
           />
           <StatCard
-            label="Esperas de bloqueo"
+            label="Lock waits"
             value={formatNumber(totals.lockWait)}
             tone={totals.lockWait > 0 ? 'warn' : 'neutral'}
-            hint="requiere log_lock_waits"
+            hint="requires log_lock_waits"
           />
           <StatCard
-            label="Entradas leídas"
+            label="Entries read"
             value={formatNumber(totals.total)}
             tone="neutral"
-            hint={coverage ? coverage.detail : 'sin origen'}
+            hint={coverage ? coverage.detail : 'no source'}
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] uppercase tracking-wide text-foreground-muted">Ventana</span>
+          <span className="text-[11px] uppercase tracking-wide text-foreground-muted">Window</span>
           {WINDOWS.map((window) => (
             <a
               key={window.hours}
-              href={link({ ventana: window.hours })}
+              href={link({ window: window.hours })}
               className={`tag ${window.hours === hours ? 'tag--info' : 'tag--muted'}`}
             >
               {window.label}
@@ -291,14 +291,14 @@ export default async function LogsPage({
         </div>
 
         <TimeseriesPanel
-          title="Fallas en el tiempo"
-          hint={`ventana ${hours} h`}
+          title="Failures over time"
+          hint={`window ${hours} h`}
           data={rate}
           unit="count"
           height={160}
           series={[
             { metric: 'fatal', label: 'Fatales', color: '#b01818' },
-            { metric: 'error', label: 'Errores', color: '#c96a1b' },
+            { metric: 'error', label: 'Errors', color: '#c96a1b' },
             { metric: 'deadlock', label: 'Deadlocks', color: '#7b1fa2' },
             { metric: 'cancelled', label: 'Canceladas', color: '#4a6fa5' },
           ]}
@@ -309,14 +309,14 @@ export default async function LogsPage({
             <span className="panel-title">
               {filter.label} agrupadas · {groups.length}
             </span>
-            <span className="font-mono text-[10px] text-foreground-muted">las más repetidas primero</span>
+            <span className="font-mono text-[10px] text-foreground-muted">most repeated first</span>
           </div>
 
           {groups.length === 0 ? (
             <div className="empty">
               {coverage
-                ? `Sin entradas de este tipo en la ventana de ${hours} h.`
-                : 'Sin lectura de log configurada para esta instancia.'}
+                ? `No entries of this type in the ${hours} h window.`
+                : 'No log reading configured for this instance.'}
             </div>
           ) : (
             <div className="log-list">

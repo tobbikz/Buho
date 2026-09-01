@@ -48,7 +48,7 @@ export interface VacuumTotals {
   tables: number;
   deadTuples: number;
   bloatBytes: number;
-  /** Tablas cuya estimación no se pudo hacer, y por qué falta. */
+  /** Tablas cuya estimate no se pudo hacer, y por qué falta. */
   unestimated: number;
   missingAnalyze: number;
   autovacuumDisabled: number;
@@ -66,7 +66,7 @@ const ORDER_SQL: Record<VacuumOrder, string> = {
   muertas: 'dead_tuples desc, size_bytes desc',
   bloat: 'bloat_bytes desc nulls last',
   wraparound: 'greatest(coalesce(xid_pct, 0), coalesce(mxid_pct, 0)) desc',
-  // `nulls first` a propósito: una tabla que nunca tuvo autovacuum es el caso
+  // `nulls first` a propósito: una tabla que never tuvo autovacuum es el caso
   // más grave de "antigüedad", no el menos.
   antiguedad: 'greatest(last_autovacuum, last_vacuum) asc nulls first',
   tamano: 'size_bytes desc',

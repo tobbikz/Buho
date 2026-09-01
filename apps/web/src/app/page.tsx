@@ -43,7 +43,7 @@ export default async function FleetPage({
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota' }]} />
+        <Topbar crumbs={[{ label: 'Fleet' }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -69,17 +69,20 @@ export default async function FleetPage({
 
   return (
     <>
-      <Topbar crumbs={[{ label: 'Flota' }]} />
+      <Topbar crumbs={[{ label: 'Fleet' }]} />
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Resumen de flota</h1>
+            <h1 className="page-title">Fleet overview</h1>
             <p className="page-sub">
-              {visible.length} instancia{visible.length === 1 ? '' : 's'} monitoreada
-              {visible.length === 1 ? '' : 's'} · lectura del store a las {formatClock(new Date())}
+              {visible.length} monitored instance{visible.length === 1 ? '' : 's'} · store read at{' '}
+              {formatClock(new Date())}
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Link href="/admin/instances" className="btn btn--primary">
+              Add database
+            </Link>
             {filter ? (
               <Link href={`/?agrupar=${encodeURIComponent(groupKey)}`} className="tag tag--info">
                 {filter.key}: {filter.value} ×
@@ -93,31 +96,31 @@ export default async function FleetPage({
           // Sin esto, un viewer que llega por un enlace guardado aparece en la
           // flota sin explicación y cree que la página se rompió.
           <div className="notice notice--warn">
-            Esa pantalla es de administración y tu cuenta es de sólo lectura. Puedes ver todo el monitoreo; cambiar
-            cuentas, retención o lanzar un descubrimiento requiere rol de administrador.
+            That screen is admin-only and your account is read-only. You can see all monitoring; changing
+            accounts, retention, or running discovery requires an administrator role.
           </div>
         ) : null}
 
         <div className="stat-grid">
           <StatCard
-            label="Instancias"
+            label="Instances"
             value={formatNumber(instances.length)}
-            hint={stale > 0 ? `${stale} sin datos recientes` : 'todas reportando'}
+            hint={stale > 0 ? `${stale} without recent data` : 'all reporting'}
             tone={stale > 0 ? 'warn' : 'ok'}
           />
           <StatCard
-            label="Con críticos"
+            label="With critical"
             value={formatNumber(withCritical)}
-            hint={withCritical === 0 ? 'nada que atender ahora' : 'requieren atención'}
+            hint={withCritical === 0 ? 'nothing to handle now' : 'need attention'}
             tone={withCritical > 0 ? 'error' : 'ok'}
           />
-          <StatCard label="Avisos abiertos" value={formatNumber(warnings)} tone={warnings > 0 ? 'warn' : 'ok'} />
+          <StatCard label="Open warnings" value={formatNumber(warnings)} tone={warnings > 0 ? 'warn' : 'ok'} />
           <StatCard
-            label="Peor score"
+            label="Worst score"
             value={worstScore === null ? '—' : formatNumber(worstScore)}
             unit={worstScore === null ? undefined : '/100'}
             tone={toneForScore(worstScore)}
-            hint={scored.length === 0 ? 'sin corridas de checks' : undefined}
+            hint={scored.length === 0 ? 'no check runs' : undefined}
           />
         </div>
 
@@ -125,12 +128,12 @@ export default async function FleetPage({
           <div className="panel-header">
             <span className="panel-title">Instancias</span>
             <span className="font-mono text-[10px] text-foreground-muted">
-              {groupKey === NO_GROUP ? 'peor score primero' : `agrupadas por ${groupKey}, grupos con críticos primero`}
+              {groupKey === NO_GROUP ? 'worst score first' : `grouped by ${groupKey}, groups with criticals first`}
             </span>
           </div>
           {instances.length === 0 ? (
             <div className="empty">
-              No hay instancias registradas todavía. Levantar el colector con <code>npm run collector</code> para
+              No instances registered yet. Start the collector with <code>npm run collector</code> to
               que se registren solas.
             </div>
           ) : (
@@ -140,15 +143,15 @@ export default async function FleetPage({
                   <tr>
                     <th>Instancia</th>
                     <th>Destino</th>
-                    <th>Versión</th>
+                    <th>Version</th>
                     <th className="text-right">Score</th>
-                    <th className="text-right">Crít.</th>
-                    <th className="text-right">Avisos</th>
-                    <th className="text-right">Conexiones</th>
+                    <th className="text-right">Crit.</th>
+                    <th className="text-right">Warn</th>
+                    <th className="text-right">Connections</th>
                     <th className="text-right">Cache hit</th>
                     <th className="text-right">Commits/s</th>
                     <th className="text-right">Uptime</th>
-                    <th className="text-right">Último dato</th>
+                    <th className="text-right">Last sample</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -166,7 +169,7 @@ export default async function FleetPage({
                               <span className="group-row__meta">
                                 {group.instances.length} instancia{group.instances.length === 1 ? '' : 's'}
                                 {group.instances.reduce((sum, item) => sum + item.critical, 0) > 0
-                                  ? ` · ${group.instances.reduce((sum, item) => sum + item.critical, 0)} críticos`
+                                  ? ` · ${group.instances.reduce((sum, item) => sum + item.critical, 0)} critical`
                                   : ''}
                               </span>
                             </td>
@@ -240,11 +243,11 @@ export default async function FleetPage({
 
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Eventos del colector</span>
-            <span className="font-mono text-[10px] text-foreground-muted">últimos {events.length}</span>
+            <span className="panel-title">Collector events</span>
+            <span className="font-mono text-[10px] text-foreground-muted">latest {events.length}</span>
           </div>
           {events.length === 0 ? (
-            <div className="empty">Sin eventos registrados.</div>
+            <div className="empty">No events recorded.</div>
           ) : (
             <table className="data-table">
               <tbody>

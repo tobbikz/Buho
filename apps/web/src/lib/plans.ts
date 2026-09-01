@@ -14,17 +14,17 @@ export type PlanMode = 'estimate' | 'generic' | 'analyze';
 export type PlanState = 'pendiente' | 'corriendo' | 'listo' | 'error';
 
 export const MODE_LABEL: Record<PlanMode, string> = {
-  estimate: 'Plan estimado',
-  generic: 'Plan genérico',
-  analyze: 'Ejecutado con ANALYZE',
+  estimate: 'Estimated plan',
+  generic: 'Generic plan',
+  analyze: 'Executed with ANALYZE',
 };
 
 export const MODE_HINT: Record<PlanMode, string> = {
-  estimate: 'Planifica sin ejecutar. Necesita una consulta con valores concretos.',
+  estimate: 'Plans without executing. Needs a query with concrete values.',
   generic:
-    'Planifica el texto normalizado con sus $1, sin ejecutar nada. Requiere PostgreSQL 16 o superior.',
+    'Plans the normalized text with its $1 placeholders, without executing. Requires PostgreSQL 16 or later.',
   analyze:
-    'Ejecuta la consulta de verdad para traer filas reales, tiempos y derrames a disco. Sólo lectura, y siempre dentro de una transacción que se revierte.',
+    'Actually runs the query to get real rows, timings, and disk spills. Read-only, always inside a transaction that is rolled back.',
 };
 
 export interface PlanRequest {

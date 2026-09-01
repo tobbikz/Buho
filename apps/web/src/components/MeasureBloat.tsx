@@ -46,14 +46,14 @@ export function MeasureBloat({
   if (measurement && measurement.state === 'error') {
     return (
       <span className="text-[11px] text-[var(--error)]" title={measurement.error ?? ''}>
-        falló
+        failed
       </span>
     );
   }
 
   if (measurement && measurement.state === 'listo') {
-    // La diferencia contra la estimación es el dato interesante: si en este
-    // servidor la estimación acierta, no hace falta volver a medir nada.
+    // La diferencia contra la estimate es el dato interesante: si en este
+    // servidor la estimate acierta, no hace falta volver a medir nada.
     const desvio =
       measurement.estimatedPct !== null && measurement.deadPct !== null
         ? measurement.estimatedPct - measurement.deadPct
@@ -66,7 +66,7 @@ export function MeasureBloat({
         </span>
         {desvio !== null && Math.abs(desvio) >= 5 && (
           <span className="tag tag--warn ml-1.5">
-            la estimación erraba {Math.abs(desvio).toFixed(0)} pt
+            the estimate was off by {Math.abs(desvio).toFixed(0)} pt
           </span>
         )}
       </span>

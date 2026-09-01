@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
  * el mismo dueño y el mismo nombre, y lo único que cambia —lo único que hay que
  * arreglar— es cómo se guarda su contraseña.
  */
-const WEAK_AUTH = new Set(['md5', 'mysql_native_password', 'mysql_old_password', 'sin contraseña']);
+const WEAK_AUTH = new Set(['md5', 'mysql_native_password', 'mysql_old_password', 'no password']);
 
 function authTone(method: string | null): string {
   if (!method) return 'tag tag--muted';
@@ -34,11 +34,11 @@ export default async function AccountsPage() {
     return (
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Sin cuentas inventariadas</span>
+          <span className="panel-title">No inventoried accounts</span>
         </div>
         <div className="panel-body text-[12px] text-foreground-secondary">
           Leer las cuentas exige permisos que el usuario de monitoreo puede no tener: pg_authid en PostgreSQL,
-          mysql.user en MariaDB, sys.server_principals en SQL Server. Ver la pestaña Cobertura para saber qué
+          mysql.user in MariaDB, sys.server_principals in SQL Server. See the Coverage tab to learn what
           falta en cada instancia.
         </div>
       </section>
@@ -56,15 +56,15 @@ export default async function AccountsPage() {
     <div className="flex flex-col gap-[0.875rem]">
       <div className="stat-grid">
         <StatCard
-          label="Cuentas con control total"
+          label="Accounts with full control"
           value={String(superusers.length)}
           hint="superusuario o sysadmin, activas"
           tone={superusers.length > 3 ? 'warn' : 'neutral'}
         />
         <StatCard
-          label="Autenticación débil"
+          label="Weak authentication"
           value={String(weak.length)}
-          hint="md5, native_password o sin contraseña"
+          hint="md5, native_password o no password"
           tone={weak.length > 0 ? 'error' : 'ok'}
         />
         <StatCard
@@ -73,12 +73,12 @@ export default async function AccountsPage() {
           hint="host '%' en MariaDB"
           tone={anyHost.length > 0 ? 'warn' : 'ok'}
         />
-        <StatCard label="Pueden iniciar sesión" value={String(loginCapable.length)} hint={`de ${principals.length} en total`} />
+        <StatCard label="Can sign in" value={String(loginCapable.length)} hint={`de ${principals.length} en total`} />
       </div>
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Cuentas del parque</span>
+          <span className="panel-title">Estate accounts</span>
           <span className="text-[11px] text-foreground-muted">
             ordenadas por privilegio: primero las que pueden hacer todo
           </span>
@@ -87,13 +87,13 @@ export default async function AccountsPage() {
           <thead>
             <tr>
               <th>Instancia</th>
-              <th>Motor</th>
+              <th>Engine</th>
               <th>Cuenta</th>
               <th>Tipo</th>
-              <th>Autenticación</th>
+              <th>Authentication</th>
               <th>Privilegios</th>
-              <th>Contraseña establecida</th>
-              <th>Estado</th>
+              <th>Password set</th>
+              <th>State</th>
             </tr>
           </thead>
           <tbody>
@@ -146,7 +146,7 @@ export default async function AccountsPage() {
                   ) : principal.canLogin ? (
                     <span className="tag tag--ok">activa</span>
                   ) : (
-                    <span className="tag tag--muted">sin login</span>
+                    <span className="tag tag--muted">no login</span>
                   )}
                 </td>
               </tr>

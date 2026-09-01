@@ -12,12 +12,12 @@ import type { FlowActor, FlowDirection } from '@/lib/flow';
 import type { FlowWeight } from '@buho/core';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Flujo del parque · Búho' };
+export const metadata = { title: 'Estate flow · Búho' };
 
 const WEIGHTS: { key: FlowWeight; label: string; hint: string }[] = [
-  { key: 'rows', label: 'Filas', hint: 'dónde cae el volumen de datos' },
-  { key: 'time', label: 'Tiempo', hint: 'dónde se gasta el servidor' },
-  { key: 'calls', label: 'Llamadas', hint: 'qué se llama más veces' },
+  { key: 'rows', label: 'Rows', hint: 'where data volume lands' },
+  { key: 'time', label: 'Time', hint: 'where the server spends time' },
+  { key: 'calls', label: 'Calls', hint: 'what is called most often' },
 ];
 
 const WINDOWS: { key: string; label: string; minutes: number }[] = [
@@ -52,7 +52,7 @@ export default async function FleetFlowPage({
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: 'Flujo' }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: 'Flow' }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -83,15 +83,15 @@ export default async function FleetFlowPage({
 
   return (
     <>
-      <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: 'Flujo del parque' }]} />
+      <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: 'Estate flow' }]} />
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Flujo del parque</h1>
+            <h1 className="page-title">Estate flow</h1>
             <p className="page-sub">
-              El mismo diagrama de tráfico, pero de todos los servidores a la vez: qué tabla del parque recibe más
-              {direction === 'escritura' ? ' escritura' : ' lectura'}, y en qué instancia está. La atribución sale de
-              leer el texto de cada consulta, así que es <strong>aproximada</strong>; el detalle por tabla y el
+              The same traffic diagram, but for every server at once: which estate table gets the most
+              {direction === 'escritura' ? ' write' : ' read'} traffic, and which instance it is on. Attribution comes from
+              reading each query's text, so it is <strong>approximate</strong>; per-table detail and
               contraste con los contadores están en la pantalla de cada instancia.
             </p>
           </div>
@@ -100,26 +100,26 @@ export default async function FleetFlowPage({
 
         <div className="stat-grid">
           <StatCard
-            label={direction === 'escritura' ? 'Filas escritas' : 'Filas leídas'}
+            label={direction === 'escritura' ? 'Rows written' : 'Rows read'}
             value={formatUnit(total, unidad)}
-            hint={`todo el parque, ventana ${window.label}`}
+            hint={`whole estate, window ${window.label}`}
             tone="accent"
           />
           <StatCard
-            label="Tabla más caliente"
+            label="Hottest table"
             value={primera ? formatPct(concentracion, 0) : '·'}
-            hint={primera ? `${primera.relation} en ${primera.alias}` : 'sin tráfico atribuido'}
+            hint={primera ? `${primera.relation} en ${primera.alias}` : 'no attributed traffic'}
             tone={concentracion >= 50 ? 'warn' : 'neutral'}
           />
           <StatCard
-            label="Instancias con tráfico"
+            label="Instances with traffic"
             value={`${formatNumber(flow.withTraffic)} / ${formatNumber(flow.instances)}`}
-            hint="el resto no atribuyó nada"
+            hint="the rest attributed nothing"
           />
           <StatCard
-            label="Peso atribuido"
+            label="Attributed weight"
             value={formatPct(cobertura, 0)}
-            hint="del total que midió el motor"
+            hint="of the total the engine measured"
             tone={cobertura >= 60 ? 'ok' : cobertura >= 25 ? 'warn' : 'neutral'}
           />
         </div>
@@ -133,7 +133,7 @@ export default async function FleetFlowPage({
               <Link
                 href={enlace({ vista: 'vivo' })}
                 className={`tag ${enVivo ? 'tag--ok' : 'tag--muted'}`}
-                title="lo que se mueve ahora en todo el parque"
+                title="what is moving now across the estate"
               >
                 en vivo
               </Link>
@@ -151,8 +151,8 @@ export default async function FleetFlowPage({
                   className={`tag ${opcion === actor ? 'tag--info' : 'tag--muted'}`}
                   title={
                     opcion === 'rol'
-                      ? 'exacto: pg_stat_statements guarda el rol'
-                      : 'estimado por muestreo de pg_stat_activity'
+                      ? 'exact: pg_stat_statements stores the role'
+                      : 'estimated by sampling pg_stat_activity'
                   }
                 >
                   por {opcion}
@@ -210,14 +210,14 @@ export default async function FleetFlowPage({
               height={460}
               emptyMessage={
                 direction === 'escritura'
-                  ? 'Ninguna escritura del parque pudo atribuirse a una tabla en esta ventana. Si las bases sólo se leen, probar con "lectura".'
-                  : 'Ninguna lectura del parque pudo atribuirse a una tabla en esta ventana.'
+                  ? 'No estate writes could be attributed to a table in this window. If databases are read-only, try "lectura".'
+                  : 'No estate reads could be attributed to a table in this window.'
               }
             />
             )}
             <p className="mt-2 text-[11px] text-foreground-muted">
               El esquema va calificado por instancia: dos servidores pueden tener cada uno su{' '}
-              <span className="font-mono">public</span>, y unirlos fundiría en una sola cinta tráfico de máquinas
+              <span className="font-mono">public</span>, and merging them would fuse traffic from machines into one ribbon
               distintas. Cada instancia se calcula con el esquema por omisión de su motor, que no es el mismo en los
               tres.
             </p>
@@ -227,12 +227,12 @@ export default async function FleetFlowPage({
         <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-3">
           <section className="panel xl:col-span-2">
             <div className="panel-header">
-              <span className="panel-title">Tablas más calientes del parque</span>
-              <span className="font-mono text-[10px] text-foreground-muted">ventana {window.label}</span>
+              <span className="panel-title">Hottest tables in the estate</span>
+              <span className="font-mono text-[10px] text-foreground-muted">window {window.label}</span>
             </div>
             <div className="panel-body">
               {flow.tables.length === 0 ? (
-                <div className="empty">Sin tablas atribuidas en la ventana.</div>
+                <div className="empty">No attributed tables in the window.</div>
               ) : (
                 <div className="table-scroll" style={{ maxHeight: '26rem' }}>
                   <table className="data-table">
@@ -241,7 +241,7 @@ export default async function FleetFlowPage({
                         <th>Tabla</th>
                         <th>Instancia</th>
                         <th className="text-right">Peso</th>
-                        <th className="text-right">Del parque</th>
+                        <th className="text-right">From the estate</th>
                         <th>{actor === 'rol' ? 'Roles' : 'Aplicaciones'}</th>
                       </tr>
                     </thead>
@@ -276,11 +276,11 @@ export default async function FleetFlowPage({
 
           <section className="panel xl:col-span-1">
             <div className="panel-header">
-              <span className="panel-title">Qué clase de tráfico</span>
+              <span className="panel-title">What kind of traffic</span>
             </div>
             <div className="panel-body">
               {flow.tables.length === 0 ? (
-                <div className="empty">Sin datos.</div>
+                <div className="empty">No data.</div>
               ) : (
                 <OperationBars
                   rows={flow.tables.slice(0, 10).map((tabla) => ({
@@ -298,7 +298,7 @@ export default async function FleetFlowPage({
         {flow.silent.length > 0 && (
           <section className="panel">
             <div className="panel-header">
-              <span className="panel-title">Instancias que no aportaron nada</span>
+              <span className="panel-title">Instances that contributed nothing</span>
             </div>
             <div className="panel-body">
               {/* Se listan a propósito: una instancia ausente del diagrama por
@@ -308,9 +308,9 @@ export default async function FleetFlowPage({
                 <thead>
                   <tr>
                     <th>Instancia</th>
-                    <th>Motor</th>
-                    <th className="text-right">Consultas vistas</th>
-                    <th>Lectura probable</th>
+                    <th>Engine</th>
+                    <th className="text-right">Queries seen</th>
+                    <th>Likely read</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -321,10 +321,10 @@ export default async function FleetFlowPage({
                       <td className="num">{formatNumber(instancia.statements)}</td>
                       <td className="text-[11px] text-foreground-muted">
                         {instancia.statements === 0
-                          ? 'sin estadísticas de consultas: o no llega tráfico de aplicación, o falta pg_stat_statements'
+                          ? 'no query statistics: either no application traffic, or pg_stat_statements is missing'
                           : direction === 'escritura'
-                            ? 'hay consultas pero ninguna escribe en una tabla identificable'
-                            : 'hay consultas pero ninguna lee de una tabla identificable'}
+                            ? 'there are queries but none write to an identifiable table'
+                            : 'there are queries but none read from an identifiable table'}
                       </td>
                     </tr>
                   ))}

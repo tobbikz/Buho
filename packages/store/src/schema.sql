@@ -353,8 +353,12 @@ end $$;
 -- el pipeline de métricas de 5 s y los 22 checks siguen siendo de PostgreSQL.
 
 alter table buho.instances
-  add column if not exists engine text not null default 'postgres'
-    check (engine in ('postgres', 'mariadb', 'mssql'));
+  add column if not exists engine text not null default 'postgres';
+
+alter table buho.instances drop constraint if exists instances_engine_check;
+alter table buho.instances
+  add constraint instances_engine_check
+  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb'));
 
 create table if not exists buho.engine_info (
   instance_id      bigint      primary key references buho.instances (instance_id) on delete cascade,
@@ -854,6 +858,43 @@ create table if not exists buho.console_events (
 );
 
 create index if not exists console_events_at_idx on buho.console_events (at desc);
+
+-- ------------------------------------------------------ targets from the UI
+--
+-- Instances declared in config.json still work. Targets added from the console
+-- live here so the operator does not have to edit a file and restart by hand.
+-- The collector merges both sources every 30s (config wins on alias clash).
+-- Passwords are stored in plaintext like config.json — this is an on-prem store
+-- already holding credentials; encrypting only this table would be theatre.
+create table if not exists buho.monitor_targets (
+  target_id    bigint generated always as identity primary key,
+  tenant       text        not null default 'default',
+  alias        text        not null,
+  engine       text        not null
+               check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb')),
+  host         text        not null,
+  port         integer     not null,
+  database     text        not null default '',
+  username     text        not null,
+  password     text        not null default '',
+  environment  text        not null default 'prod',
+  ssl          boolean     not null default false,
+  tags         jsonb       not null default '{}'::jsonb,
+  enabled      boolean     not null default true,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  created_by   text,
+  unique (tenant, alias)
+);
+
+create index if not exists monitor_targets_enabled_idx
+  on buho.monitor_targets (enabled) where enabled;
+
+-- Allow MongoDB on the instances table (older installs had a narrower check).
+alter table buho.instances drop constraint if exists instances_engine_check;
+alter table buho.instances
+  add constraint instances_engine_check
+  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb'));
 
 -- --------------------------------------------------- registro de operaciones
 

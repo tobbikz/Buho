@@ -97,9 +97,9 @@ export async function getBloatRequest(requestId: number): Promise<BloatMeasureme
 /**
  * Últimas mediciones de una instancia, una por tabla.
  *
- * La pantalla de vacuum muestra la estimación de todas las tablas y, al lado, la
+ * La pantalla de vacuum muestra la estimate de todas las tablas y, al lado, la
  * medida real de las que alguien pidió medir. Así se ve de un golpe cuánto se
- * equivocaba la estimación en ese servidor concreto, que es la única forma de
+ * equivocaba la estimate en ese servidor concreto, que es la única forma de
  * saber si hay que confiar en ella.
  */
 export async function getLatestBloat(instanceId: number): Promise<Map<string, BloatMeasurementRow>> {
@@ -154,8 +154,8 @@ export async function getPgstattupleState(
   return {
     executable: false,
     reason:
-      'La extensión pgstattuple no está instalada en esta instancia. Se instala con ' +
-      'CREATE EXTENSION pgstattuple; viene en contrib y no requiere reiniciar el servidor.',
+      'The pgstattuple extension is not installed on this instance. Install with ' +
+      'CREATE EXTENSION pgstattuple; it ships in contrib and does not require a server restart.',
   };
 }
 

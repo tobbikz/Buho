@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   // que sobrevive si alguien mueve la ruta o cambia el matcher.
   const session = await currentSession();
   if (session.role !== 'admin' && session.role !== 'viewer') {
-    return new NextResponse('No autenticado', { status: 401 });
+    return new NextResponse('Not authenticated', { status: 401 });
   }
 
   const url = new URL(request.url);

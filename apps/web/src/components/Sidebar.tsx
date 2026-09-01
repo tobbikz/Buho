@@ -50,46 +50,46 @@ export function Sidebar({
       </div>
 
       <nav className="sidebar__section">
-        <div className="sidebar__label">Flota</div>
+        <div className="sidebar__label">Fleet</div>
         <Link href="/" className={`sidebar__link ${pathname === '/' ? 'is-active' : ''}`}>
-          Resumen
+          Overview
         </Link>
         <Link
           href="/checks"
           className={`sidebar__link ${pathname.startsWith('/checks') ? 'is-active' : ''}`}
         >
-          Chequeos
+          Checks
         </Link>
         <Link
           href="/flow"
           className={`sidebar__link ${pathname === '/flow' ? 'is-active' : ''}`}
         >
-          Flujo
+          Flow
         </Link>
         <Link
           href="/report"
           className={`sidebar__link ${pathname.startsWith('/report') ? 'is-active' : ''}`}
         >
-          Informe
+          Report
         </Link>
         <Link
           href="/estate"
           className={`sidebar__link ${pathname.startsWith('/estate') ? 'is-active' : ''}`}
         >
-          Parque
+          Estate
         </Link>
         <Link
           href="/security"
           className={`sidebar__link ${pathname.startsWith('/security') ? 'is-active' : ''}`}
         >
-          Seguridad
+          Security
         </Link>
       </nav>
 
       <nav className="sidebar__section">
-        <div className="sidebar__label">Instancias ({instances.length})</div>
+        <div className="sidebar__label">Instances ({instances.length})</div>
         {instances.length === 0 ? (
-          <div className="px-[0.875rem] py-1 text-[11px] text-foreground-muted">Sin instancias</div>
+          <div className="px-[0.875rem] py-1 text-[11px] text-foreground-muted">No instances</div>
         ) : (
           [...groups.entries()].map(([group, members]) => (
             <div key={group || 'todas'}>
@@ -116,24 +116,30 @@ export function Sidebar({
 
       {isAdmin ? (
         <nav className="sidebar__section">
-          <div className="sidebar__label">Administración</div>
+          <div className="sidebar__label">Admin</div>
+          <Link
+            href="/admin/instances"
+            className={`sidebar__link ${pathname.startsWith('/admin/instances') ? 'is-active' : ''}`}
+          >
+            Databases
+          </Link>
           <Link
             href="/admin/discovery"
             className={`sidebar__link ${pathname === '/admin/discovery' ? 'is-active' : ''}`}
           >
-            Descubrimiento
+            Discovery
           </Link>
           <Link
             href="/admin/users"
             className={`sidebar__link ${pathname === '/admin/users' ? 'is-active' : ''}`}
           >
-            Usuarios
+            Users
           </Link>
           <Link
             href="/admin/retention"
             className={`sidebar__link ${pathname === '/admin/retention' ? 'is-active' : ''}`}
           >
-            Retención
+            Retention
           </Link>
         </nav>
       ) : null}
@@ -146,7 +152,7 @@ export function Sidebar({
           {authEnabled ? (
             <form action={logout}>
               <button type="submit" className="underline decoration-dotted hover:text-foreground">
-                Salir
+                Sign out
               </button>
             </form>
           ) : null}

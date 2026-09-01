@@ -36,16 +36,16 @@ const WINDOWS = [
 ] as const;
 
 const AGGREGATIONS: { key: CrossLabel; label: string; hint: string }[] = [
-  { key: 'sum', label: 'suma', hint: 'total entre etiquetas: correcto para tasas y conteos' },
+  { key: 'sum', label: 'suma', hint: 'total across labels: correct for rates and counts' },
   { key: 'avg', label: 'promedio', hint: 'promedio entre etiquetas' },
-  { key: 'min', label: 'mínimo', hint: 'peor caso para ratios (cache hit)' },
-  { key: 'max', label: 'máximo', hint: 'peor caso para uso y latencias' },
+  { key: 'min', label: 'min', hint: 'worst case para ratios (cache hit)' },
+  { key: 'max', label: 'max', hint: 'worst case para uso y latencias' },
 ];
 
 const UNIT_TITLE: Record<Unit, string> = {
   pct: 'Porcentajes',
   bytes: 'Bytes',
-  rate: 'Por segundo',
+  rate: 'Per second',
   seconds: 'Duraciones',
   count: 'Conteos',
 };
@@ -61,7 +61,7 @@ function asArray(value: string | string[] | undefined): string[] {
  * Es la decisión central de esta pantalla. Un selector libre invita a marcar
  * "sesiones bloqueadas" y "bytes de WAL" a la vez, y en un solo eje la primera
  * serie se aplana contra el cero y deja de decir nada — el mismo error que ya
- * se corrigió a mano en el chart de bloqueos. Agrupar por unidad lo hace
+ * se corrigió a mano en el chart de bloqueos. Group by unidad lo hace
  * imposible por construcción, sin quitarle libertad a quien elige.
  */
 function groupByUnit(metrics: MetricMeta[]): Map<Unit, MetricMeta[]> {
@@ -112,7 +112,7 @@ export default async function AnalysisPage({
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: id }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -225,7 +225,7 @@ export default async function AnalysisPage({
           const series = metas.flatMap((meta, index) => {
             const color = SERIES_COLORS[selected.indexOf(meta.metric) % SERIES_COLORS.length] as string;
             return [
-              { metric: meta.metric, label: `${meta.label} · ahora`, color },
+              { metric: meta.metric, label: `${meta.label} · now`, color },
               {
                 metric: `${meta.metric}:antes`,
                 label: `${meta.label} · ${compareOffset.label.replace(/^vs /, '')}`,
@@ -238,8 +238,8 @@ export default async function AnalysisPage({
         }),
       );
       compareNote =
-        `Misma ventana de ${window.key}, desplazada ${compareOffset.label.replace(/^vs /, '')}. ` +
-        'La línea punteada es el pasado alineado al eje de ahora — útil para “antes del deploy vs. después”.';
+        `Same ${window.key} window, shifted ${compareOffset.label.replace(/^vs /, '')}. ` +
+        'The dashed line is the past aligned to the now axis — useful for “before deploy vs after”.';
     } else {
       const groups = groupByUnit(selectedMeta);
       panels = await Promise.all(
@@ -272,21 +272,21 @@ export default async function AnalysisPage({
       const baseline = await getBaseline(instanceId, single.metric);
       if (!baseline) {
         baselineNote =
-          `Todavía no hay línea base para ${single.label}: hacen falta al menos ${MIN_SAMPLES} ` +
-          'observaciones de la misma hora, y se recalculan una vez por hora.';
+          `No baseline yet for ${single.label}: at least ${MIN_SAMPLES} ` +
+          'observations of the same hour are needed, and they are recalculated once per hour.';
       } else {
         const scopeLabel =
-          baseline.scope === 'hora_semana' ? 'por día de la semana y hora' : 'por hora del día';
+          baseline.scope === 'hora_semana' ? 'by weekday and hour' : 'by hour of day';
         baselineNote =
           `Banda del percentil 10 al 90 ${scopeLabel}, con ${baseline.medianSamples} ` +
-          'observaciones típicas por celda.' +
+          'typical observations per cell.' +
           (baseline.scope === 'hora_dia'
-            ? ' Con más semanas de historia pasa a distinguir el martes del domingo.'
+            ? ' With more weeks of history it starts distinguishing Tuesday from Sunday.'
             : '');
         panels = panels.map((panel) => ({
           ...panel,
           data: withBand(panel.data, baseline),
-          band: { key: 'banda', medianKey: 'mediana', label: 'Normal para esta hora' },
+          band: { key: 'banda', medianKey: 'mediana', label: 'Normal for this hour' },
         }));
       }
     }
@@ -300,15 +300,15 @@ export default async function AnalysisPage({
     <>
       <Topbar
         crumbs={[
-          { label: 'Flota', href: '/' },
+          { label: 'Fleet', href: '/' },
           { label: instance.alias, href: `/instances/${instanceId}` },
-          { label: 'Análisis' },
+          { label: 'Analysis' },
         ]}
       />
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Análisis · {instance.alias}</h1>
+            <h1 className="page-title">Analysis · {instance.alias}</h1>
             <p className="page-sub">
               Cualquier métrica del store en un gráfico de líneas. La selección va en la URL: el enlace es el gráfico.
             </p>
@@ -361,7 +361,7 @@ export default async function AnalysisPage({
                   ))}
                   {aggregation === null && (
                     <span className="text-foreground-muted">
-                      automática por unidad (los porcentajes usan el peor caso)
+                      automática por unidad (los porcentajes usan el worst case)
                     </span>
                   )}
                 </span>
@@ -390,7 +390,7 @@ export default async function AnalysisPage({
                     </span>
                     <Link
                       href={linkWith({ base: comparing ? null : '1', vs: null })}
-                      title="Compara la serie contra lo normal para esa hora"
+                      title="Compare the series to what is normal for that hour"
                       className={`tag ${comparing ? 'tag--info' : 'tag--muted'}`}
                     >
                       comparar
@@ -400,7 +400,7 @@ export default async function AnalysisPage({
 
                 <span className="flex items-center gap-1.5">
                   <span className="font-semibold uppercase tracking-wide text-foreground-muted">
-                    Antes / ahora
+                    Before / now
                   </span>
                   {COMPARE_OFFSETS.map((entry) => (
                     <Link
@@ -411,8 +411,8 @@ export default async function AnalysisPage({
                       })}
                       title={
                         entry.hours === 0
-                          ? 'Sólo la ventana actual'
-                          : 'Misma ventana desplazada: útil tras un deploy'
+                          ? 'Current window only'
+                          : 'Same window shifted: useful after a deploy'
                       }
                       className={`tag ${
                         (entry.hours === 0 && !compareOffset) || compareOffset?.key === entry.key
@@ -420,13 +420,13 @@ export default async function AnalysisPage({
                           : 'tag--muted'
                       }`}
                     >
-                      {entry.key === '0' ? 'ahora' : entry.key}
+                      {entry.key === '0' ? 'now' : entry.key}
                     </Link>
                   ))}
                 </span>
 
                 <span className="ml-auto font-mono text-[10px] text-foreground-muted">
-                  ventana {window.key} · {resolution}
+                  window {window.key} · {resolution}
                 </span>
               </div>
             </section>
@@ -437,8 +437,8 @@ export default async function AnalysisPage({
                   <strong>
                     {cumulative.map((meta) => meta.label).join(', ')}
                   </strong>{' '}
-                  {cumulative.length === 1 ? 'es un contador acumulado' : 'son contadores acumulados'} desde el arranque
-                  del servidor: la línea sólo sube. Para ver actividad, elegir la versión{' '}
+                  {cumulative.length === 1 ? 'es un contador acumulado' : 'are cumulative counters'} desde el arranque
+                  counters: the line only goes up. To see activity, pick the{' '}
                   <span className="font-mono">_per_sec</span>.
                 </div>
               </section>
@@ -471,8 +471,8 @@ export default async function AnalysisPage({
                   title={panel.title}
                   hint={
                     panels.length > 1
-                      ? 'un gráfico por unidad: mezclarlas aplasta la serie más chica'
-                      : `ventana ${window.key} · ${resolution}`
+                      ? 'one chart per unit: mixing them flattens the smaller series'
+                      : `window ${window.key} · ${resolution}`
                   }
                   data={panel.data}
                   unit={panel.unit}

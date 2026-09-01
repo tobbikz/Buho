@@ -782,30 +782,81 @@ process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
 await store.migrate();
-log('info', `store listo, ${config.instances.length} instancia(s) configurada(s)`);
+log('info', `store ready, ${config.instances.length} instance(s) in config.json`);
 
-// Un encargo que quedó a medio ejecutar cuando el proceso murió se marca como
-// error al arrancar: la consola no puede quedarse mostrando "ejecutando" para
-// siempre sin que nadie lo esté ejecutando.
+// A request left mid-flight when the process died is marked as error on
+// startup: the console must not keep showing "running" forever with nobody
+// executing it.
 const released = await store.releaseStalePlanRequests(0);
-if (released > 0) log('warn', `${released} plan(es) quedaron a medias en la corrida anterior`);
+if (released > 0) log('warn', `${released} plan request(s) were abandoned in the previous run`);
+
+const startedKeys = new Set<string>();
+
+function targetToInstance(target: Awaited<ReturnType<typeof store.listMonitorTargets>>[number]): InstanceConfig {
+  return {
+    alias: target.alias,
+    engine: target.engine as InstanceConfig['engine'],
+    host: target.host,
+    port: target.port,
+    database: target.database,
+    user: target.username,
+    password: target.password,
+    environment: target.environment,
+    tenant: target.tenant,
+    ssl: target.ssl,
+    tags: target.tags,
+  };
+}
+
+/**
+ * Starts monitoring for every enabled target not already running.
+ *
+ * config.json and buho.monitor_targets are merged; the file wins on alias clash
+ * so a handwritten config cannot be silently overridden by the console.
+ */
+async function ensureMonitors(): Promise<void> {
+  const fromStore = await store.listMonitorTargets(true);
+  const byAlias = new Map<string, InstanceConfig>();
+  for (const target of fromStore) {
+    byAlias.set(target.alias, targetToInstance(target));
+  }
+  for (const instance of config.instances) {
+    byAlias.set(instance.alias, instance);
+  }
+
+  for (const instance of byAlias.values()) {
+    const key = instanceKey(instance);
+    if (startedKeys.has(key)) continue;
+    startedKeys.add(key);
+    log('info', `${instance.alias}: starting monitor (${instance.engine ?? 'postgres'})`);
+    await monitorInstance(instance).catch((error) => {
+      startedKeys.delete(key);
+      log(
+        'error',
+        `${instance.alias}: failed to start: ${error instanceof Error ? error.message : error}`,
+      );
+    });
+  }
+}
 
 startLoop('mantenimiento', MAINTENANCE_INTERVAL_MS, async () => {
-  // La retención se consulta en cada ciclo, no al arrancar: así un cambio hecho
-  // desde la consola surte efecto en el siguiente cuarto de hora sin reiniciar
-  // el colector. El config.json queda como valor inicial.
+  // Retention is read every cycle, not at boot: a change from the console takes
+  // effect on the next quarter hour without restarting the collector. config.json
+  // remains the initial value.
   const retention = await store.effectiveRetention(config.collector.retention);
   const result = await store.maintenance(retention);
   log(
     'info',
-    `mantenimiento: +${result.created} particiones, -${result.dropped} purgadas, ${result.rolled} filas agregadas` +
-      (result.baselines > 0 ? `, ${result.baselines} celdas de línea base` : '') +
-      ` (crudo ${retention.rawDays}d, 5m ${retention.rollup5mDays}d, 1h ${retention.rollup1hDays}d)`,
+    `maintenance: +${result.created} partitions, -${result.dropped} dropped, ${result.rolled} rows rolled up` +
+      (result.baselines > 0 ? `, ${result.baselines} baseline cells` : '') +
+      ` (raw ${retention.rawDays}d, 5m ${retention.rollup5mDays}d, 1h ${retention.rollup1hDays}d)`,
   );
 });
 
-for (const instance of config.instances) {
-  await monitorInstance(instance).catch((error) => {
-    log('error', `${instance.alias}: no se pudo iniciar: ${error instanceof Error ? error.message : error}`);
-  });
-}
+// Hot-add: console targets appear without a collector restart.
+startLoop('targets', 30_000, async () => {
+  await ensureMonitors();
+});
+
+await ensureMonitors();
+

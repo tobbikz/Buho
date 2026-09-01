@@ -8,12 +8,12 @@ import { readSession, SESSION_COOKIE, authConfigured, type Role, type Session } 
  */
 
 /** Identidad del modo sin autenticación (desarrollo). Ver `authRequired`. */
-const ANONYMOUS: Session = { username: 'sin-autenticación', role: 'admin', expiresAt: 0 };
+const ANONYMOUS: Session = { username: 'no-auth', role: 'admin', expiresAt: 0 };
 
 export async function currentSession(): Promise<Session> {
   if (!authConfigured()) return ANONYMOUS;
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  return (await readSession(token)) ?? { username: 'anónimo', role: 'viewer', expiresAt: 0 };
+  return (await readSession(token)) ?? { username: 'anonymous', role: 'viewer', expiresAt: 0 };
 }
 
 export async function currentRole(): Promise<Role> {
@@ -31,7 +31,7 @@ export async function currentRole(): Promise<Role> {
 export async function requireAdmin(): Promise<Session> {
   const session = await currentSession();
   if (session.role !== 'admin') {
-    throw new Error('Esta acción requiere rol de administrador.');
+    throw new Error('This action requires an administrator role.');
   }
   return session;
 }

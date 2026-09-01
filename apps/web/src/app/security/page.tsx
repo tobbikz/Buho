@@ -37,11 +37,11 @@ export default async function SecurityPage() {
     return (
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Sin auditorías todavía</span>
+          <span className="panel-title">No audits yet</span>
         </div>
         <div className="panel-body text-[12px] text-foreground-secondary">
           El colector audita la seguridad cada 6 horas y la primera lectura ocurre al arrancar. Si esto sigue
-          vacío, revisar el registro del colector: la auditoría necesita conectarse a cada instancia.
+          empty, check the collector log: the audit needs to connect to each instance.
         </div>
       </section>
     );
@@ -62,25 +62,25 @@ export default async function SecurityPage() {
     <div className="flex flex-col gap-[0.875rem]">
       <div className="stat-grid">
         <StatCard
-          label="Hallazgos críticos"
+          label="Critical findings"
           value={String(critical.length)}
-          hint="se entra sin credencial válida"
+          hint="access without a valid credential"
           tone={critical.length > 0 ? 'error' : 'ok'}
         />
         <StatCard
-          label="Hallazgos altos"
+          label="High findings"
           value={String(high.length)}
-          hint="credenciales o datos expuestos"
+          hint="exposed credentials or data"
           tone={high.length > 0 ? 'error' : 'ok'}
         />
         <StatCard
-          label="Instancias comprometibles"
+          label="Compromisable instances"
           value={`${exposed.size}/${posture.length}`}
-          hint="con al menos un hallazgo crítico"
+          hint="with at least one critical finding"
           tone={exposed.size > 0 ? 'error' : 'ok'}
         />
         <StatCard
-          label="Peor postura"
+          label="Worst posture"
           value={String(worst.score)}
           unit="/100"
           hint={worst.alias}
@@ -89,30 +89,30 @@ export default async function SecurityPage() {
         <StatCard
           label="Puntos ciegos"
           value={String(blind.length)}
-          hint="comprobaciones sin permisos"
+          hint="checks lacking permissions"
           tone={blind.length > 0 ? 'warn' : 'ok'}
         />
       </div>
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Postura por instancia</span>
+          <span className="panel-title">Posture by instance</span>
           <span className="text-[11px] text-foreground-muted">
-            el puntaje se calcula sólo sobre lo que se pudo verificar
+            el puntaje se calcula only over what could be verified
           </span>
         </div>
         <table className="data-table">
           <thead>
             <tr>
               <th>Instancia</th>
-              <th>Motor</th>
-              <th className="text-right">Postura</th>
-              <th className="text-right">Críticas</th>
+              <th>Engine</th>
+              <th className="text-right">Posture</th>
+              <th className="text-right">Critical</th>
               <th className="text-right">Altas</th>
               <th className="text-right">Medias</th>
               <th className="text-right">Bajas</th>
               <th className="text-right">Verificadas</th>
-              <th>Última auditoría</th>
+              <th>Last audit</th>
             </tr>
           </thead>
           <tbody>

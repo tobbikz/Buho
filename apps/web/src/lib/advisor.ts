@@ -2,12 +2,12 @@ import { mergeSuggestions, suggestIndexes, type IndexSuggestion, type PlanNode }
 import { query } from './db';
 
 /**
- * Sugerencias de índices a partir de los planes que ya están guardados.
+ * Sugerencias de indexes a partir de los planes que ya están guardados.
  *
  * No se conecta a la instancia ni pide nada nuevo: lee `plan_requests`. Eso
  * limita el alcance a las consultas cuyo plan alguien pidió, y es una limitación
- * a propósito. Un sugeridor que opina sobre consultas que nunca vio produce
- * índices imaginarios; uno que sólo habla de planes reales produce menos ideas y
+ * a propósito. Un sugeridor que opina sobre consultas que never vio produce
+ * indexes imaginarios; uno que sólo habla de planes reales produce menos ideas y
  * todas verificables.
  */
 
@@ -39,31 +39,31 @@ export async function getIndexSuggestions(
   );
 
   const todas: IndexSuggestion[] = [];
-  let conFilasReales = 0;
+  let conRowsReales = 0;
 
   for (const row of rows) {
     if (!row.plan) continue;
-    // Sólo los planes ejecutados con ANALYZE traen filas reales, y sin filas
+    // Sólo los planes ejecutados con ANALYZE traen filas reales, y no rows
     // reales no se sabe cuántas descartó el filtro. Un plan estimado puede
     // mentir por un factor de mil.
     if (row.mode !== 'analyze') continue;
-    conFilasReales += 1;
+    conRowsReales += 1;
     todas.push(...suggestIndexes(row.plan, row.queryid));
   }
 
   return {
     suggestions: mergeSuggestions(todas),
     plansConsidered: rows.length,
-    plansWithActuals: conFilasReales,
+    plansWithActuals: conRowsReales,
     newestPlanAt: rows[0]?.requested_at ?? null,
   };
 }
 
 /**
- * Hallazgos de los chequeos que hablan de índices de esta instancia.
+ * Findings de los chequeos que hablan de indexes de esta instancia.
  *
  * Es el contragolpe necesario a cualquier sugerencia: si los chequeos ya dicen
- * que hay índices sin usar o duplicados, proponer uno más sin mencionarlo sería
+ * que hay indexes sin usar o duplicados, proponer uno más sin mencionarlo sería
  * dar la mitad del consejo.
  */
 export async function getIndexFindings(

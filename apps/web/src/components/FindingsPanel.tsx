@@ -13,8 +13,8 @@ export interface FindingView {
 }
 
 const SEVERITY_LABEL: Record<Severity, string> = {
-  critical: 'Crítico',
-  warning: 'Aviso',
+  critical: 'Critical',
+  warning: 'Warning',
   info: 'Info',
 };
 
@@ -52,13 +52,13 @@ export function FindingsPanel({ findings, checkedAt }: { findings: FindingView[]
   return (
     <section className="panel">
       <div className="panel-header">
-        <span className="panel-title">Hallazgos</span>
+        <span className="panel-title">Findings</span>
         <div className="flex items-center gap-2">
-          {checkedAt && <span className="font-mono text-[10px] text-foreground-muted">corrida {checkedAt}</span>}
+          {checkedAt && <span className="font-mono text-[10px] text-foreground-muted">run {checkedAt}</span>}
           <div className="flex items-center gap-1">
-            {chip('all', `Todos ${findings.length}`)}
-            {chip('critical', `Críticos ${counts.critical}`)}
-            {chip('warning', `Avisos ${counts.warning}`)}
+            {chip('all', `All ${findings.length}`)}
+            {chip('critical', `Critical ${counts.critical}`)}
+            {chip('warning', `Warnings ${counts.warning}`)}
             {chip('info', `Info ${counts.info}`)}
           </div>
         </div>
@@ -67,8 +67,8 @@ export function FindingsPanel({ findings, checkedAt }: { findings: FindingView[]
       {visible.length === 0 ? (
         <div className="empty">
           {findings.length === 0
-            ? 'Sin hallazgos en la última corrida de checks.'
-            : 'Ningún hallazgo con esa severidad.'}
+            ? 'No findings in the last check run.'
+            : 'No findings at that severity.'}
         </div>
       ) : (
         <div>

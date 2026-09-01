@@ -22,7 +22,7 @@ const ROLE_LABEL: Record<string, string> = {
   primary: 'Primario',
   standby: 'Standby',
   slot: 'Slot',
-  replica: 'Réplica',
+  replica: 'Replica',
   availability_group: 'Grupo de disponibilidad',
 };
 
@@ -51,7 +51,7 @@ function slotRow(row: InstanceReplicationRow) {
                 : 'tag--muted'
           }`}
         >
-          {row.state ?? 'sin estado'}
+          {row.state ?? 'no state'}
         </span>
       </td>
       <td className="num">{row.lagBytes === null ? '—' : formatBytes(row.lagBytes)}</td>
@@ -89,7 +89,7 @@ export default async function ReplicationPage({
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: id }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -99,9 +99,9 @@ export default async function ReplicationPage({
   if (!instance) notFound();
 
   const crumbs = [
-    { label: 'Flota', href: '/' },
+    { label: 'Fleet', href: '/' },
     { label: instance.alias, href: `/instances/${instanceId}` },
-    { label: 'Replicación' },
+    { label: 'Replication' },
   ];
 
   let rows: InstanceReplicationRow[];
@@ -140,7 +140,7 @@ export default async function ReplicationPage({
   const slots = rows.filter((row) => row.role === 'slot');
   const primary = rows.find((row) => row.role === 'primary');
   // En una réplica, la fila `upstream` es su enlace con el primario: de ahí sale
-  // de quién depende esta instancia.
+  // de who depende esta instancia.
   const upstream = rows.find((row) => row.role === 'upstream');
 
   // El último punto de la serie: la foto de inventario se toma cada hora, pero
@@ -162,10 +162,10 @@ export default async function ReplicationPage({
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Replicación · {instance.alias}</h1>
+            <h1 className="page-title">Replication · {instance.alias}</h1>
             <p className="page-sub">
-              El lag en el tiempo, no sólo el de ahora. Un standby que se atrasa en cada carga nocturna y se
-              recupera de día no se ve en una foto, y es la diferencia entre un sistema sano y uno que va a fallar
+              Lag over time, not only right now. A standby that falls behind on every nightly load and
+              catches up by day does not show in a snapshot, and that is the difference between a healthy system and one that will fail
               cuando haga falta promoverlo.
             </p>
           </div>
@@ -176,10 +176,10 @@ export default async function ReplicationPage({
 
         {standalone ? (
           <div className="notice">
-            <strong>Esta instancia no tiene replicación configurada.</strong> No hay standbys conectados, no está
-            en recuperación y no tiene slots. Si debería tener una réplica, eso ya es un hallazgo: el chequeo{' '}
-            <span className="font-mono">replication_lag</span> del resumen no puede avisar de un standby que
-            nunca existió.
+            <strong>This instance has no replication configured.</strong> No connected standbys, not
+            in recovery, and no slots. If it should have a replica, that is already a finding: the{' '}
+            <span className="font-mono">replication_lag</span> overview check cannot warn about a standby that
+            never existió.
           </div>
         ) : (
           <div className="stat-grid">
@@ -197,13 +197,13 @@ export default async function ReplicationPage({
                   label="Standbys"
                   value={formatNumber(standbys.length)}
                   tone={standbys.length === 0 ? 'warn' : 'ok'}
-                  hint="con sesión de streaming abierta"
+                  hint="with an open streaming session"
                 />
                 <StatCard
-                  label="Lag máximo"
+                  label="Max lag"
                   value={worstLag > 0 ? formatDuration(worstLag) : '0 s'}
                   tone={worstLag >= 60 ? 'error' : worstLag >= 10 ? 'warn' : 'ok'}
-                  hint="peor standby ahora"
+                  hint="worst standby now"
                 />
               </>
             )}
@@ -215,16 +215,16 @@ export default async function ReplicationPage({
                   tone={
                     ownDelay === null ? 'neutral' : ownDelay >= 60 ? 'error' : ownDelay >= 10 ? 'warn' : 'ok'
                   }
-                  hint="desde el último cambio aplicado"
+                  hint="since the last applied change"
                 />
                 <StatCard
-                  label="WAL sin aplicar"
+                  label="WAL not applied"
                   value={ownPending === null ? '—' : formatBytes(ownPending)}
                   tone={ownPending && ownPending > 64 * 1024 * 1024 ? 'warn' : 'ok'}
                   hint={
                     // Un retraso alto con cero bytes pendientes es un primario
                     // quieto, no una réplica atrasada. Es la confusión más común.
-                    ownPending === 0 ? 'al día: el primario está quieto' : 'recibido y pendiente'
+                    ownPending === 0 ? 'caught up: primary is idle' : 'received and pending'
                   }
                 />
               </>
@@ -246,7 +246,7 @@ export default async function ReplicationPage({
                 label="Recibe de"
                 value={upstream.peer || '—'}
                 tone={upstream.state === 'streaming' ? 'ok' : 'warn'}
-                hint={upstream.state ?? 'sin estado'}
+                hint={upstream.state ?? 'no state'}
               />
             ) : (
               primary && (
@@ -254,7 +254,7 @@ export default async function ReplicationPage({
                   label="Primario"
                   value={primary.peer || '—'}
                   tone="neutral"
-                  hint={primary.state ?? 'sin estado'}
+                  hint={primary.state ?? 'no state'}
                 />
               )
             )}
@@ -267,15 +267,15 @@ export default async function ReplicationPage({
               {inactiveSlots.length} slot{inactiveSlots.length === 1 ? '' : 's'} inactivo
               {inactiveSlots.length === 1 ? '' : 's'}.
             </strong>{' '}
-            Un slot sin consumidor retiene WAL para siempre: es la forma más común de llenar el disco de un
-            primario sano. Si el consumidor no va a volver,{' '}
+            A slot with no consumer retains WAL forever: the most common way to fill the disk of a
+            healthy primary. If the consumer is not coming back,{' '}
             <span className="font-mono">pg_drop_replication_slot()</span> libera el espacio.
           </div>
         )}
 
         {!standalone && (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] uppercase tracking-wide text-foreground-muted">Ventana</span>
+            <span className="text-[11px] uppercase tracking-wide text-foreground-muted">Window</span>
             {WINDOWS.map((candidate) => (
               <a
                 key={candidate.key}
@@ -291,8 +291,8 @@ export default async function ReplicationPage({
         {isStandby ? (
           <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
             <TimeseriesPanel
-              title="Retraso de aplicación"
-              hint={`ventana ${window.key} · medido en este standby`}
+              title="Apply delay"
+              hint={`window ${window.key} · measured on this standby`}
               data={standby}
               unit="seconds"
               height={170}
@@ -301,8 +301,8 @@ export default async function ReplicationPage({
               ]}
             />
             <TimeseriesPanel
-              title="WAL recibido sin aplicar"
-              hint={`ventana ${window.key}`}
+              title="WAL received not applied"
+              hint={`window ${window.key}`}
               data={standby}
               unit="bytes"
               height={170}
@@ -312,8 +312,8 @@ export default async function ReplicationPage({
         ) : (
           !standalone && (
             <TimeseriesPanel
-              title="Lag de aplicación por standby"
-              hint={`ventana ${window.key}`}
+              title="Apply lag by standby"
+              hint={`window ${window.key}`}
               data={lag.points}
               unit="seconds"
               height={190}
@@ -337,10 +337,10 @@ export default async function ReplicationPage({
                 <thead>
                   <tr>
                     <th>Standby</th>
-                    <th>Estado</th>
-                    <th className="text-right">Bytes atrás</th>
-                    <th className="text-right">Segundos atrás</th>
-                    <th>Detalle</th>
+                    <th>State</th>
+                    <th className="text-right">Bytes behind</th>
+                    <th className="text-right">Seconds behind</th>
+                    <th>Detail</th>
                     <th className="text-right">Visto</th>
                   </tr>
                 </thead>
@@ -353,7 +353,7 @@ export default async function ReplicationPage({
                         <td className="font-mono text-[11.5px]">{row.peer}</td>
                         <td>
                           <span className={`tag ${row.state === 'streaming' ? 'tag--ok' : 'tag--warn'}`}>
-                            {row.state ?? 'sin estado'}
+                            {row.state ?? 'no state'}
                           </span>
                         </td>
                         <td className="num">{row.lagBytes === null ? '—' : formatBytes(row.lagBytes)}</td>
@@ -391,7 +391,7 @@ export default async function ReplicationPage({
             <div className="panel-header">
               <span className="panel-title">Slots · {slots.length}</span>
               <span className="font-mono text-[10px] text-foreground-muted">
-                un slot inactivo retiene WAL hasta llenar el disco
+                an inactive slot retains WAL until the disk fills
               </span>
             </div>
             <div className="table-scroll">
@@ -399,9 +399,9 @@ export default async function ReplicationPage({
                 <thead>
                   <tr>
                     <th>Slot</th>
-                    <th>Estado</th>
+                    <th>State</th>
                     <th className="text-right">WAL retenido</th>
-                    <th className="text-right">Segundos atrás</th>
+                    <th className="text-right">Seconds behind</th>
                     <th>WAL status</th>
                     <th className="text-right">Visto</th>
                   </tr>

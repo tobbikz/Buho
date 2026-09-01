@@ -28,10 +28,10 @@ import {
 export const dynamic = 'force-dynamic';
 
 const SEVERITY_LABEL = {
-  critica: 'Crítica',
-  alta: 'Alta',
-  media: 'Media',
-  baja: 'Baja',
+  critica: 'Critical',
+  alta: 'High',
+  media: 'Medium',
+  baja: 'Low',
 } as const;
 
 function findingClass(severity: keyof typeof SEVERITY_LABEL): string {
@@ -62,7 +62,7 @@ async function explain(formData: FormData) {
   // es de confianza: EXPLAIN sin ANALYZE no toca los datos, y con ANALYZE corre
   // la consulta de verdad contra la base del cliente.
   if (mode === 'analyze' && session.role !== 'admin') {
-    back('Ejecutar la consulta con ANALYZE requiere rol de administrador.');
+    back('Running the query with ANALYZE requires an administrator role.');
   }
 
   // Las mismas reglas que deciden qué botones se dibujan, comprobadas acá: la
@@ -70,10 +70,10 @@ async function explain(formData: FormData) {
   // encargo imposible sólo produce un error en pantalla un segundo después.
   const kind = statementKind(sql);
   if (kind === 'utilitaria') {
-    back('PostgreSQL no puede explicar sentencias utilitarias como ALTER TABLE, VACUUM o SET.');
+    back('PostgreSQL cannot explain utility statements such as ALTER TABLE, VACUUM, or SET.');
   }
   if (kind === 'escritura' && mode === 'analyze') {
-    back('No se ejecuta con ANALYZE una sentencia que escribe. El plan estimado muestra la misma estructura.');
+    back('A writing statement is not run with ANALYZE. The estimated plan shows the same structure.');
   }
 
   const requestId = await requestPlan(instanceId, sql, mode, session.username, queryid);
@@ -115,7 +115,7 @@ export default async function QueryPlanPage({
   } catch (storeError) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: 'Consulta' }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: 'Query' }]} />
         <div className="page">
           <StoreError message={storeError instanceof Error ? storeError.message : String(storeError)} />
         </div>
@@ -156,9 +156,9 @@ export default async function QueryPlanPage({
     <>
       <Topbar
         crumbs={[
-          { label: 'Flota', href: '/' },
+          { label: 'Fleet', href: '/' },
           { label: instance.alias, href: `/instances/${instanceId}` },
-          { label: 'Consultas', href: `/instances/${instanceId}/queries` },
+          { label: 'Queries', href: `/instances/${instanceId}/queries` },
           { label: queryid },
         ]}
       />
@@ -169,10 +169,10 @@ export default async function QueryPlanPage({
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Plan de ejecución</h1>
+            <h1 className="page-title">Execution plan</h1>
             <p className="page-sub">
-              Consulta <span className="font-mono">{queryid}</span>
-              {statement.database ? ` · base ${statement.database}` : ''}
+              Query <span className="font-mono">{queryid}</span>
+              {statement.database ? ` · database ${statement.database}` : ''}
               {statement.username ? ` · rol ${statement.username}` : ''}
             </p>
           </div>
@@ -185,43 +185,43 @@ export default async function QueryPlanPage({
 
         {summary ? (
           <div className="stat-grid">
-            <StatCard label="Llamadas" value={formatNumber(summary.calls)} hint="en la ventana retenida" />
+            <StatCard label="Calls" value={formatNumber(summary.calls)} hint="in the retained window" />
             <StatCard
               label="Tiempo total"
               value={formatDuration(summary.execMs / 1000)}
               hint="suma de todas las ejecuciones"
             />
             <StatCard
-              label="Media por llamada"
+              label="Mean per call"
               value={`${summary.meanMs.toFixed(summary.meanMs < 10 ? 2 : 0)} ms`}
               tone={summary.meanMs > 1_000 ? 'warn' : 'neutral'}
             />
-            <StatCard label="Filas devueltas" value={formatNumber(summary.rows)} />
+            <StatCard label="Rows returned" value={formatNumber(summary.rows)} />
             <StatCard
-              label="Temporales escritos"
+              label="Temp written"
               value={formatBytes(summary.tempWritten)}
               tone={summary.tempWritten > 0 ? 'warn' : 'ok'}
-              hint={summary.tempWritten > 0 ? 'derrames a disco' : 'todo en memoria'}
+              hint={summary.tempWritten > 0 ? 'disk spills' : 'todo en memoria'}
             />
             <StatCard
-              label="Bloques leídos de disco"
+              label="Blocks read from disk"
               value={formatNumber(summary.sharedRead)}
-              hint={`${formatNumber(summary.sharedHit)} desde caché`}
+              hint={`${formatNumber(summary.sharedHit)} from cache`}
             />
           </div>
         ) : null}
 
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Texto de la consulta</span>
+            <span className="panel-title">Query text</span>
             <span className="text-[11px] text-foreground-muted">
               {[
                 statement.truncated
                   ? 'cortada a 4000 caracteres'
                   : parameterized
                     ? 'normalizada por pg_stat_statements'
-                    : 'con valores concretos',
-                kind === 'utilitaria' ? 'sentencia utilitaria' : kind === 'escritura' ? 'escribe' : null,
+                    : 'with concrete values',
+                kind === 'utilitaria' ? 'utility statement' : kind === 'escritura' ? 'escribe' : null,
               ]
                 .filter(Boolean)
                 .join(' · ')}
@@ -234,7 +234,7 @@ export default async function QueryPlanPage({
 
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">{modes.length > 0 ? 'Explicar' : 'No se puede explicar'}</span>
+            <span className="panel-title">{modes.length > 0 ? 'Explain' : 'Cannot explain'}</span>
             {request ? (
               <span className="text-[11px] text-foreground-muted">
                 {MODE_LABEL[request.mode]} · pedido por {request.requestedBy} {formatAgo(request.requestedAt)}
@@ -278,8 +278,8 @@ export default async function QueryPlanPage({
             ) : kind === 'utilitaria' ? (
               <div className="flex flex-col gap-1.5">
                 <p className="text-[12px] text-warning">
-                  PostgreSQL no puede explicar esta sentencia. No es una limitación de Búho ni un problema de
-                  permisos: la gramática de <span className="font-mono">EXPLAIN</span> sólo acepta sentencias que
+                  PostgreSQL cannot explain this statement. It is not a Búho limitation or a
+                  permissions problem: <span className="font-mono">EXPLAIN</span> grammar only accepts statements that
                   tienen plan —SELECT, INSERT, UPDATE, DELETE, MERGE, VALUES, EXECUTE, DECLARE y CREATE TABLE AS—.
                   Un <span className="font-mono">EXPLAIN ALTER TABLE</span> es un error de sintaxis, y{' '}
                   <span className="font-mono">REFRESH MATERIALIZED VIEW</span> contesta que las sentencias
@@ -296,8 +296,8 @@ export default async function QueryPlanPage({
             ) : parameterized && !generic ? (
               <p className="text-[12px] text-warning">
                 El texto viene normalizado con <span className="font-mono">$1</span> y esta instancia es anterior a
-                PostgreSQL 16, así que no soporta <span className="font-mono">EXPLAIN (GENERIC_PLAN)</span>. Hay que
-                explicarla a mano reemplazando los parámetros por valores reales.
+                PostgreSQL 16, so it does not support <span className="font-mono">EXPLAIN (GENERIC_PLAN)</span>. You have to
+                explain it by hand replacing parameters with real values.
               </p>
             ) : (
               <div className="flex flex-col gap-1.5">
@@ -311,7 +311,7 @@ export default async function QueryPlanPage({
                 ))}
                 {kind === 'escritura' ? (
                   <p className="text-[11.5px] text-warning">
-                    Esta sentencia escribe, así que no se ofrece ejecutarla con{' '}
+                    This statement writes, so running it with{' '} is not offered
                     <span className="font-mono">ANALYZE</span>. El plan estimado muestra la misma estructura sin
                     tocar los datos. Revertir la transacción alcanzaría para las filas, pero no para lo que un
                     INSERT deja detrás: valores de secuencia consumidos, disparadores con efectos externos, WAL y
@@ -338,8 +338,8 @@ export default async function QueryPlanPage({
         {request && request.sql !== statement.query ? (
           <section className="panel">
             <div className="panel-header">
-              <span className="panel-title">Texto con el que se explicó</span>
-              <span className="tag tag--warn">distinto del actual</span>
+              <span className="panel-title">Text that was explained</span>
+              <span className="tag tag--warn">different from current</span>
             </div>
             <pre className="max-h-[14rem] overflow-auto whitespace-pre-wrap border-t border-border bg-surface-muted p-3 font-mono text-[11.5px] leading-relaxed">
               {request.sql}
@@ -350,7 +350,7 @@ export default async function QueryPlanPage({
         {request?.state === 'error' ? (
           <section className="panel">
             <div className="panel-header">
-              <span className="panel-title">No se pudo explicar</span>
+              <span className="panel-title">Could not explain</span>
               <span className="tag tag--error">error</span>
             </div>
             <div className="panel-body">
@@ -359,12 +359,12 @@ export default async function QueryPlanPage({
                   un catálogo de causas posibles obliga a descartarlas a mano. */}
               <p className="mt-2 text-[11.5px] text-foreground-muted">
                 {/does not exist|no existe/i.test(request.error ?? '')
-                  ? 'La sentencia nombra un objeto que ya no está o que el colector no ve. Pasa con tablas de staging o temporales creadas por la aplicación, y con nombres sin esquema: el colector se conecta con su propio search_path.'
+                  ? 'The statement names an object that no longer exists or that the collector cannot see. Common with staging or temporary tables created by the application, and with objects the monitoring role cannot reach.'
                   : /permission denied|permiso denegado/i.test(request.error ?? '')
-                    ? 'Al rol de monitoreo le falta permiso de lectura sobre alguno de los objetos. Planificar requiere leer las estadísticas de cada tabla involucrada.'
+                    ? 'The monitoring role lacks read permission on one of the objects. Planning requires reading statistics for each involved table.'
                     : /syntax error/i.test(request.error ?? '')
-                      ? 'El texto no es una sentencia completa que PostgreSQL pueda planificar. Suele ser un texto recortado, o una sentencia utilitaria que EXPLAIN no acepta.'
-                      : 'El error viene de la instancia tal cual lo devolvió, sin interpretación de Búho.'}
+                      ? 'The text is not a complete statement PostgreSQL can plan. Often truncated text, or a utility statement that EXPLAIN does not accept.'
+                      : 'The error comes from the instance as returned, without interpretation by Búho.'}
               </p>
             </div>
           </section>
@@ -374,22 +374,22 @@ export default async function QueryPlanPage({
           <>
             <div className="stat-grid">
               <StatCard
-                label="Modo"
-                value={analyzed ? 'ANALYZE' : request.mode === 'generic' ? 'Genérico' : 'Estimado'}
-                hint={analyzed ? 'filas y tiempos reales' : 'sin ejecutar la consulta'}
+                label="Mode"
+                value={analyzed ? 'ANALYZE' : request.mode === 'generic' ? 'Generic' : 'Estimated'}
+                hint={analyzed ? 'real rows and timings' : 'without running the query'}
               />
-              <StatCard label="Costo total" value={formatNumber(request.totalCost ?? 0)} hint="unidades del planificador" />
+              <StatCard label="Total cost" value={formatNumber(request.totalCost ?? 0)} hint="planner units" />
               <StatCard
-                label="Planificación"
+                label="Planning"
                 value={request.planningMs === null ? '—' : `${request.planningMs.toFixed(2)} ms`}
               />
               <StatCard
-                label="Ejecución"
+                label="Execution"
                 value={request.executionMs === null ? '—' : `${request.executionMs.toFixed(1)} ms`}
-                hint={request.executionMs === null ? 'no se ejecutó' : undefined}
+                hint={request.executionMs === null ? 'did not run' : undefined}
               />
               <StatCard
-                label="Hallazgos"
+                label="Findings"
                 value={String(request.findings.length)}
                 tone={
                   request.findings.some((finding) => finding.severity === 'critica' || finding.severity === 'alta')
@@ -403,16 +403,16 @@ export default async function QueryPlanPage({
 
             <section className="panel">
               <div className="panel-header">
-                <span className="panel-title">Dónde está el problema</span>
+                <span className="panel-title">Where the problem is</span>
                 <span className="text-[11px] text-foreground-muted">
                   {request.findings.length === 0 ? 'sin patrones conocidos' : 'de mayor a menor severidad'}
                 </span>
               </div>
               {request.findings.length === 0 ? (
                 <div className="empty">
-                  Ningún patrón problemático conocido en este plan.
+                  No known problematic pattern in this plan.
                   {!analyzed
-                    ? ' Varias comprobaciones —filas reales contra estimadas, derrames a disco, vueltas de un Nested Loop— sólo se pueden hacer ejecutando la consulta con ANALYZE.'
+                    ? ' Several checks — real vs estimated rows, disk spills, Nested Loop loops — can only be done by executing the query.'
                     : ''}
                 </div>
               ) : (
@@ -459,16 +459,16 @@ export default async function QueryPlanPage({
 
             <section className="panel">
               <div className="panel-header">
-                <span className="panel-title">Árbol del plan</span>
+                <span className="panel-title">Plan tree</span>
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] text-foreground-muted">
-                    la barra de fondo es la proporción del {analyzed ? 'tiempo' : 'costo'}
+                    the background bar is the share of {analyzed ? 'time' : 'cost'}
                   </span>
                   <Link
                     href={`/instances/${instanceId}/queries/${queryid}?plan=${request.requestId}&texto=${texto ? '' : '1'}`}
                     className="btn"
                   >
-                    {texto ? 'Ver árbol' : 'Ver texto'}
+                    {texto ? 'View tree' : 'Ver texto'}
                   </Link>
                 </div>
               </div>
@@ -488,20 +488,20 @@ export default async function QueryPlanPage({
             <div className="panel-header">
               <span className="panel-title">Planes anteriores</span>
               <span className="text-[11px] text-foreground-muted">
-                sirve para ver si a la consulta le cambió el plan
+                shows whether the query plan changed
               </span>
             </div>
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Cuándo</th>
+                  <th>When</th>
                   <th>Modo</th>
                   <th>Pedido por</th>
-                  <th>Estado</th>
+                  <th>State</th>
                   <th className="text-right">Costo</th>
-                  <th className="text-right">Ejecución</th>
-                  <th className="text-right">Hallazgos</th>
-                  <th>Nodo raíz</th>
+                  <th className="text-right">Execution</th>
+                  <th className="text-right">Findings</th>
+                  <th>Root node</th>
                 </tr>
               </thead>
               <tbody>

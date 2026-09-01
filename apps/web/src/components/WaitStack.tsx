@@ -1,11 +1,11 @@
 'use client';
 
 /**
- * Barras apiladas de sesiones por tipo de espera.
+ * Barras apiladas de sessions por tipo de espera.
  *
- * El eje vertical son **sesiones a la vez**, no esperas sumadas: sumar crecería
+ * El eje vertical son **sessions at once**, no esperas sumadas: sumar crecería
  * solo al agrandar el cubo de tiempo y el gráfico mentiría sobre la carga. Con
- * sesiones promedio, la altura se puede comparar contra el número de núcleos del
+ * sessions promedio, la altura se puede comparar contra el número de cores del
  * servidor, que es la lectura que importa.
  *
  * Es SVG y no canvas porque son unos cientos de rectángulos estáticos: aquí el
@@ -20,7 +20,7 @@ export interface StackBucket {
 
 // Los colores llevan significado: lo que es trabajo (CPU) en verde, lo que es
 // espera evitable (bloqueos) en rojo, el disco en ámbar. Un DBA que ve rojo
-// creciendo sabe que hay que mirar transacciones, no comprar discos.
+// creciendo sabe que hay que mirar transactions, no comprar discos.
 const COLOR: Record<string, string> = {
   CPU: '#3ecf8e',
   Lock: '#e5484d',
@@ -81,7 +81,7 @@ export function WaitStack({
                     fill={COLOR[tipo] ?? '#7a869a'}
                     opacity={0.88}
                   >
-                    <title>{`${new Date(cubo.bucket).toLocaleString('es')}\n${tipo}: ${valor.toFixed(2)} sesión(es)`}</title>
+                    <title>{`${new Date(cubo.bucket).toLocaleString('en')}\n${tipo}: ${valor.toFixed(2)} session(s)`}</title>
                   </rect>
                 );
               })}
@@ -100,7 +100,7 @@ export function WaitStack({
             <span className="font-mono">{tipo}</span>
           </span>
         ))}
-        <span className="ml-auto font-mono">pico {maximo.toFixed(1)} sesión(es) a la vez</span>
+        <span className="ml-auto font-mono">peak {maximo.toFixed(1)} session(s) at once</span>
       </div>
     </div>
   );

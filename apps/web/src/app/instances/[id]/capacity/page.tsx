@@ -45,7 +45,7 @@ export default async function CapacityPage({ params }: { params: Promise<{ id: s
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: id }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -62,15 +62,15 @@ export default async function CapacityPage({ params }: { params: Promise<{ id: s
     <>
       <Topbar
         crumbs={[
-          { label: 'Flota', href: '/' },
+          { label: 'Fleet', href: '/' },
           { label: instance.alias, href: `/instances/${instanceId}` },
-          { label: 'Capacidad' },
+          { label: 'Capacity' },
         ]}
       />
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Capacidad · {instance.alias}</h1>
+            <h1 className="page-title">Capacity · {instance.alias}</h1>
             <p className="page-sub">
               Proyección lineal sobre el rollup diario de las últimas 4 semanas: disco, XID, CPU y
               RAM. No es un modelo de colas — si la carga no es estable, la fecha se mueve.

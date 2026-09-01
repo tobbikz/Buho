@@ -10,7 +10,7 @@ import {
 import { findUser, recordLogin, userCount, verifyPassword, logConsoleEvent } from '@/lib/users';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Entrar · Búho' };
+export const metadata = { title: 'Sign in · Búho' };
 
 /** Ruta interna válida: evita que ?next= sirva para redirigir a otro sitio. */
 function safeNext(value: string | undefined): string {
@@ -55,7 +55,7 @@ async function enter(formData: FormData) {
     if (!user || user.disabled || !verifyPassword(candidate, user.passwordHash)) fail();
 
     await recordLogin(user!.userId);
-    await logConsoleEvent(user!.username, 'sesión iniciada');
+    await logConsoleEvent(user!.username, 'signed in');
     session = await issueSession(user!.username, user!.role);
   }
 
@@ -83,22 +83,22 @@ export default async function LoginPage({
   if (!authConfigured()) {
     return (
       <div className="mx-auto max-w-[46rem] p-8">
-        <h1 className="text-[18px] font-semibold">Consola sin autenticación</h1>
+        <h1 className="text-[18px] font-semibold">Console without authentication</h1>
         <p className="mt-2 text-[13px] text-foreground-secondary">
-          La consola no arranca en producción sin autenticación: cualquiera que alcance el puerto vería el estado de
-          todas las instancias, con textos de consultas incluidos.
+          The console will not start in production without authentication: anyone who can reach the port would see the state of
+          every instance, including query text.
         </p>
         <pre className="mt-4 border border-border bg-surface-muted p-3 font-mono text-[11.5px]">
           {`# docker compose o systemd
-BUHO_AUTH_SECRET='una-cadena-larga-generada'   # firma de las sesiones
-BUHO_AUTH_PASSWORD='otra-cadena-larga'         # entra como admin mientras no haya cuentas
-# opcional, si la consola sirve HTTPS directamente
+BUHO_AUTH_SECRET='una-cadena-larga-generada'   # signs sessions
+BUHO_AUTH_PASSWORD='otra-cadena-larga'         # signs in as admin while no accounts exist
+# optional, if the console serves HTTPS directly
 BUHO_AUTH_COOKIE_SECURE=true`}
         </pre>
         <p className="mt-3 text-[12.5px] text-foreground-secondary">
-          Para generarlas: <span className="font-mono">openssl rand -base64 24</span>. Con la contraseña compartida se
-          entra como administrador y desde ahí se crean las cuentas; en cuanto existe la primera, la contraseña
-          compartida deja de servir.
+          To generate them: <span className="font-mono">openssl rand -base64 24</span>. With the shared password you
+          sign in as administrator and create accounts from there; once the first account exists, the shared
+          password stops working.
         </p>
       </div>
     );
@@ -118,12 +118,12 @@ BUHO_AUTH_COOKIE_SECURE=true`}
         <div className="panel-body">
           {bootstrap ? (
             <p className="mb-3 text-[11.5px] text-foreground-muted">
-              Todavía no hay cuentas: entra con la contraseña compartida y créalas en Administración.
+              No accounts yet: sign in with the shared password and create them under Admin.
             </p>
           ) : (
             <>
               <label className="block text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-                Usuario
+                Username
               </label>
               <input
                 type="text"
@@ -136,7 +136,7 @@ BUHO_AUTH_COOKIE_SECURE=true`}
           )}
 
           <label className="block text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-            Contraseña
+            Password
           </label>
           <input
             type="password"
@@ -149,19 +149,19 @@ BUHO_AUTH_COOKIE_SECURE=true`}
 
           {error ? (
             <p className="mt-2 text-[12px] text-error">
-              {bootstrap ? 'Contraseña incorrecta.' : 'Usuario o contraseña incorrectos.'}
+              {bootstrap ? 'Incorrect password.' : 'Incorrect username or password.'}
             </p>
           ) : null}
 
           <button type="submit" className="btn btn--primary mt-3 w-full justify-center">
-            Entrar
+            Sign in
           </button>
         </div>
       </form>
 
       <p className="mt-3 text-[11px] text-foreground-muted">
-        La sesión dura 12 horas. Búho no expone esta consola a internet: se espera detrás de la red interna o de un
-        proxy con TLS.
+        The session lasts 12 hours. Búho is not meant to expose this console to the internet: put it behind an internal network or a
+        TLS proxy.
       </p>
     </div>
   );

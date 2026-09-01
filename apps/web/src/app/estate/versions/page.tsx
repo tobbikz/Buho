@@ -56,49 +56,49 @@ export default async function VersionsPage() {
     <div className="flex flex-col gap-[0.875rem]">
       <div className="stat-grid">
         <StatCard
-          label="Fuera de soporte"
+          label="Out of support"
           value={String(expired.length)}
-          hint="ya no reciben parches de seguridad"
+          hint="no longer receive security patches"
           tone={expired.length > 0 ? 'error' : 'ok'}
         />
         <StatCard
           label="Vencen en 6 meses"
           value={String(expiring.length)}
-          hint="hay que planificar la actualización"
+          hint="an upgrade needs planning"
           tone={expiring.length > 0 ? 'warn' : 'ok'}
         />
         <StatCard
-          label="Motores con versiones mezcladas"
+          label="Engines with mixed versions"
           value={String(mixed.length)}
-          hint="servidores del mismo motor en versiones distintas"
+          hint="same-engine servers on different versions"
           tone={mixed.length > 0 ? 'warn' : 'ok'}
         />
-        <StatCard label="Instancias inventariadas" value={String(rows.length)} />
+        <StatCard label="Inventoried instances" value={String(rows.length)} />
       </div>
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Versiones del parque</span>
+          <span className="panel-title">Estate versions</span>
           <span className="font-mono text-[10px] text-foreground-muted">
             fechas de fin de soporte desde tabla local, sin llamadas a internet
           </span>
         </div>
         {rows.length === 0 ? (
-          <div className="empty">Sin instancias inventariadas todavía.</div>
+          <div className="empty">No inventoried instances yet.</div>
         ) : (
           <div className="table-scroll" style={{ maxHeight: 'none' }}>
             <table className="data-table">
               <thead>
                 <tr>
                   <th>Instancia</th>
-                  <th>Motor</th>
-                  <th>Versión</th>
-                  <th>Edición</th>
+                  <th>Engine</th>
+                  <th>Version</th>
+                  <th>Edition</th>
                   <th>Parche</th>
                   <th>Fin de soporte</th>
-                  <th className="text-right">Días</th>
+                  <th className="text-right">Days</th>
                   <th>Arranque</th>
-                  <th className="text-right">Núcleos</th>
+                  <th className="text-right">Cores</th>
                   <th className="text-right">Memoria</th>
                 </tr>
               </thead>
@@ -160,7 +160,7 @@ export default async function VersionsPage() {
               <div key={engine}>
                 <strong>{ENGINE_LABEL[engine] ?? engine}</strong> corre en {versions.size} versiones distintas:{' '}
                 <span className="font-mono text-[11px]">{[...versions].join(' · ')}</span>. Una diferencia de parche
-                entre servidores que deberían ser gemelos explica los bugs que sólo pasan en uno.
+                across servers that should be twins explains bugs that only happen on one.
               </div>
             ))}
           </div>

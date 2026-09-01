@@ -30,11 +30,11 @@ import {
 export const dynamic = 'force-dynamic';
 
 const ORDERS: { key: VacuumOrder; label: string }[] = [
-  { key: 'muertas', label: 'Más tuplas muertas' },
-  { key: 'bloat', label: 'Más espacio desperdiciado' },
-  { key: 'antiguedad', label: 'Hace más que no pasa' },
-  { key: 'tamano', label: 'Más grandes' },
-  { key: 'wraparound', label: 'Más cerca del wraparound' },
+  { key: 'muertas', label: 'Most dead tuples' },
+  { key: 'bloat', label: 'Most wasted space' },
+  { key: 'antiguedad', label: 'Longest since vacuum' },
+  { key: 'tamano', label: 'Largest' },
+  { key: 'wraparound', label: 'Closest to wraparound' },
 ];
 
 /**
@@ -42,18 +42,18 @@ const ORDERS: { key: VacuumOrder; label: string }[] = [
  *
  * El nombre crudo de PostgreSQL no dice nada a quien no lo conoce, y la fase es
  * justamente lo que explica por qué un vacuum lleva dos horas: si está en
- * `vacuuming indexes` el problema son los índices, no la tabla.
+ * `vacuuming indexes` el problema son los indexs, no la tabla.
  */
 const PHASE_LABEL: Record<string, string> = {
   initializing: 'arrancando',
   'scanning heap': 'recorriendo la tabla',
-  'vacuuming indexes': 'limpiando índices',
-  'vacuuming heap': 'limpiando la tabla',
-  'cleaning up indexes': 'cerrando índices',
-  'truncating heap': 'devolviendo espacio al disco',
+  'vacuuming indexes': 'cleaning indexes',
+  'vacuuming heap': 'cleaning the table',
+  'cleaning up indexes': 'closing indexes',
+  'truncating heap': 'returning space to disk',
   'performing final cleanup': 'cierre final',
-  'acquiring sample rows': 'tomando muestra',
-  'computing statistics': 'calculando estadísticas',
+  'acquiring sample rows': 'taking a sample',
+  'computing statistics': 'computing statistics',
   'finalizing analyze': 'cerrando analyze',
 };
 
@@ -88,7 +88,7 @@ function ProgressCard({ entry }: { entry: VacuumProgressRow }) {
         </div>
       ) : (
         <p className="text-[11px] text-foreground-muted">
-          Esta fase no reporta avance: PostgreSQL sólo mide el recorrido de la tabla.
+          This phase reports no progress: PostgreSQL only measures the table scan.
         </p>
       )}
 
@@ -100,7 +100,7 @@ function ProgressCard({ entry }: { entry: VacuumProgressRow }) {
         )}
         {entry.indexVacuumCount !== null && entry.indexVacuumCount > 0 && (
           <span>
-            {formatNumber(entry.indexVacuumCount)} pasada{entry.indexVacuumCount === 1 ? '' : 's'} por los índices
+            {formatNumber(entry.indexVacuumCount)} pasada{entry.indexVacuumCount === 1 ? '' : 's'} por los indexs
           </span>
         )}
         {memory && <span>{memory}</span>}
@@ -117,7 +117,7 @@ function lastPass(row: VacuumTableRow): { text: string; tone: string } {
         : row.lastVacuum
       : row.lastAutovacuum ?? row.lastVacuum;
 
-  if (!last) return { text: 'nunca', tone: 'text-[var(--error)]' };
+  if (!last) return { text: 'never', tone: 'text-[var(--error)]' };
 
   const hours = (Date.now() - last.getTime()) / 3_600_000;
   return {
@@ -130,7 +130,7 @@ function lastPass(row: VacuumTableRow): { text: string; tone: string } {
 /**
  * Qué tan cerca está la tabla del vacuum de congelamiento forzado.
  *
- * Se muestra el peor de los dos relojes —transacciones y multixact— porque el
+ * Se muestra el peor de los dos relojes —transactions y multixact— porque el
  * que llegue primero es el que va a disparar el vacuum, y avanzan por causas
  * distintas: las escrituras mueven uno, las claves foráneas y los locks
  * compartidos mueven el otro.
@@ -141,7 +141,7 @@ function freezeCell(row: VacuumTableRow) {
   const peor = Math.max(xid, mxid);
   if (row.freezeMaxAge <= 0) return <span className="text-foreground-muted">—</span>;
 
-  const cual = mxid > xid ? 'multixact' : 'transacciones';
+  const cual = mxid > xid ? 'multixact' : 'transactions';
   const tono = peor >= 90 ? 'text-[var(--error)]' : peor >= 75 ? 'text-[var(--warning)]' : '';
   return (
     <span
@@ -173,10 +173,10 @@ async function pedirMedicion(formData: FormData): Promise<void> {
   const estimatedPct = crudo === '' ? null : Number(crudo);
 
   if (session.role !== 'admin') {
-    redirect(`/instances/${instanceId}/vacuum?error=${encodeURIComponent('Medir el bloat requiere rol de administrador.')}`);
+    redirect(`/instances/${instanceId}/vacuum?error=${encodeURIComponent('Measuring bloat requires an administrator role.')}`);
   }
   if (!schema || !table || (mode !== 'exacto' && mode !== 'aproximado')) {
-    redirect(`/instances/${instanceId}/vacuum?error=${encodeURIComponent('Encargo de medición incompleto.')}`);
+    redirect(`/instances/${instanceId}/vacuum?error=${encodeURIComponent('Incomplete measurement request.')}`);
   }
 
   await requestBloat(instanceId, schema, table, mode, session.username, estimatedPct);
@@ -207,7 +207,7 @@ export default async function VacuumPage({
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: id }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -217,7 +217,7 @@ export default async function VacuumPage({
   if (!instance) notFound();
 
   const crumbs = [
-    { label: 'Flota', href: '/' },
+    { label: 'Fleet', href: '/' },
     { label: instance.alias, href: `/instances/${instanceId}` },
     { label: 'Vacuum' },
   ];
@@ -259,7 +259,7 @@ export default async function VacuumPage({
             <h1 className="page-title">Vacuum y bloat · {instance.alias}</h1>
             <p className="page-sub">
               Qué tablas están peor, cuándo pasó el autovacuum por última vez y qué está corriendo ahora. El
-              espacio desperdiciado es una <strong>estimación</strong> a partir del ancho de las columnas, no una
+              espacio desperdiciado es una <strong>estimate</strong> a partir del ancho de las columnas, no una
               medición: sirve para ordenar de peor a mejor, no para facturar bytes.
             </p>
           </div>
@@ -282,37 +282,37 @@ export default async function VacuumPage({
 
         <div className="stat-grid">
           <StatCard
-            label="Tuplas muertas"
+            label="Dead tuples"
             value={formatNumber(totals.deadTuples)}
             tone={totals.deadTuples > 1_000_000 ? 'warn' : 'neutral'}
-            hint={`en ${formatNumber(totals.tables)} tablas`}
+            hint={`across ${formatNumber(totals.tables)} tables`}
           />
           <StatCard
-            label="Espacio estimado a recuperar"
+            label="Estimated reclaimable space"
             value={formatBytes(totals.bloatBytes)}
             tone={totals.bloatBytes > 1024 ** 3 ? 'warn' : 'neutral'}
-            hint="estimación, sólo heap"
+            hint="estimate, heap only"
           />
           <StatCard
             label="Pasadas pendientes"
             value={formatNumber(totals.overdue)}
             tone={totals.overdue > 0 ? 'warn' : 'ok'}
-            hint="tablas sobre su umbral"
+            hint="tables over their threshold"
           />
           <StatCard
-            label="Corriendo ahora"
+            label="Running now"
             value={formatNumber(progress.length)}
             tone={progress.length > 0 ? 'accent' : 'neutral'}
-            hint={progress.length > 0 ? 'vacuum o analyze activo' : 'nada en curso'}
+            hint={progress.length > 0 ? 'vacuum o analyze activo' : 'nothing in progress'}
           />
           <StatCard
-            label="Sin ANALYZE"
+            label="No ANALYZE"
             value={formatNumber(totals.missingAnalyze)}
             tone={totals.missingAnalyze > 0 ? 'warn' : 'ok'}
-            hint="no se puede estimar ni planificar bien"
+            hint="cannot estimate or plan well"
           />
           <StatCard
-            label="Peor tabla ante el wraparound"
+            label="Worst table for wraparound"
             value={totals.worstXidPct === null ? '—' : `${totals.worstXidPct.toFixed(0)}%`}
             tone={
               (totals.worstXidPct ?? 0) >= 90
@@ -321,13 +321,13 @@ export default async function VacuumPage({
                   ? 'warn'
                   : 'ok'
             }
-            hint="del límite que fuerza el congelamiento"
+            hint="of the limit that forces freezing"
           />
           <StatCard
             label="Autovacuum apagado"
             value={formatNumber(totals.autovacuumDisabled)}
             tone={totals.autovacuumDisabled > 0 ? 'error' : 'ok'}
-            hint="tablas con la opción en false"
+            hint="tables with the option set to false"
           />
         </div>
 
@@ -336,7 +336,7 @@ export default async function VacuumPage({
             <strong>
               {formatNumber(totals.missingAnalyze)} tabla{totals.missingAnalyze === 1 ? '' : 's'} sin estadísticas.
             </strong>{' '}
-            Sin un ANALYZE, el planificador estima a ciegas y la estimación de espacio desperdiciado no se puede
+            Without ANALYZE, the planner estimates blind and the wasted-space estimate cannot
             calcular. Es la misma causa de los planes con desvíos grandes que aparecen en Consultas.
           </div>
         )}
@@ -358,12 +358,12 @@ export default async function VacuumPage({
         )}
 
         <TimeseriesPanel
-          title="Espacio desperdiciado estimado"
-          hint="ventana 24 h"
+          title="Estimated wasted space"
+          hint="window 24 h"
           data={series}
           unit="bytes"
           height={150}
-          series={[{ metric: 'bloat_estimated_bytes', label: 'Bloat estimado', color: '#9a4a00' }]}
+          series={[{ metric: 'bloat_estimated_bytes', label: 'Estimated bloat', color: '#9a4a00' }]}
         />
 
         <div className="flex flex-wrap items-center gap-2">
@@ -381,26 +381,26 @@ export default async function VacuumPage({
 
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Tablas · {tables.length}</span>
+            <span className="panel-title">Tables · {tables.length}</span>
             <span className="font-mono text-[10px] text-foreground-muted">
               {totals.capturedAt ? `foto de ${formatAgo(totals.capturedAt)}` : 'sin foto'}
             </span>
           </div>
 
           {tables.length === 0 ? (
-            <div className="empty">Sin datos de vacuum todavía.</div>
+            <div className="empty">No vacuum data yet.</div>
           ) : (
             <div className="table-scroll">
               <table className="data-table">
                 <thead>
                   <tr>
                     <th>Tabla</th>
-                    <th className="text-right">Muertas</th>
-                    <th className="text-right">% muertas</th>
+                    <th className="text-right">Dead</th>
+                    <th className="text-right">% dead</th>
                     <th className="text-right">Faltan p/ disparar</th>
-                    <th className="text-right">Último vacuum</th>
-                    <th className="text-right">Último analyze</th>
-                    <th className="text-right">Tamaño</th>
+                    <th className="text-right">Last vacuum</th>
+                    <th className="text-right">Last analyze</th>
+                    <th className="text-right">Size</th>
                     <th className="text-right">Desperdicio estimado</th>
                     <th className="text-right">Medido</th>
                     <th className="text-right">Congelamiento</th>
@@ -439,14 +439,14 @@ export default async function VacuumPage({
                           ) : row.remaining < 0 ? (
                             // Umbral superado: el autovacuum ya debería estar ahí. Si no
                             // está, o hay cola o hay un trabajador ocupado en otra tabla.
-                            <span className="text-[var(--warning)]">ya lo superó</span>
+                            <span className="text-[var(--warning)]">already exceeded</span>
                           ) : (
                             formatNumber(row.remaining)
                           )}
                         </td>
                         <td className={`num font-mono text-[11px] ${last.tone}`}>{last.text}</td>
                         <td className="num font-mono text-[11px] text-foreground-muted">
-                          {analyze ? formatAgo(analyze) : 'nunca'}
+                          {analyze ? formatAgo(analyze) : 'never'}
                         </td>
                         <td className="num">{formatBytes(row.sizeBytes)}</td>
                         <td className="num">
@@ -477,7 +477,7 @@ export default async function VacuumPage({
                             canMeasure={session.role === 'admin' && pgstattuple.executable}
                             blockedReason={
                               session.role !== 'admin'
-                                ? 'Medir el bloat requiere rol de administrador.'
+                                ? 'Measuring bloat requires an administrator role.'
                                 : pgstattuple.reason
                             }
                           />
@@ -494,7 +494,7 @@ export default async function VacuumPage({
 
         {totals.unestimated > 0 && (
           <p className="text-[11px] text-foreground-muted">
-            {formatNumber(totals.unestimated)} tabla{totals.unestimated === 1 ? '' : 's'} sin estimación de
+            {formatNumber(totals.unestimated)} tabla{totals.unestimated === 1 ? '' : 's'} sin estimate de
             desperdicio. Las causas están en la columna: falta un ANALYZE, la tabla está vacía, o sus filas son
             más anchas que una página y viven en TOAST, donde esta cuenta no aplica. Para una medición exacta hace
             falta la extensión <span className="font-mono">pgstattuple</span>, que lee la tabla completa y por eso

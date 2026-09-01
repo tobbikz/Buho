@@ -22,8 +22,8 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Búho — Monitor de bases de datos',
-  description: 'Monitor on-prem de PostgreSQL con diagnóstico accionable',
+  title: 'Búho — Database monitor',
+  description: 'On-prem PostgreSQL monitor with actionable diagnostics',
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -54,7 +54,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body className={`${plex.variable} ${jetbrains.variable} antialiased`}>
         {!authConfigured() ? (
           <div className="auth-warning">
-            Consola sin autenticación · definir <span className="font-mono">BUHO_AUTH_SECRET</span> antes de exponerla
+            Console without authentication · set <span className="font-mono">BUHO_AUTH_SECRET</span> before exposing it
           </div>
         ) : null}
         <div className="app-shell">

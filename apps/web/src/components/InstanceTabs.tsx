@@ -21,44 +21,44 @@ export function InstanceTabs({
   const tabs =
     engine === 'postgres'
       ? [
-          { href: base, label: 'Resumen' },
-          { href: `${base}/analysis`, label: 'Análisis' },
-          { href: `${base}/queries`, label: 'Consultas' },
-          { href: `${base}/indexes`, label: 'Índices' },
-          { href: `${base}/flow`, label: 'Flujo' },
-          { href: `${base}/topology`, label: 'Topología' },
-          { href: `${base}/sessions`, label: 'Sesiones' },
-          { href: `${base}/capacity`, label: 'Capacidad' },
+          { href: base, label: 'Overview' },
+          { href: `${base}/analysis`, label: 'Analysis' },
+          { href: `${base}/queries`, label: 'Queries' },
+          { href: `${base}/indexes`, label: 'Indexes' },
+          { href: `${base}/flow`, label: 'Flow' },
+          { href: `${base}/topology`, label: 'Topology' },
+          { href: `${base}/sessions`, label: 'Sessions' },
+          { href: `${base}/capacity`, label: 'Capacity' },
           { href: `${base}/host`, label: 'Host' },
           { href: `${base}/vacuum`, label: 'Vacuum' },
-          { href: `${base}/replication`, label: 'Replicación' },
-          { href: `${base}/locks`, label: 'Bloqueos', badge: blockedCount },
+          { href: `${base}/replication`, label: 'Replication' },
+          { href: `${base}/locks`, label: 'Locks', badge: blockedCount },
           { href: `${base}/logs`, label: 'Log' },
         ]
       : engine === 'mongodb'
         ? [
-            { href: base, label: 'Resumen' },
-            { href: `${base}/analysis`, label: 'Análisis' },
-            { href: `${base}/capacity`, label: 'Capacidad' },
-            { href: `${base}/inventory`, label: 'Inventario' },
+            { href: base, label: 'Overview' },
+            { href: `${base}/analysis`, label: 'Analysis' },
+            { href: `${base}/capacity`, label: 'Capacity' },
+            { href: `${base}/inventory`, label: 'Inventory' },
           ]
         : [
-          { href: base, label: 'Resumen' },
-          { href: `${base}/analysis`, label: 'Análisis' },
-          { href: `${base}/queries`, label: 'Consultas' },
+          { href: base, label: 'Overview' },
+          { href: `${base}/analysis`, label: 'Analysis' },
+          { href: `${base}/queries`, label: 'Queries' },
           // Flujo funciona en los tres motores: la atribución sale del texto de
           // la consulta, que se recoge igual en todos. Lo que cambia es el panel
           // de contadores por tabla, que sólo PostgreSQL expone.
-          { href: `${base}/flow`, label: 'Flujo' },
-          { href: `${base}/topology`, label: 'Topología' },
+          { href: `${base}/flow`, label: 'Flow' },
+          { href: `${base}/topology`, label: 'Topology' },
           // Sesiones: en MariaDB sale de PROCESSLIST y en SQL Server de
           // dm_exec_requests. La taxonomía de esperas se normaliza a las mismas
           // familias que PostgreSQL para que el gráfico se lea igual.
-          { href: `${base}/sessions`, label: 'Sesiones' },
-          { href: `${base}/capacity`, label: 'Capacidad' },
-          { href: `${base}/locks`, label: 'Bloqueos', badge: blockedCount },
+          { href: `${base}/sessions`, label: 'Sessions' },
+          { href: `${base}/capacity`, label: 'Capacity' },
+          { href: `${base}/locks`, label: 'Locks', badge: blockedCount },
           { href: `${base}/logs`, label: 'Log' },
-          { href: `${base}/inventory`, label: 'Inventario' },
+          { href: `${base}/inventory`, label: 'Inventory' },
         ];
 
   return (

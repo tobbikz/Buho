@@ -13,9 +13,9 @@ import type { FleetInstance } from './queries';
  */
 
 export const BUILTIN_KEYS = {
-  environment: 'Ambiente',
-  engine: 'Motor',
-  host: 'Servidor',
+  environment: 'Environment',
+  engine: 'Engine',
+  host: 'Host',
 } as const;
 
 export const ENGINE_LABEL: Record<string, string> = {
@@ -51,7 +51,7 @@ export function availableKeys(instances: FleetInstance[]): { key: string; label:
   return [
     ...[...tagKeys].sort().map((key) => ({ key, label: capitalize(key) })),
     ...Object.entries(BUILTIN_KEYS).map(([key, label]) => ({ key, label })),
-    { key: NO_GROUP, label: 'Sin agrupar' },
+    { key: NO_GROUP, label: 'No grouping' },
   ];
 }
 
@@ -63,7 +63,7 @@ export function groupValue(instance: FleetInstance, key: string): string {
   if (key === 'environment') return instance.environment;
   if (key === 'engine') return ENGINE_LABEL[instance.engine] ?? instance.engine;
   if (key === 'host') return `${instance.host}:${instance.port}`;
-  return instance.tags[key] ?? 'sin etiqueta';
+  return instance.tags[key] ?? 'untagged';
 }
 
 export interface Group<T> {
@@ -72,7 +72,7 @@ export interface Group<T> {
 }
 
 /**
- * Agrupa y ordena. Los grupos con problemas críticos van primero: cuando algo
+ * Agrupa y ordena. Los grupos con problemas critical van primero: cuando algo
  * está roto, esa es la razón por la que alguien abrió la pantalla.
  */
 export function groupInstances<T extends FleetInstance>(instances: T[], key: string): Group<T>[] {
@@ -93,9 +93,9 @@ export function groupInstances<T extends FleetInstance>(instances: T[], key: str
       const criticalB = b.instances.reduce((sum, instance) => sum + instance.critical, 0);
       if (criticalA !== criticalB) return criticalB - criticalA;
       // "sin etiqueta" al final: es la ausencia de dato, no un grupo real.
-      if (a.value === 'sin etiqueta') return 1;
-      if (b.value === 'sin etiqueta') return -1;
-      return a.value.localeCompare(b.value, 'es');
+      if (a.value === 'untagged') return 1;
+      if (b.value === 'untagged') return -1;
+      return a.value.localeCompare(b.value, 'en');
     });
 }
 

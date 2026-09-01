@@ -7,7 +7,7 @@ export interface BarRow {
 }
 
 /**
- * Lista con barra proporcional al máximo de la propia lista. Es la forma más
+ * Lista con barra proporcional al max de la propia lista. Es la forma más
  * densa de mostrar un top-N (tablas grandes, wait events) sin gastar un chart.
  */
 export function LabeledBars({

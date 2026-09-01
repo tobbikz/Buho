@@ -6,7 +6,7 @@ import { query } from './db';
  *
  * Tres columnas: **rol → esquema → tabla**. El ancho de cada cinta es el peso
  * elegido (filas, tiempo o llamadas), así que de un vistazo se ve dónde cae el
- * volumen y por culpa de quién.
+ * volumen y por culpa de who.
  *
  * La atribución sale de cruzar dos fuentes que ninguna sirve sola:
  * `statement_stats` sabe el rol, las llamadas, las filas y el tiempo pero no la
@@ -60,7 +60,7 @@ export interface FlowResult {
   /**
    * Del peso atribuido a tablas, cuánto además se pudo asignar a una aplicación
    * concreta. Sólo tiene sentido con el actor en 'aplicacion', y es el número
-   * que dice si el muestreo alcanzó a ver el trabajo o se lo perdió.
+   * que dice si el sampling alcanzó a ver el trabajo o se lo perdió.
    */
   weightWithActor: number;
 }
@@ -91,9 +91,9 @@ export type FlowDirection = 'escritura' | 'lectura';
  * Quién es el actor de la primera columna.
  *
  * El rol es exacto: `pg_stat_statements` lo guarda. La aplicación es una
- * estimación por muestreo de `pg_stat_activity`, porque el nombre de aplicación
+ * estimate por sampling de `pg_stat_activity`, porque el nombre de aplicación
  * no vive en las estadísticas acumuladas. Se ofrecen las dos porque contestan
- * preguntas distintas: el rol dice a quién quitarle permisos, la aplicación dice
+ * preguntas distintas: el rol dice a who quitarle permisos, la aplicación dice
  * a qué equipo llamar.
  */
 export type FlowActor = 'rol' | 'aplicacion';
@@ -252,13 +252,13 @@ export async function getFlow(
     // Con atribución por aplicación una misma consulta puede repartirse entre
     // varias; sin observaciones para ella, cae en un actor explícito en vez de
     // desaparecer del diagrama, porque el trabajo existió aunque no se viera
-    // quién lo pedía.
+    // who lo pedía.
     const actores: { nombre: string; peso: number }[] =
       actor === 'aplicacion'
         ? (reparto?.get(fila.queryid)?.map((entrada) => ({
             nombre: entrada.application,
             peso: entrada.share,
-          })) ?? [{ nombre: '(no observado)', peso: 1 }])
+          })) ?? [{ nombre: '(not observed)', peso: 1 }])
         : [{ nombre: fila.username ?? '(sin rol)', peso: 1 }];
 
     for (const relacion of utiles) {
@@ -393,9 +393,9 @@ export async function getTableCounters(
   instanceId: number,
   minutes: number,
 ): Promise<TableCounter[]> {
-  // Se usa el contador crudo y no la tasa derivada: sumar filas por segundo a lo
-  // largo de una ventana no da filas, da una unidad que no significa nada. La
-  // diferencia entre el máximo y el mínimo del acumulado sí es el total del
+  // Se usa el contador crudo y no la tasa derivada: sumar filas per second a lo
+  // largo de una window no da filas, da una unidad que no significa nada. La
+  // diferencia entre el max y el min del acumulado sí es el total del
   // periodo. `greatest(..., 0)` cubre el caso del reset de estadísticas, donde
   // el contador vuelve a empezar y la resta saldría negativa.
   const rows = await query<{
@@ -461,13 +461,13 @@ export async function getTableCounters(
  * Contra qué se compara "mucho tráfico" en el lienzo vivo.
  *
  * Un lienzo que se normaliza contra sí mismo no informa: cualquier tráfico
- * estable llega al máximo de brillo y duplicar la carga no cambia nada. La
+ * estable llega al max de brillo y duplicar la carga no cambia nada. La
  * referencia tiene que venir de fuera del instante, y lo honesto es la propia
  * historia de la instancia: el percentil 90 de las tasas de los últimos días.
  *
- * Se usa p90 y no el máximo porque un pico único —una carga masiva, una
+ * Se usa p90 y no el max porque un pico único —una carga masiva, una
  * migración— dejaría el lienzo apagado para siempre; y se usa la historia de la
- * instancia y no un número fijo porque cincuenta filas por segundo son mucho en
+ * instancia y no un número fijo porque cincuenta filas per second son mucho en
  * una base pequeña y nada en un datalake.
  */
 export async function referenceRate(
@@ -496,7 +496,7 @@ export async function referenceRate(
   );
 
   const referencia = Number(filas[0]?.referencia ?? 0);
-  // Un suelo mínimo: sin historia, o con una historia de casi nada, dividir por
+  // Un suelo min: sin historia, o con una historia de casi nada, dividir por
   // un número diminuto haría que el primer hilo de tráfico se viera como una
   // tormenta.
   return referencia > 0.05 ? referencia : 1;

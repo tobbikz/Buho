@@ -13,10 +13,10 @@ import { getEvents, getFindings, getLabeled, getLabeledPair, getSeries, getSerie
  * pregunta central. En MariaDB es el buffer pool y las esperas por lock de fila;
  * en SQL Server es la latencia de disco por archivo y la memoria concedida. Se
  * eligen los indicadores de cada uno en vez de mostrar ocho tarjetas donde la
- * mitad diría "sin datos".
+ * mitad diría "no data".
  *
  * Las métricas que **sí** son la misma cosa en los tres motores llevan el mismo
- * nombre en el store —conexiones, DML, cache hit, deadlocks, bloqueos—, así que
+ * nombre en el store —connections, DML, cache hit, deadlocks, bloqueos—, así que
  * este componente y el de PostgreSQL leen las mismas series y las pantallas de
  * flota comparan sin traducir.
  */
@@ -55,7 +55,7 @@ export async function ForeignSummary({
 }) {
   const esMaria = engine === 'mariadb';
 
-  const [conexiones, dml, cache, esperas, bloqueos, extra, findings, esperasTop, tablas, bases, eventos] =
+  const [connections, dml, cache, esperas, bloqueos, extra, findings, esperasTop, tablas, bases, eventos] =
     await Promise.all([
       getSeries(
         instanceId,
@@ -69,7 +69,7 @@ export async function ForeignSummary({
         windowMinutes,
         bucketSeconds,
       ),
-      // El cache hit es un porcentaje: se toma el peor caso entre etiquetas, no
+      // El cache hit es un porcentaje: se toma el worst case entre etiquetas, no
       // la suma. Es la misma lección que dejó el 397 % de PostgreSQL.
       getSeries(instanceId, ['db_cache_hit_pct'], windowMinutes, bucketSeconds, 'min'),
       getSeriesByLabel(instanceId, 'wait_event_sessions', 'wait_event_type', windowMinutes, bucketSeconds, 5),
@@ -103,8 +103,8 @@ export async function ForeignSummary({
     ? null
     : await getLabeledPair(instanceId, 'file_read_latency_ms', 'file_write_latency_ms', 8, 30);
 
-  const conexionesAhora = ultimo(conexiones, 'connections_total');
-  const saturacion = ultimo(conexiones, 'connections_used_pct');
+  const connectionsAhora = ultimo(connections, 'connections_total');
+  const saturacion = ultimo(connections, 'connections_used_pct');
   const cacheAhora = ultimo(cache, 'db_cache_hit_pct');
   const bloqueadas = ultimo(bloqueos, 'blocked_sessions');
   const transaccionVieja = ultimo(bloqueos, 'oldest_xact_seconds');
@@ -133,7 +133,7 @@ export async function ForeignSummary({
 
   const tablasRows: BarRow[] = tablas.map((row) => ({
     label: `${row.labels['schema']}.${row.labels['table']}`,
-    sub: row.valueB !== null && row.valueB > 0 ? `índices ${formatBytes(row.valueB)}` : undefined,
+    sub: row.valueB !== null && row.valueB > 0 ? `indexes ${formatBytes(row.valueB)}` : undefined,
     value: row.value,
     display: formatBytes(row.value),
   }));
@@ -157,56 +157,56 @@ export async function ForeignSummary({
   return (
     <>
       <div className="stat-grid">
-        <StatCard label="Conexiones" value={conexionesAhora === null ? '—' : formatNumber(conexionesAhora)} />
+        <StatCard label="Connections" value={connectionsAhora === null ? '—' : formatNumber(connectionsAhora)} />
         <StatCard
-          label="Saturación"
+          label="Saturation"
           value={saturacion === null ? '—' : formatPct(saturacion, 1)}
           tone={saturacion === null ? undefined : toneForPct(saturacion, 75, 90)}
-          hint="del máximo configurado"
+          hint="of configured maximum"
         />
         <StatCard
-          label="Aciertos de caché"
+          label="Cache hits"
           value={cacheAhora === null ? '—' : formatPct(cacheAhora, 2)}
           tone={cacheAhora === null ? undefined : toneForMinimum(cacheAhora, 99, 95)}
           hint={esMaria ? 'buffer pool de InnoDB' : 'buffer pool'}
         />
         <StatCard
-          label="DML por segundo"
+          label="DML per second"
           value={dmlPorSegundo === null ? '—' : formatNumber(dmlPorSegundo, 1)}
           hint="insert + update + delete"
         />
         <StatCard
-          label="Sesiones bloqueadas"
+          label="Blocked sessions"
           value={bloqueadas === null ? '—' : formatNumber(bloqueadas)}
           tone={bloqueadas && bloqueadas > 0 ? 'error' : undefined}
         />
         <StatCard
-          label="Transacción más vieja"
+          label="Oldest transaction"
           value={transaccionVieja === null ? '—' : formatDuration(transaccionVieja)}
           tone={transaccionVieja && transaccionVieja > 300 ? 'warn' : undefined}
-          hint="abierta ahora mismo"
+          hint="open right now"
         />
         {esMaria ? (
           <>
             <StatCard
-              label="Páginas sucias"
+              label="Dirty pages"
               value={ultimo(extra, 'buffer_pool_dirty_pct') === null
                 ? '—'
                 : formatPct(ultimo(extra, 'buffer_pool_dirty_pct') ?? 0, 1)}
-              hint="del buffer pool"
+              hint="of the buffer pool"
             />
             <StatCard
               label="Buffer pool libre"
               value={ultimo(extra, 'buffer_pool_free_pct') === null
                 ? '—'
                 : formatPct(ultimo(extra, 'buffer_pool_free_pct') ?? 0, 1)}
-              hint="páginas sin usar"
+              hint="unused pages"
             />
           </>
         ) : (
           <>
             <StatCard
-              label="Vida de página"
+              label="Page life"
               value={ultimo(extra, 'page_life_expectancy_seconds') === null
                 ? '—'
                 : formatDuration(ultimo(extra, 'page_life_expectancy_seconds') ?? 0)}
@@ -217,10 +217,10 @@ export async function ForeignSummary({
                   ? undefined
                   : toneForMinimum(ultimo(extra, 'page_life_expectancy_seconds') ?? 0, 900, 300)
               }
-              hint="cuánto sobrevive una página en memoria"
+              hint="how long a page survives in memory"
             />
             <StatCard
-              label="Memoria del sistema"
+              label="System memory"
               value={ultimo(extra, 'host_mem_used_pct') === null
                 ? '—'
                 : formatPct(ultimo(extra, 'host_mem_used_pct') ?? 0, 1)}
@@ -229,7 +229,7 @@ export async function ForeignSummary({
                   ? undefined
                   : toneForPct(ultimo(extra, 'host_mem_used_pct') ?? 0, 85, 95)
               }
-              hint="según el propio motor"
+              hint="per the engine itself"
             />
           </>
         )}
@@ -237,16 +237,16 @@ export async function ForeignSummary({
 
       <div className="grid-2">
         <TimeseriesPanel
-          title="Conexiones"
+          title="Connections"
           hint={windowHint}
-          data={conexiones}
+          data={connections}
           series={[
             { metric: 'connections_total', label: 'total', color: COLOR.accent },
             { metric: 'connections_active', label: 'activas', color: COLOR.success },
           ]}
         />
         <TimeseriesPanel
-          title="DML por segundo"
+          title="DML per second"
           hint={windowHint}
           data={dml}
           series={[
@@ -256,14 +256,14 @@ export async function ForeignSummary({
           ]}
         />
         <TimeseriesPanel
-          title="Aciertos de caché"
-          hint={`${windowHint} · peor caso`}
+          title="Cache hits"
+          hint={`${windowHint} · worst case`}
           data={cache}
-          series={[{ metric: 'db_cache_hit_pct', label: 'aciertos %', color: COLOR.accent }]}
+          series={[{ metric: 'db_cache_hit_pct', label: 'hit %', color: COLOR.accent }]}
           unit="pct"
         />
         <TimeseriesPanel
-          title="Sesiones bloqueadas"
+          title="Blocked sessions"
           hint={windowHint}
           data={bloqueos}
           series={[{ metric: 'blocked_sessions', label: 'bloqueadas', color: COLOR.error }]}
@@ -281,18 +281,18 @@ export async function ForeignSummary({
           />
         ) : (
           <TimeseriesPanel
-            title="Vida de página y memoria"
+            title="Page life y memoria"
             hint={windowHint}
             data={extra}
             series={[
-              { metric: 'page_life_expectancy_seconds', label: 'vida de página (s)', color: COLOR.accent },
+              { metric: 'page_life_expectancy_seconds', label: 'page life (s)', color: COLOR.accent },
               { metric: 'host_mem_used_pct', label: 'memoria usada %', color: COLOR.warning },
             ]}
           />
         )}
         <TimeseriesPanel
-          title="Clases de espera"
-          hint={`${windowHint} · sesiones activas`}
+          title="Wait classes"
+          hint={`${windowHint} · active sessions`}
           data={esperas.points}
           series={esperas.keys.map((key, index) => ({
             metric: key,
@@ -305,33 +305,33 @@ export async function ForeignSummary({
       <div className="grid-2">
         <FindingsPanel findings={findings} checkedAt={findings[0] ? formatClock(findings[0].ts) : null} />
         <LabeledBars
-          title="En qué esperan las sesiones"
+          title="What sessions are waiting on"
           rows={esperasRows}
-          emptyMessage="Ninguna sesión esperando."
-          footer={esMaria ? 'estado del comando en processlist' : 'tipo de espera de la petición activa'}
+          emptyMessage="No sessions waiting."
+          footer={esMaria ? 'command state in processlist' : 'wait type of the active request'}
         />
-        <LabeledBars title="Tablas más grandes" rows={tablasRows} emptyMessage="Sin datos de tablas todavía." />
+        <LabeledBars title="Largest tables" rows={tablasRows} emptyMessage="No table data yet." />
         {esMaria ? (
-          <LabeledBars title="Tamaño por base" rows={basesRows} emptyMessage="Sin datos de bases todavía." />
+          <LabeledBars title="Size by database" rows={basesRows} emptyMessage="No database data yet." />
         ) : (
           <LabeledBars
-            title="Latencia de disco por archivo"
+            title="Disk latency by file"
             rows={discoRows}
-            emptyMessage="Sin datos de I/O todavía."
-            footer="la barra es la lectura; la escritura va debajo de cada fila"
+            emptyMessage="No I/O data yet."
+            footer="the bar is reads; writes are under each row"
           />
         )}
       </div>
 
       <section className="panel">
         <div className="panel-header">
-          <h2 className="panel-title">Eventos del colector</h2>
+          <h2 className="panel-title">Collector events</h2>
           <Link href={`/instances/${instanceId}/logs`} className="text-[11px] text-accent">
-            ver el log del motor →
+            see the engine log →
           </Link>
         </div>
         {eventos.length === 0 ? (
-          <div className="panel-body empty">Sin eventos.</div>
+          <div className="panel-body empty">No events.</div>
         ) : (
           <table className="data-table">
             <tbody>

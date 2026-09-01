@@ -10,15 +10,15 @@ export type BloatMode = 'exacto' | 'aproximado';
 export type BloatState = 'pendiente' | 'corriendo' | 'listo' | 'error';
 
 export const BLOAT_MODE_LABEL: Record<BloatMode, string> = {
-  exacto: 'Medición exacta',
-  aproximado: 'Medición aproximada',
+  exacto: 'Exact measurement',
+  aproximado: 'Approximate measurement',
 };
 
 export const BLOAT_MODE_HINT: Record<BloatMode, string> = {
   exacto:
-    'Lee cada página y cada tupla de la tabla. Es la verdad, y cuesta un escaneo secuencial completo: en una tabla grande son minutos de I/O sobre la instancia monitoreada.',
+    'Reads every page and every tuple in the table. Ground truth, at the cost of a full sequential scan: on a large table that is minutes of I/O on the monitored instance.',
   aproximado:
-    'Salta las páginas que el mapa de visibilidad marca como limpias, así que sólo paga por lo que cambió. Suele costar una fracción del exacto y errar por décimas de punto.',
+    'Skips pages the visibility map marks as clean, so it only pays for what changed. Usually a fraction of the exact cost and off by tenths of a percent.',
 };
 
 export interface BloatMeasurementRow {

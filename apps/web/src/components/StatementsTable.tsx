@@ -16,7 +16,7 @@ export interface StatementRow {
   tempWritten: number;
   walBytes: number;
   hitPct: number | null;
-  /** Tiempo de ejecución por bucket, para el sparkline de tendencia. */
+  /** Execution time por bucket, para el sparkline de tendencia. */
   trend: number[];
   callsTrend: number[];
 }
@@ -53,7 +53,7 @@ export function StatementsTable({
   const [expanded, setExpanded] = useState<string | null>(null);
 
   if (rows.length === 0) {
-    return <div className="empty">Sin actividad registrada en la ventana seleccionada.</div>;
+    return <div className="empty">No activity recorded in the selected window.</div>;
   }
 
   return (
@@ -61,13 +61,13 @@ export function StatementsTable({
       <table className="data-table">
         <thead>
           <tr>
-            <th style={{ width: '34%' }}>Consulta</th>
+            <th style={{ width: '34%' }}>Query</th>
             <th>Tendencia</th>
-            <th className="text-right">% del tiempo</th>
+            <th className="text-right">% of time</th>
             <th className="text-right">Tiempo total</th>
-            <th className="text-right">Llamadas</th>
-            <th className="text-right">Media</th>
-            <th className="text-right">Filas</th>
+            <th className="text-right">Calls</th>
+            <th className="text-right">Mean</th>
+            <th className="text-right">Rows</th>
             <th className="text-right">Cache hit</th>
             <th className="text-right">Temp</th>
             <th className="text-right">WAL</th>
@@ -95,7 +95,7 @@ export function StatementsTable({
                     <Sparkline
                       values={row.trend}
                       color={share >= 40 ? '#b01818' : '#005eb8'}
-                      title={`tiempo de ejecución por intervalo · ${row.trend.length} puntos`}
+                      title={`execution time per interval · ${row.trend.length} points`}
                     />
                   </td>
                   <td className="num">
@@ -138,13 +138,13 @@ export function StatementsTable({
                       <div className="flex flex-wrap gap-4 pb-2">
                         <div>
                           <div className="text-[10px] uppercase tracking-wide text-foreground-muted">
-                            Tiempo de ejecución por intervalo
+                            Execution time por intervalo
                           </div>
                           <Sparkline values={row.trend} width={220} height={46} color="#005eb8" />
                         </div>
                         <div>
                           <div className="text-[10px] uppercase tracking-wide text-foreground-muted">
-                            Llamadas por intervalo
+                            Calls por intervalo
                           </div>
                           <Sparkline values={row.callsTrend} width={220} height={46} color="#0a6e42" />
                         </div>
@@ -158,7 +158,7 @@ export function StatementsTable({
                             href={`/instances/${instanceId}/queries/${row.queryid}`}
                             className="btn btn--primary"
                           >
-                            Explicar el plan
+                            Explain the plan
                           </Link>
                         </div>
                       ) : null}

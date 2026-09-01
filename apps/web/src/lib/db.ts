@@ -3,16 +3,16 @@ import { resolve } from 'node:path';
 import { Pool } from 'pg';
 
 /**
- * La UI sólo lee el store de Búho: nunca se conecta a las instancias
+ * La UI sólo lee el store de Búho: never se conecta a las instancias
  * monitoreadas. Esa frontera es deliberada — un render de la web no puede
- * abrir conexiones contra la base de un cliente.
+ * abrir connections contra la base de un cliente.
  */
 function storeUrl(): string {
   const fromEnv = process.env['BUHO_STORE_URL'];
   if (fromEnv) return fromEnv;
 
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('Falta BUHO_STORE_URL. En producción la UI no lee config.json.');
+    throw new Error('BUHO_STORE_URL is missing. In production the UI does not read config.json.');
   }
 
   // Sólo en dev: reutilizar el config del colector evita duplicar credenciales
@@ -25,7 +25,7 @@ function storeUrl(): string {
   } catch {
     // Se cae al error de abajo con un mensaje accionable.
   }
-  throw new Error(`Falta la URL del store: definir BUHO_STORE_URL o store.url en ${configPath}.`);
+  throw new Error(`Store URL is missing: set BUHO_STORE_URL or store.url in ${configPath}.`);
 }
 
 /**

@@ -78,7 +78,7 @@ export function MetricPicker({
   return (
     <section className="panel" style={{ opacity: pending ? 0.7 : 1 }}>
       <div className="panel-header">
-        <span className="panel-title">Métricas</span>
+        <span className="panel-title">Metrics</span>
         <span className="font-mono text-[10px] text-foreground-muted">
           {selected.length} de {available.length}
         </span>
@@ -105,7 +105,7 @@ export function MetricPicker({
 
       <div className="table-scroll" style={{ maxHeight: '32rem' }}>
         {groups.length === 0 ? (
-          <div className="empty">Ninguna métrica coincide.</div>
+          <div className="empty">No metrics match.</div>
         ) : (
           groups.map(([family, items]) => (
             <div key={family}>

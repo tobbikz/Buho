@@ -26,15 +26,15 @@ const WINDOWS = [
   { key: '6h', minutes: 360, bucketSeconds: 300 },
   { key: '24h', minutes: 1440, bucketSeconds: 900 },
   // La retención de deltas por consulta es de 14 días, así que 7 d es una
-  // ventana honesta acá.
+  // window honesta acá.
   { key: '7d', minutes: 10_080, bucketSeconds: 3_600 },
 ] as const;
 
 const ORDERS: Array<{ key: StatementOrder; label: string }> = [
   { key: 'time', label: 'Tiempo total' },
-  { key: 'calls', label: 'Llamadas' },
+  { key: 'calls', label: 'Calls' },
   { key: 'mean', label: 'Media' },
-  { key: 'rows', label: 'Filas' },
+  { key: 'rows', label: 'Rows' },
 ];
 
 function duration(ms: number): string {
@@ -54,23 +54,23 @@ function ActivationAssistant({ state }: { state: string | null }) {
   return (
     <section className="panel" style={{ borderLeft: '3px solid var(--warning)' }}>
       <div className="panel-header">
-        <span className="panel-title">pg_stat_statements no está activo</span>
+        <span className="panel-title">pg_stat_statements is not active</span>
         <span className="tag tag--warn">{state ?? 'desconocido'}</span>
       </div>
       <div className="panel-body">
         <p className="text-[12.5px]">
           {preloaded
-            ? 'La librería ya está en shared_preload_libraries: la extensión se crea en caliente, sin reiniciar el servidor ni cortar conexiones.'
-            : 'La librería no está precargada. Agregarla a shared_preload_libraries requiere un reinicio del servidor, así que hay que planificar la ventana.'}
+            ? 'The library is already in shared_preload_libraries: the extension can be created hot, without restarting the server or dropping connections.'
+            : 'The library is not preloaded. Adding it to shared_preload_libraries requires a server restart, so plan a maintenance window.'}
         </p>
 
         <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-          {preloaded ? 'Un solo paso' : 'Paso 1 — precargar la librería (requiere reinicio)'}
+          {preloaded ? 'Un solo paso' : 'Step 1 — preload the library (requires restart)'}
         </p>
         <pre className="mt-1 border border-border bg-surface-muted p-2 font-mono text-[11px]">
           {preloaded
             ? 'CREATE EXTENSION pg_stat_statements;'
-            : "ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements';\n-- reiniciar el servidor\nCREATE EXTENSION pg_stat_statements;"}
+            : "ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements';\n-- restart the server\nCREATE EXTENSION pg_stat_statements;"}
         </pre>
 
         <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
@@ -79,11 +79,11 @@ function ActivationAssistant({ state }: { state: string | null }) {
         <p className="mt-1 text-[12px] text-foreground-secondary">
           Un arreglo en memoria compartida de tamaño fijo (<span className="font-mono">pg_stat_statements.max</span>,
           5.000 entradas por defecto) y unos pocos porcentajes de overhead por sentencia. Guarda el texto{' '}
-          <strong>normalizado</strong>: sin literales, así que no expone datos de negocio.
+          <strong>normalized</strong>: without literals, so it does not expose business data.
         </p>
 
         <p className="mt-3 text-[12px] text-foreground-secondary">
-          Búho detecta el cambio en el siguiente reprobe (una hora como máximo) y empieza a guardar los deltas por
+          Búho detecta el cambio en el siguiente reprobe (una hora como max) y empieza a guardar los deltas por
           <span className="font-mono"> queryid</span> sin reiniciar nada.
         </p>
       </div>
@@ -106,7 +106,7 @@ function ForeignQueriesNotice({ engine, instanceId }: { engine: string; instance
     <section className="panel" style={{ borderLeft: '3px solid var(--warning)' }}>
       <div className="panel-header">
         <span className="panel-title">
-          {esMaria ? 'performance_schema podría estar apagado' : 'todavía no hay consultas registradas'}
+          {esMaria ? 'performance_schema may be off' : 'no queries recorded yet'}
         </span>
       </div>
       <div className="panel-body text-[12px]">
@@ -120,7 +120,7 @@ function ForeignQueriesNotice({ engine, instanceId }: { engine: string; instance
             </p>
             <div className="query-block mt-2">{'[mysqld]\nperformance_schema = ON'}</div>
             <p className="mt-2">
-              Requiere reiniciar el servidor; el costo típico es de un 5 % de CPU. El colector deja escrito el motivo
+              Requiere reiniciar el servidor; el costo typical es de un 5 % de CPU. El colector deja escrito el motivo
               exacto en los{' '}
               <Link href={`/instances/${instanceId}`} className="text-accent">
                 eventos de la instancia
@@ -136,7 +136,7 @@ function ForeignQueriesNotice({ engine, instanceId }: { engine: string; instance
               tráfico, las filas aparecen en el primer ciclo de un minuto.
             </p>
             <p className="mt-2">
-              Si tiene que sobrevivir a un reinicio, hay que encender Query Store en la base:{' '}
+              If it must survive a restart, turn on Query Store in the database:{' '}
               <span className="font-mono">ALTER DATABASE … SET QUERY_STORE = ON</span>.
             </p>
           </>
@@ -179,7 +179,7 @@ export default async function QueriesPage({
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: id }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -189,9 +189,9 @@ export default async function QueriesPage({
   if (!instance) notFound();
 
   const crumbs = [
-    { label: 'Flota', href: '/' },
+    { label: 'Fleet', href: '/' },
     { label: instance.alias, href: `/instances/${instanceId}` },
-    { label: 'Consultas' },
+    { label: 'Queries' },
   ];
 
   let statements: TopStatement[] = [];
@@ -204,7 +204,7 @@ export default async function QueriesPage({
       getStatementLoad(instanceId, window.minutes, window.bucketSeconds, !showMonitorQueries),
     ]);
     // Depende del top, así que va en un segundo viaje: pedir la evolución de
-    // todas las consultas de la ventana traería miles de series inútiles.
+    // todas las consultas de la window traería miles de series inútiles.
     trends = await getStatementSeries(
       instanceId,
       statements.map((row) => row.queryid),
@@ -235,10 +235,10 @@ export default async function QueriesPage({
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Consultas · {instance.alias}</h1>
+            <h1 className="page-title">Queries · {instance.alias}</h1>
             <p className="page-sub">
               Actividad por consulta normalizada, sumada por intervalos. No es el contador acumulado desde el último
-              reset del servidor: es lo que pasó en la ventana elegida.
+              reset del servidor: es lo que pasó en la window elegida.
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -265,7 +265,7 @@ export default async function QueriesPage({
 
               <span>
 
-                Filtrando por <span className="font-mono">{filtro}</span>. Se muestran sólo las consultas cuyo texto,
+                Filtering by <span className="font-mono">{filtro}</span>. Only queries whose text,
 
                 rol o base lo contienen.
 
@@ -293,44 +293,44 @@ export default async function QueriesPage({
           <>
             <div className="stat-grid">
               <StatCard
-                label="Consultas distintas"
+                label="Distinct queries"
                 value={formatNumber(statements.length)}
-                hint={`ventana ${window.key}`}
+                hint={`window ${window.key}`}
                 tone="accent"
               />
-              <StatCard label="Tiempo de ejecución" value={duration(totalExecMs)} hint="suma del top 25" />
-              <StatCard label="Llamadas" value={formatNumber(totalCalls)} hint="suma del top 25" />
+              <StatCard label="Execution time" value={duration(totalExecMs)} hint="suma del top 25" />
+              <StatCard label="Calls" value={formatNumber(totalCalls)} hint="suma del top 25" />
               <StatCard
                 label="Pico de DB time"
                 value={peakLoad > 0 && peakLoad < 0.01 ? '<0.01' : peakLoad.toFixed(2)}
-                unit=" sesiones"
-                hint="1.00 = una sesión ocupada a tiempo completo"
+                unit=" sessions"
+                hint="1.00 = one fully busy session"
                 tone={peakLoad >= 4 ? 'error' : peakLoad >= 1 ? 'warn' : 'ok'}
               />
             </div>
 
             <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
               <TimeseriesPanel
-                title="DB time (sesiones equivalentes)"
-                hint="aproximación de carga: PostgreSQL no expone CPU del host"
+                title="DB time (equivalent sessions)"
+                hint="load approximation: PostgreSQL does not expose host CPU"
                 data={load}
                 unit="count"
                 height={160}
-                series={[{ metric: 'db_time_sessions', label: 'Sesiones equivalentes', color: '#005eb8' }]}
+                series={[{ metric: 'db_time_sessions', label: 'Equivalent sessions', color: '#005eb8' }]}
               />
               <TimeseriesPanel
-                title="Llamadas por segundo"
-                hint={`ventana ${window.key}`}
+                title="Calls per second"
+                hint={`window ${window.key}`}
                 data={load}
                 unit="rate"
                 height={160}
-                series={[{ metric: 'calls_per_sec', label: 'Llamadas', color: '#0a6e42' }]}
+                series={[{ metric: 'calls_per_sec', label: 'Calls', color: '#0a6e42' }]}
               />
             </div>
 
             <section className="panel">
               <div className="panel-header">
-                <span className="panel-title">Top consultas</span>
+                <span className="panel-title">Top queries</span>
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-[10px] text-foreground-muted">ordenar por</span>
                   <div className="flex items-center gap-1">
@@ -347,9 +347,9 @@ export default async function QueriesPage({
                   <Link
                     href={queryLink({ monitor: showMonitorQueries ? 'off' : 'on' })}
                     className={`tag ${showMonitorQueries ? 'tag--warn' : 'tag--muted'}`}
-                    title="Las consultas de catálogo del propio monitor dominan cualquier ranking por llamadas"
+                    title="The monitor's own catalog queries dominate any ranking by calls"
                   >
-                    {showMonitorQueries ? 'con consultas del monitor' : 'sin consultas del monitor'}
+                    {showMonitorQueries ? 'with monitor queries' : 'without monitor queries'}
                   </Link>
                 </div>
               </div>

@@ -42,7 +42,7 @@ const WINDOWS = [
   { key: '1h', minutes: 60, bucketSeconds: 60 },
   { key: '6h', minutes: 360, bucketSeconds: 300 },
   { key: '24h', minutes: 1440, bucketSeconds: 900 },
-  // 7 días sólo es viable leyendo rollups; sobre muestras crudas serían
+  // 7 días sólo es viable leyendo rollups; sobre raw samples serían
   // ~60.000 filas por métrica.
   { key: '7d', minutes: 10_080, bucketSeconds: 3_600 },
 ] as const;
@@ -60,7 +60,7 @@ const WAIT_COLORS = ['#0a6e42', '#005eb8', '#9a4a00', '#b01818', '#7a828c'];
 
 const STAT_STATEMENTS_LABEL: Record<string, string> = {
   active: 'pg_stat_statements activo',
-  preloaded_not_created: 'pg_stat_statements precargado, sin crear',
+  preloaded_not_created: 'pg_stat_statements preloaded, not created',
   not_preloaded: 'pg_stat_statements no precargado',
 };
 
@@ -80,9 +80,9 @@ export default async function InstancePage({
   const window = WINDOWS.find((candidate) => candidate.key === w) ?? WINDOWS[1];
   // Decir de dónde sale el dato: un promedio de rollup no es lo mismo que una
   // muestra cruda, y quien mira un pico tiene derecho a saberlo.
-  const windowHint = `ventana ${window.key} · ${seriesSource(window.minutes).label}`;
+  const windowHint = `window ${window.key} · ${seriesSource(window.minutes).label}`;
 
-  // El store se consulta en dos pasos para que notFound() nunca caiga en el
+  // El store se consulta en dos pasos para que notFound() never caiga en el
   // catch: es una excepción de control de Next, no un error de base de datos.
   let instance;
   try {
@@ -90,7 +90,7 @@ export default async function InstancePage({
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: id }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -106,7 +106,7 @@ export default async function InstancePage({
   if (engine === 'mariadb' || engine === 'mssql' || engine === 'mongodb') {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: instance.alias }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: instance.alias }]} />
         <div className="page">
           <header className="page-header">
             <div>
@@ -212,7 +212,7 @@ export default async function InstancePage({
           window.bucketSeconds,
           5,
         ),
-        // min entre bases: el porcentaje no se suma, y el peor caso es el que
+        // min entre bases: el porcentaje no se suma, y el worst case es el que
         // importa (mismo criterio que el indicador de arriba).
         getSeries(instanceId, ['db_cache_hit_pct'], window.minutes, window.bucketSeconds, 'min'),
         getSeries(
@@ -267,7 +267,7 @@ export default async function InstancePage({
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: id }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -310,14 +310,14 @@ export default async function InstancePage({
 
   const tableRows: BarRow[] = data.tables.map((row) => ({
     label: `${row.labels['schema']}.${row.labels['table']}`,
-    sub: row.valueB !== null ? `índices ${formatBytes(row.valueB)}` : undefined,
+    sub: row.valueB !== null ? `indexes ${formatBytes(row.valueB)}` : undefined,
     value: row.value,
     display: formatBytes(row.value),
   }));
 
   const deadRows: BarRow[] = data.deadTuples.map((row) => ({
     label: `${row.labels['schema']}.${row.labels['table']}`,
-    sub: row.valueB !== null ? `${formatPct(row.valueB, 1)} muertas` : undefined,
+    sub: row.valueB !== null ? `${formatPct(row.valueB, 1)} dead` : undefined,
     value: row.value,
     display: formatNumber(row.value),
     tone: (row.valueB ?? 0) >= 20 ? 'error' : (row.valueB ?? 0) >= 10 ? 'warn' : 'accent',
@@ -327,7 +327,7 @@ export default async function InstancePage({
 
   return (
     <>
-      <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: instance.alias }]} />
+      <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: instance.alias }]} />
       <div className="page">
         <header className="page-header">
           <div>
@@ -342,7 +342,7 @@ export default async function InstancePage({
                 {instance.inRecovery ? 'standby' : 'primary'}
               </span>
               <span className={`tag ${instance.hasPgMonitor ? 'tag--ok' : 'tag--warn'}`}>
-                {instance.hasPgMonitor ? 'pg_monitor' : 'sin pg_monitor'}
+                {instance.hasPgMonitor ? 'pg_monitor' : 'no pg_monitor'}
               </span>
               <span className={`tag ${instance.statStatements === 'active' ? 'tag--ok' : 'tag--warn'}`}>
                 {instance.statStatements === 'active' ? 'stat_statements' : 'stat_statements off'}
@@ -376,8 +376,8 @@ export default async function InstancePage({
               <strong>{STAT_STATEMENTS_LABEL[instance.statStatements ?? 'not_preloaded']}.</strong> Sin esta
               extensión no hay análisis por consulta.{' '}
               {instance.statStatements === 'preloaded_not_created'
-                ? 'La librería ya está cargada: basta un CREATE EXTENSION pg_stat_statements, sin reinicio.'
-                : 'Agregar pg_stat_statements a shared_preload_libraries requiere reinicio del servidor.'}
+                ? 'The library is already loaded: CREATE EXTENSION pg_stat_statements is enough, no restart.'
+                : 'Adding pg_stat_statements to shared_preload_libraries requires a server restart.'}
             </div>
           </div>
         )}
@@ -390,8 +390,8 @@ export default async function InstancePage({
             tone={toneForScore(instance.score)}
             hint={
               instance.scoreTs
-                ? `${instance.critical} crít · ${instance.warning} avisos · ${formatAgo(instance.scoreTs)}`
-                : 'sin corridas de checks'
+                ? `${instance.critical} crit · ${instance.warning} warn · ${formatAgo(instance.scoreTs)}`
+                : 'no check runs'
             }
           />
           {data.host ? (
@@ -401,8 +401,8 @@ export default async function InstancePage({
                 value={formatPct(data.host.cpuPct, 1)}
                 hint={
                   data.host.iowaitPct !== null
-                    ? `${formatPct(data.host.iowaitPct, 1)} esperando I/O`
-                    : `${formatNumber(data.host.cores ?? 0)} núcleos`
+                    ? `${formatPct(data.host.iowaitPct, 1)} waiting on I/O`
+                    : `${formatNumber(data.host.cores ?? 0)} cores`
                 }
                 tone={toneForPct(data.host.cpuPct, 75, 90)}
               />
@@ -417,7 +417,7 @@ export default async function InstancePage({
             <StatCard
               label="CPU / memoria"
               value="—"
-              hint="requiere hostMetrics · ver pestaña Host"
+              hint="requires hostMetrics · see Host tab"
               tone="neutral"
             />
           )}
@@ -425,11 +425,11 @@ export default async function InstancePage({
             label="Throughput DML"
             value={dmlPerSec === null ? '—' : formatNumber(dmlPerSec, 0)}
             unit={dmlPerSec === null ? undefined : '/s'}
-            hint="tuplas insertadas + modificadas + borradas"
+            hint="tuples inserted + updated + deleted"
             tone="accent"
           />
           <StatCard
-            label="Conexiones"
+            label="Connections"
             value={formatPct(instance.connectionsUsedPct, 0)}
             hint={
               instance.connectionsTotal === null
@@ -442,16 +442,16 @@ export default async function InstancePage({
             label="Cache hit"
             value={formatPct(instance.cacheHitPct, 2)}
             tone={toneForMinimum(instance.cacheHitPct, 99, 95)}
-            hint="peor base de datos"
+            hint="worst database"
           />
           <StatCard
             label="Commits/s"
             value={formatNumber(instance.commitsPerSec, 1)}
             tone="accent"
-            hint="tasa derivada de contadores"
+            hint="rate derived from counters"
           />
           <StatCard
-            label="Sesiones bloqueadas"
+            label="Blocked sessions"
             value={formatNumber(instance.blockedSessions)}
             tone={(instance.blockedSessions ?? 0) > 0 ? 'error' : 'ok'}
           />
@@ -462,9 +462,9 @@ export default async function InstancePage({
             tone={toneForPct(instance.xidAgePct, 50, 80)}
           />
           <StatCard
-            label="Tuplas muertas"
+            label="Dead tuples"
             value={worstDeadPct > 0 ? formatPct(worstDeadPct, 1) : '—'}
-            hint="peor tabla"
+            hint="worst table"
             tone={toneForPct(worstDeadPct, 10, 20)}
           />
           <StatCard label="Uptime" value={formatDuration(instance.uptimeSeconds)} tone="neutral" />
@@ -480,7 +480,7 @@ export default async function InstancePage({
 
         <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
           <TimeseriesPanel
-            title="Conexiones"
+            title="Connections"
             hint={windowHint}
             data={data.connections}
             unit="count"
@@ -491,7 +491,7 @@ export default async function InstancePage({
             ]}
           />
           <TimeseriesPanel
-            title="Transacciones por segundo"
+            title="Transactions per second"
             hint={windowHint}
             data={data.throughput}
             unit="rate"
@@ -501,14 +501,14 @@ export default async function InstancePage({
             ]}
           />
           <TimeseriesPanel
-            title="WAL generado por segundo"
+            title="WAL generated per second"
             hint={windowHint}
             data={data.wal}
             unit="bytes"
             series={[{ metric: 'wal_bytes_per_sec', label: 'WAL/s', color: COLOR.accent }]}
           />
           <TimeseriesPanel
-            title="Sesiones bloqueadas"
+            title="Blocked sessions"
             hint={windowHint}
             data={data.blocking}
             unit="count"
@@ -523,18 +523,18 @@ export default async function InstancePage({
           {data.host ? (
             <TimeseriesPanel
               title="CPU y memoria del host"
-              hint={`${formatNumber(data.host.cores ?? 0)} núcleos · detalle en Host`}
+              hint={`${formatNumber(data.host.cores ?? 0)} cores · detalle en Host`}
               data={data.hostCpu}
               unit="pct"
               series={[
                 { metric: 'host_cpu_pct', label: 'CPU', color: COLOR.accent },
-                { metric: 'host_cpu_iowait_pct', label: 'Espera de I/O', color: COLOR.warning },
+                { metric: 'host_cpu_iowait_pct', label: 'I/O wait', color: COLOR.warning },
                 { metric: 'host_mem_used_pct', label: 'Memoria', color: COLOR.success },
               ]}
             />
           ) : null}
           <TimeseriesPanel
-            title="Throughput DML (tuplas por segundo)"
+            title="DML throughput (tuples per second)"
             hint={windowHint}
             data={data.dml}
             unit="rate"
@@ -544,11 +544,11 @@ export default async function InstancePage({
               { metric: 'db_tup_deleted_per_sec', label: 'Delete', color: COLOR.error },
             ]}
           />
-          {/* Lo más cerca de "CPU" que da PostgreSQL sin agente: sesiones
+          {/* Lo más cerca de "CPU" que da PostgreSQL sin agente: sessions
               activas repartidas por clase de espera. CPU = trabajando. */}
           <TimeseriesPanel
-            title="Sesiones activas por clase de espera"
-            hint="CPU = ejecutando, no esperando"
+            title="Active sessions by wait class"
+            hint="CPU = running, not waiting"
             data={data.waitClasses.points}
             unit="count"
             series={data.waitClasses.keys.map((key, index) => ({
@@ -565,7 +565,7 @@ export default async function InstancePage({
             series={[{ metric: 'db_cache_hit_pct', label: 'Cache hit', color: COLOR.accent }]}
           />
           <TimeseriesPanel
-            title="I/O por segundo"
+            title="I/O per second"
             hint={windowHint}
             data={data.io}
             unit="rate"
@@ -576,8 +576,8 @@ export default async function InstancePage({
           />
           {/* Bytes y bloques no comparten eje, así que el derrame va aparte. */}
           <TimeseriesPanel
-            title="Derrame a archivos temporales"
-            hint="síntoma de work_mem corto"
+            title="Spill to temporary files"
+            hint="symptom of short work_mem"
             data={data.io}
             unit="bytes"
             series={[{ metric: 'db_temp_bytes_per_sec', label: 'Temp bytes/s', color: COLOR.error }]}
@@ -600,20 +600,20 @@ export default async function InstancePage({
           <LabeledBars
             title="Wait events"
             rows={waitRows}
-            footer="sesiones activas"
-            emptyMessage="Ninguna sesión activa esperando."
+            footer="active sessions"
+            emptyMessage="No active sessions waiting."
           />
           <LabeledBars
-            title="Tablas más grandes"
+            title="Largest tables"
             rows={tableRows}
-            footer="tamaño total"
-            emptyMessage="Sin muestras de tamaño todavía."
+            footer="total size"
+            emptyMessage="No size samples yet."
           />
           <LabeledBars
-            title="Tuplas muertas"
+            title="Dead tuples"
             rows={deadRows}
             footer="top por conteo"
-            emptyMessage="Ninguna tabla con tuplas muertas."
+            emptyMessage="No tables with dead tuples."
           />
         </div>
 
@@ -626,13 +626,13 @@ export default async function InstancePage({
         <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
           <section className="panel">
             <div className="panel-header">
-              <span className="panel-title">Replicación</span>
+              <span className="panel-title">Replication</span>
               <span className="font-mono text-[10px] text-foreground-muted">
                 {data.slots.length} slot{data.slots.length === 1 ? '' : 's'}
               </span>
             </div>
             {data.slots.length === 0 ? (
-              <div className="empty">Sin slots de replicación.</div>
+              <div className="empty">No replication slots.</div>
             ) : (
               <table className="data-table">
                 <thead>
@@ -640,7 +640,7 @@ export default async function InstancePage({
                     <th>Slot</th>
                     <th>Tipo</th>
                     <th>WAL</th>
-                    <th className="text-right">Estado</th>
+                    <th className="text-right">State</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -668,11 +668,11 @@ export default async function InstancePage({
 
           <section className="panel">
             <div className="panel-header">
-              <span className="panel-title">Eventos del colector</span>
+              <span className="panel-title">Collector events</span>
               <span className="font-mono text-[10px] text-foreground-muted">esta instancia</span>
             </div>
             {data.events.length === 0 ? (
-              <div className="empty">Sin eventos registrados.</div>
+              <div className="empty">No events recorded.</div>
             ) : (
               <table className="data-table">
                 <tbody>

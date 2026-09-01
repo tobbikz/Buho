@@ -32,7 +32,7 @@ export function IncidentPanel({
         <span className="panel-title">{headline}</span>
         {at ? (
           <span className="font-mono text-[10px] text-foreground-muted">
-            momento {at.toLocaleString('es')}
+            momento {at.toLocaleString('en')}
           </span>
         ) : null}
       </div>
@@ -42,7 +42,7 @@ export function IncidentPanel({
           <>
             {' '}
             <a href={href} className="text-[var(--accent)] underline-offset-2 hover:underline">
-              Ver sesiones
+              Ver sessions
             </a>
           </>
         ) : null}

@@ -4,9 +4,9 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const TABS = [
-  { href: '/security', label: 'Hallazgos' },
-  { href: '/security/accounts', label: 'Cuentas' },
-  { href: '/security/coverage', label: 'Cobertura' },
+  { href: '/security', label: 'Findings' },
+  { href: '/security/accounts', label: 'Accounts' },
+  { href: '/security/coverage', label: 'Coverage' },
 ];
 
 export function SecurityTabs({ counters = {} }: { counters?: Record<string, number> }) {

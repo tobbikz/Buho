@@ -57,7 +57,7 @@ export default async function TopologyPage({
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: id }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -72,21 +72,21 @@ export default async function TopologyPage({
     <>
       <Topbar
         crumbs={[
-          { label: 'Flota', href: '/' },
+          { label: 'Fleet', href: '/' },
           { label: instance.alias, href: `/instances/${instanceId}` },
-          { label: 'Topología' },
+          { label: 'Topology' },
         ]}
       />
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Topología · {instance.alias}</h1>
+            <h1 className="page-title">Topology · {instance.alias}</h1>
             <p className="page-sub">
               Dependencias app ↔ tabla congeladas semana a semana. El flujo vivo sigue en{' '}
               <Link href={`/instances/${instanceId}/flow`} className="underline">
-                Flujo
+                Flow
               </Link>
-              ; aquí se ve qué cambió entre semanas.
+              ; here you see what changed across weeks.
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -123,7 +123,7 @@ export default async function TopologyPage({
             <div className="stat__value">{formatNumber(current.actors, 0)}</div>
           </div>
           <div className="stat">
-            <div className="stat__label">Tablas</div>
+            <div className="stat__label">Tables</div>
             <div className="stat__value">{formatNumber(current.tables, 0)}</div>
           </div>
         </div>
@@ -142,7 +142,7 @@ export default async function TopologyPage({
                   Nuevas ({diff.added.length})
                 </div>
                 {diff.added.length === 0 ? (
-                  <p className="text-foreground-muted">Ninguna.</p>
+                  <p className="text-foreground-muted">None.</p>
                 ) : (
                   <ul className="space-y-1 font-mono">
                     {diff.added.slice(0, 8).map((e) => (
@@ -158,7 +158,7 @@ export default async function TopologyPage({
                   Desaparecidas ({diff.removed.length})
                 </div>
                 {diff.removed.length === 0 ? (
-                  <p className="text-foreground-muted">Ninguna.</p>
+                  <p className="text-foreground-muted">None.</p>
                 ) : (
                   <ul className="space-y-1 font-mono">
                     {diff.removed.slice(0, 8).map((e) => (
@@ -174,7 +174,7 @@ export default async function TopologyPage({
                   Creció ≥2× ({diff.grown.length})
                 </div>
                 {diff.grown.length === 0 ? (
-                  <p className="text-foreground-muted">Ninguna.</p>
+                  <p className="text-foreground-muted">None.</p>
                 ) : (
                   <ul className="space-y-1 font-mono">
                     {diff.grown.slice(0, 8).map((g) => (
@@ -197,7 +197,7 @@ export default async function TopologyPage({
           </div>
           {current.edges.length === 0 ? (
             <div className="empty" style={{ height: 120 }}>
-              Sin aristas todavía. Hace falta tráfico en statement_stats y un refresco.
+              No edges yet. Need traffic in statement_stats and a refresh.
             </div>
           ) : (
             <div className="panel-body overflow-x-auto">
@@ -207,7 +207,7 @@ export default async function TopologyPage({
                     <th className="pb-2 pr-3">App</th>
                     <th className="pb-2 pr-3">Tabla</th>
                     <th className="pb-2 pr-3 text-right">Peso (ms)</th>
-                    <th className="pb-2 text-right">Muestras</th>
+                    <th className="pb-2 text-right">Samples</th>
                   </tr>
                 </thead>
                 <tbody className="font-mono">

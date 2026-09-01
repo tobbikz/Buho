@@ -38,7 +38,7 @@ async function save(formData: FormData) {
   await saveRetention(input, session.username);
   await logConsoleEvent(
     session.username,
-    'retención actualizada',
+    'retention updated',
     (Object.keys(RETENTION_LIMITS) as (keyof Retention)[])
       .map((field) => `${field}=${input[field]}d`)
       .join(' '),
@@ -72,22 +72,22 @@ export default async function RetentionPage({
   return (
     <div className="flex flex-col gap-[0.875rem]">
       <div className="stat-grid">
-        <StatCard label="Tamaño del store" value={formatBytes(sizes.total)} hint="todas las tablas de buho" />
+        <StatCard label="Store size" value={formatBytes(sizes.total)} hint="all buho tables" />
         <StatCard
-          label="Tabla más grande"
+          label="Largest table"
           value={biggest ? formatBytes(biggest.bytes) : '—'}
           hint={biggest?.name}
         />
         <StatCard
-          label="Origen de la retención"
-          value={updated ? 'consola' : 'config.json'}
-          hint={updated ? `${updated.by ?? '?'} · ${formatAgo(updated.at)}` : 'sin cambios desde la consola'}
+          label="Retention source"
+          value={updated ? 'console' : 'config.json'}
+          hint={updated ? `${updated.by ?? '?'} · ${formatAgo(updated.at)}` : 'unchanged from the console'}
         />
       </div>
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Cuántos días se guarda cada cosa</span>
+          <span className="panel-title">How many days each thing is kept</span>
           {ok ? <span className="tag tag--ok">guardado</span> : null}
         </div>
         <form action={save} className="panel-body flex flex-col gap-3">
@@ -108,7 +108,7 @@ export default async function RetentionPage({
                       defaultValue={retention[field]}
                       className="w-[5rem] border border-border bg-surface px-2 py-1 font-mono text-[12px] outline-none focus:border-accent"
                     />
-                    <span className="text-[11px] text-foreground-muted">días</span>
+                    <span className="text-[11px] text-foreground-muted">days</span>
                   </div>
                   <span className="text-[10.5px] text-foreground-muted">{limits.hint}</span>
                 </label>
@@ -120,10 +120,10 @@ export default async function RetentionPage({
 
           <div className="flex items-center gap-3">
             <button type="submit" className="btn btn--primary">
-              Guardar
+              Save
             </button>
             <span className="text-[11.5px] text-foreground-muted">
-              El colector la relee en su ciclo de mantenimiento, cada 15 minutos: no hay que reiniciar nada.
+              The collector rereads it on its maintenance cycle, every 15 minutes: nothing to restart.
             </span>
           </div>
         </form>
@@ -131,38 +131,38 @@ export default async function RetentionPage({
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Cómo se borra</span>
+          <span className="panel-title">How deletion works</span>
         </div>
         <div className="panel-body flex flex-col gap-2 text-[12px] text-foreground-secondary">
           <p>
-            Las muestras crudas y las estadísticas por consulta están particionadas por día: se eliminan con{' '}
-            <span className="font-mono">DROP TABLE</span> de la partición entera, que no deja filas muertas ni exige
-            vacuum. Bajar esos dos números libera espacio en el siguiente ciclo de mantenimiento.
+            Raw samples and per-query statistics are partitioned by day: they are removed with{' '}
+            <span className="font-mono">DROP TABLE</span> of the whole partition, which leaves no dead rows and does not need
+            vacuum. Lowering those two numbers frees space on the next maintenance cycle.
           </p>
           <p>
-            Los agregados y los episodios de bloqueo se borran con <span className="font-mono">DELETE</span>, así que
-            su espacio queda reutilizable para el propio store pero el archivo no se encoge. Es el precio de no tener
-            una partición por hora de algo que ocupa poco.
+            Rollups and lock episodes are deleted with <span className="font-mono">DELETE</span>, so
+            their space becomes reusable for the store itself but the file does not shrink. That is the cost of not having
+            an hourly partition for something that is already small.
           </p>
           <p>
-            Reducir un valor <strong>borra datos de forma irreversible</strong> en el siguiente ciclo. Búho no guarda
-            copias: para conservar historia larga, la vía es subir el agregado de 1 hora, que ocupa una fracción de lo
-            que ocupa el crudo.
+            Lowering a value <strong>deletes data irreversibly</strong> on the next cycle. Búho does not keep
+            copies: to keep long history, raise the 1-hour rollup, which costs a fraction of
+            raw storage.
           </p>
         </div>
       </section>
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Qué está ocupando el espacio</span>
-          <span className="text-[11px] text-foreground-muted">incluye índices y particiones</span>
+          <span className="panel-title">What is using the space</span>
+          <span className="text-[11px] text-foreground-muted">incluye indexes y particiones</span>
         </div>
         <table className="data-table">
           <thead>
             <tr>
               <th>Tabla</th>
-              <th className="text-right">Tamaño</th>
-              <th className="text-right">Filas aproximadas</th>
+              <th className="text-right">Size</th>
+              <th className="text-right">Rows aproximadas</th>
               <th className="text-right">Del total</th>
             </tr>
           </thead>
@@ -182,8 +182,8 @@ export default async function RetentionPage({
           </tbody>
         </table>
         <div className="panel-body text-[11.5px] text-foreground-muted">
-          El conteo de filas viene de las estadísticas del planificador, así que es aproximado y puede estar desfasado
-          hasta el siguiente analyze. El tamaño sí es exacto.
+          Row counts come from planner statistics, so they are approximate and may lag
+          until the next analyze. Size is exact.
         </div>
       </section>
     </div>

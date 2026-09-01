@@ -1,4 +1,4 @@
-/** pg devuelve bigint y numeric como string; nunca confiar en el tipo crudo. */
+/** pg devuelve bigint y numeric como string; never confiar en el tipo crudo. */
 export function num(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   const parsed = typeof value === 'number' ? value : Number(value);
@@ -20,7 +20,7 @@ export function formatBytes(bytes: number | null): string {
 
 export function formatNumber(value: number | null, digits = 0): string {
   if (value === null) return '—';
-  return value.toLocaleString('es-MX', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
 export function formatPct(value: number | null, digits = 1): string {
@@ -38,14 +38,14 @@ export function formatDuration(seconds: number | null): string {
 }
 
 export function formatAgo(at: Date | string | null): string {
-  if (!at) return 'nunca';
+  if (!at) return 'never';
   const date = at instanceof Date ? at : new Date(at);
   const seconds = (Date.now() - date.getTime()) / 1000;
-  if (seconds < 0) return 'ahora';
-  if (seconds < 60) return `hace ${Math.floor(seconds)}s`;
-  if (seconds < 3600) return `hace ${Math.floor(seconds / 60)}m`;
-  if (seconds < 86_400) return `hace ${Math.floor(seconds / 3600)}h`;
-  return `hace ${Math.floor(seconds / 86_400)}d`;
+  if (seconds < 0) return 'now';
+  if (seconds < 60) return `${Math.floor(seconds)}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86_400)}d ago`;
 }
 
 /** server_version_num: 180004 → "18.4". Ojo: no es una división por 10000. */
@@ -57,5 +57,5 @@ export function formatVersion(versionNum: number | null): string {
 export function formatClock(at: Date | string | null): string {
   if (!at) return '—';
   const date = at instanceof Date ? at : new Date(at);
-  return date.toLocaleTimeString('es-MX', { hour12: false });
+  return date.toLocaleTimeString('en-US', { hour12: false });
 }

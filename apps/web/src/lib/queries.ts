@@ -38,7 +38,7 @@ export interface FleetInstance {
 }
 
 /**
- * Métricas etiquetadas (por base de datos, por tabla) se resumen al peor caso:
+ * Métricas etiquetadas (por base de datos, por tabla) se resumen al worst case:
  * en una vista de flota lo que importa es la base más comprometida, no el
  * promedio que la esconde.
  */
@@ -225,7 +225,7 @@ export interface ChartPoint {
  * `sum` sirve para contadores y tasas (los commits de cuatro bases se suman).
  * **Nunca** para porcentajes: sumar el cache hit de cuatro bases da 397 %, que
  * fue exactamente el bug que apareció al graficarlo. Para ratios se usa `min`
- * (el peor caso, igual que la vista de flota) o `avg`.
+ * (el worst case, igual que la vista de flota) o `avg`.
  */
 export type CrossLabel = 'sum' | 'avg' | 'min' | 'max';
 
@@ -237,19 +237,19 @@ interface SeriesSource {
 }
 
 /**
- * De dónde leer una ventana. Una ventana de 24 h sobre muestras crudas de 10 s
+ * De dónde leer una window. Una window de 24 h sobre raw samples de 10 s
  * son ~8.600 filas por métrica y por etiqueta; a 30 días de retención eso se
  * arrastra. Los rollups existían desde F0 pero la UI no los usaba.
  *
  * La columna de valor sigue la intención de la agregación: si el chart pide el
- * peor caso, el rollup tiene que dar `min_value`, no el promedio, o el pico
- * desaparece justo en las ventanas largas donde importa verlo.
+ * worst case, el rollup tiene que dar `min_value`, no el promedio, o el pico
+ * desaparece justo en las windows largas donde importa verlo.
  */
 export function seriesSource(windowMinutes: number, crossLabel: CrossLabel = 'sum'): SeriesSource {
   const column = crossLabel === 'min' ? 'min_value' : crossLabel === 'max' ? 'max_value' : 'avg_value';
 
   if (windowMinutes <= 360) {
-    return { relation: 'buho.metric_samples', tsColumn: 'ts', valueColumn: 'value', label: 'muestras crudas' };
+    return { relation: 'buho.metric_samples', tsColumn: 'ts', valueColumn: 'value', label: 'raw samples' };
   }
   if (windowMinutes <= 3 * 1440) {
     return { relation: 'buho.metric_rollup_5m', tsColumn: 'bucket', valueColumn: column, label: 'rollup 5 m' };
@@ -374,10 +374,10 @@ export interface AvailableMetric {
 
 /**
  * Qué series tiene esta instancia y con qué etiquetas. Se lee del rollup de 5 m
- * y no de las muestras crudas: son 40 veces menos filas para la misma respuesta
+ * y no de las raw samples: son 40 veces menos filas para la misma respuesta
  * (medido en 3 ms contra 24 h de datos).
  *
- * La ventana de 48 h es a propósito: una métrica que dejó de llegar hace dos
+ * La window de 48 h es a propósito: una métrica que dejó de llegar hace dos
  * días no debería seguir ofreciéndose como si existiera.
  */
 export async function listMetrics(instanceId: number): Promise<AvailableMetric[]> {
@@ -497,7 +497,7 @@ const STATEMENT_ORDER_SQL: Record<StatementOrder, string> = {
  * llamadas, así que se pueden esconder. El filtro busca la marca en cualquier
  * posición y no como prefijo: el colector la escribe **al final**, porque
  * pg_stat_statements descarta los comentarios que preceden a la sentencia. Con
- * el patrón anclado al inicio el filtro no coincidía nunca y las consultas del
+ * el patrón anclado al inicio el filtro no coincidía never y las consultas del
  * monitor se colaban en todos los rankings.
  *
  * Filtrar por la marca y no por patrones como `pg_stat_%` es lo que evita
@@ -581,7 +581,7 @@ export interface StatementPoint {
 /**
  * Evolución de cada consulta del top, en una sola consulta al store en vez de
  * una por fila. Sirve para responder lo que el ranking no dice: si algo está
- * caro *ahora* o lleva caro toda la ventana.
+ * caro *ahora* o lleva caro toda la window.
  */
 export async function getStatementSeries(
   instanceId: number,
@@ -622,7 +622,7 @@ export async function getStatementSeries(
 
 /**
  * Carga agregada de consultas. `db_time_sessions` son milisegundos de ejecución
- * por segundo de reloj: 1.0 equivale a una sesión ocupada a tiempo completo.
+ * per second de reloj: 1.0 equivale a una sesión ocupada a tiempo completo.
  * Es la aproximación honesta a "cuánto trabajo está haciendo la base", porque
  * PostgreSQL no expone CPU del host.
  */
@@ -687,7 +687,7 @@ export async function getLabeled(
     .slice(0, limit);
 }
 
-/** Combina dos métricas que comparten etiquetas (tamaño total e índices, por ejemplo). */
+/** Combina dos métricas que comparten etiquetas (tamaño total e indexs, por ejemplo). */
 export async function getLabeledPair(
   instanceId: number,
   metricA: string,
@@ -738,7 +738,7 @@ export interface LockEpisode {
 }
 
 /**
- * "Activo" = visto en el último muestreo. El colector escribe cada 10 s, así
+ * "Activo" = visto en el último sampling. El colector escribe cada 10 s, así
  * que 30 s de margen tolera un ciclo perdido sin declarar vivo un bloqueo que
  * ya se resolvió.
  */

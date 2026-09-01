@@ -4,7 +4,7 @@ import { query } from './db';
  * Ajustes editables desde la consola.
  *
  * La retención vive acá y no en config.json porque cambiarla es una decisión
- * operativa —"el store está creciendo, bajemos las muestras crudas a 3 días"—
+ * operativa —"el store está creciendo, bajemos las raw samples a 3 días"—
  * que no debería exigir editar un archivo en el servidor y reiniciar el
  * colector. El archivo sigue siendo el valor inicial; el store, si tiene una
  * fila, manda.
@@ -33,38 +33,38 @@ export const RETENTION_LIMITS: Record<keyof Retention, { min: number; max: numbe
   rawDays: {
     min: 1,
     max: 90,
-    label: 'Muestras crudas',
-    hint: 'resolución de 5–60 s; es lo que más pesa del store',
+    label: 'Raw samples',
+    hint: '5–60 s resolution; the heaviest part of the store',
   },
   rollup5mDays: {
     min: 7,
     max: 400,
-    label: 'Agregado de 5 minutos',
-    hint: 'lo que se ve en ventanas de horas a días',
+    label: '5-minute rollup',
+    hint: 'what you see in hour-to-day windows',
   },
   rollup1hDays: {
     min: 30,
     max: 1_100,
-    label: 'Agregado de 1 hora',
-    hint: 'tendencias de meses; ocupa muy poco',
+    label: '1-hour rollup',
+    hint: 'month-scale trends; very cheap to store',
   },
   lockEpisodeDays: {
     min: 7,
     max: 400,
-    label: 'Episodios de bloqueo',
-    hint: 'pocos registros y valen oro en un postmortem',
+    label: 'Lock episodes',
+    hint: 'few rows, gold in a postmortem',
   },
   statementDays: {
     min: 3,
     max: 180,
-    label: 'Estadísticas por consulta',
-    hint: 'deltas de pg_stat_statements, particionadas por día',
+    label: 'Per-query statistics',
+    hint: 'pg_stat_statements deltas, partitioned by day',
   },
   planDays: {
     min: 7,
     max: 400,
-    label: 'Planes de ejecución',
-    hint: 'historial para ver si a una consulta le cambió el plan',
+    label: 'Execution plans',
+    hint: 'history to spot plan changes for a query',
   },
 };
 
@@ -84,18 +84,18 @@ export function validateRetention(input: Retention): string[] {
   ][]) {
     const value = input[field];
     if (!Number.isInteger(value) || value < limits.min || value > limits.max) {
-      problems.push(`${limits.label}: debe ser un entero entre ${limits.min} y ${limits.max} días.`);
+      problems.push(`${limits.label}: must be an integer between ${limits.min} and ${limits.max} days.`);
     }
   }
 
   // Un agregado que se borra antes que el detalle que lo alimenta deja huecos
-  // permanentes en las ventanas largas: el gráfico de 30 días perdería los
+  // permanentes en las windows largas: el gráfico de 30 días perdería los
   // últimos días justamente donde hay más datos.
   if (input.rollup5mDays < input.rawDays) {
-    problems.push('El agregado de 5 minutos no puede durar menos que las muestras crudas.');
+    problems.push('The 5-minute rollup cannot be shorter than raw samples.');
   }
   if (input.rollup1hDays < input.rollup5mDays) {
-    problems.push('El agregado de 1 hora no puede durar menos que el de 5 minutos.');
+    problems.push('The 1-hour rollup cannot be shorter than the 5-minute rollup.');
   }
 
   return problems;

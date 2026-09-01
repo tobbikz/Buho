@@ -6,20 +6,20 @@ import { Topbar } from '@/components/Topbar';
  *
  * El parque responde "qué tengo": versiones, disco, respaldos. Seguridad
  * responde "qué tan expuesto estoy", y eso no es inventario sino un juicio con
- * severidad y remediación. Mezclarlas obligaría a que una tabla de hallazgos
+ * severidad y remediación. Mezclarlas obligaría a que una tabla de findings
  * viviera entre tablas de estado, con la mitad de las columnas vacías.
  */
 export default function SecurityLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
-      <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: 'Seguridad' }]} />
+      <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: 'Security' }]} />
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Seguridad</h1>
+            <h1 className="page-title">Security</h1>
             <p className="page-sub">
-              Auditoría de autenticación, privilegios, cifrado, superficie de ataque y registro en los tres
-              motores. Se revisa cada 6 horas: la postura cambia cuando alguien edita una configuración, no de
+              Audit of authentication, privileges, encryption, attack surface, and logging across the three
+              engines. Reviewed every 6 hours: posture changes when someone edits configuration, not
               forma continua.
             </p>
           </div>

@@ -58,15 +58,15 @@ export interface LogTotals {
 
 export const KIND_LABEL: Record<LogKind, string> = {
   deadlock: 'Deadlock',
-  lock_wait: 'Espera de bloqueo',
+  lock_wait: 'Lock wait',
   error: 'Error',
   fatal: 'Fatal',
-  connection: 'Conexión',
+  connection: 'Connection',
   checkpoint: 'Checkpoint',
   autovacuum: 'Autovacuum',
-  temp_file: 'Archivo temporal',
-  cancelled: 'Cancelada',
-  other: 'Otro',
+  temp_file: 'Temp file',
+  cancelled: 'Cancelled',
+  other: 'Other',
 };
 
 /** Los tipos que representan algo que la aplicación vio fallar. */
@@ -158,7 +158,7 @@ export async function getLogGroups(
     databases: (string | null)[];
     users: (string | null)[];
   }>(
-    `with ventana as (
+    `with window as (
        select *
          from buho.log_events
         where instance_id = $1
@@ -173,13 +173,13 @@ export async function getLogGroups(
               max(at)                         as last_at,
               array_agg(distinct database)    as databases,
               array_agg(distinct username)    as users
-         from ventana
+         from window
         group by fingerprint, kind
      ),
      ultima as (
        select distinct on (fingerprint, kind)
               fingerprint, kind, level, message, detail, hint, query, context, sqlstate
-         from ventana
+         from window
         order by fingerprint, kind, at desc
      )
      select g.fingerprint, g.kind, u.level, g.times, g.first_at, g.last_at,
@@ -221,7 +221,7 @@ export interface LogRatePoint {
 }
 
 /**
- * Errores por tramo de tiempo.
+ * Errors por tramo de tiempo.
  *
  * `generate_series` y no sólo los tramos con datos: un hueco en el gráfico
  * significa "no hubo errores", y sin la serie completa se vería como si el

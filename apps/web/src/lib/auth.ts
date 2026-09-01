@@ -8,7 +8,7 @@
  *
  * La sesión **no vive en base de datos**: la cookie lleva usuario, rol y
  * expiración, firmados con HMAC. Así verificar cada request no cuesta una
- * consulta, el reinicio de la web no cierra sesiones y el middleware —que corre
+ * consulta, el reinicio de la web no cierra sessions y el middleware —que corre
  * en el runtime edge, sin acceso al store— puede decidir por sí solo. La contra
  * es que un cambio de rol no surte efecto hasta que la sesión expira o el
  * usuario vuelve a entrar; para forzarlo, se deshabilita la cuenta y se rota el

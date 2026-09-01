@@ -9,9 +9,9 @@ export const dynamic = 'force-dynamic';
 
 const ROLE_LABEL: Record<string, string> = {
   primary: 'Primario',
-  standby: 'Réplica conectada',
-  replica: 'Este servidor es réplica',
-  slot: 'Slot de replicación',
+  standby: 'Connected replica',
+  replica: 'This server is a replica',
+  slot: 'Replication slot',
   availability_group: 'Grupo de disponibilidad',
 };
 
@@ -51,50 +51,50 @@ export default async function ReplicationPage() {
     <div className="flex flex-col gap-[0.875rem]">
       <div className="stat-grid">
         <StatCard
-          label="Sin alta disponibilidad"
+          label="No high availability"
           value={String(alone.length)}
-          hint="instancias sin réplica ni grupo"
+          hint="instances with neither replica nor group"
           tone={alone.length > 0 ? 'warn' : 'ok'}
         />
-        <StatCard label="Réplicas conectadas" value={String(withReplicas.length)} tone={withReplicas.length > 0 ? 'ok' : 'neutral'} />
+        <StatCard label="Connected replicas" value={String(withReplicas.length)} tone={withReplicas.length > 0 ? 'ok' : 'neutral'} />
         <StatCard
-          label="Requieren atención"
+          label="Need attention"
           value={String(danger.length)}
-          hint="slots inactivos, réplicas caídas o lag alto"
+          hint="inactive slots, down replicas, or high lag"
           tone={danger.length > 0 ? 'error' : 'ok'}
         />
         <StatCard
           label="WAL retenido por slots"
           value={formatBytes(retained)}
-          hint="espacio que el primario no puede liberar"
+          hint="space the primary cannot reclaim"
           tone={retained > 10 * 1024 ** 3 ? 'error' : retained > 1024 ** 3 ? 'warn' : 'ok'}
         />
       </div>
 
-      <NotesPanel notes={notes} title="Qué lee Búho de cada motor" />
+      <NotesPanel notes={notes} title="What Búho reads from each engine" />
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Topología de replicación</span>
+          <span className="panel-title">Replication topology</span>
           <span className="font-mono text-[10px] text-foreground-muted">
             PostgreSQL: réplicas y slots · MariaDB: binlog y GTID · SQL Server: AlwaysOn y mirroring
           </span>
         </div>
         {rows.length === 0 ? (
-          <div className="empty">Sin datos de replicación todavía.</div>
+          <div className="empty">No replication data yet.</div>
         ) : (
           <div className="table-scroll" style={{ maxHeight: 'none' }}>
             <table className="data-table">
               <thead>
                 <tr>
                   <th>Instancia</th>
-                  <th>Motor</th>
+                  <th>Engine</th>
                   <th>Rol</th>
                   <th>Par</th>
-                  <th>Estado</th>
+                  <th>State</th>
                   <th className="text-right">Lag</th>
                   <th className="text-right">Bytes retenidos</th>
-                  <th>Detalle</th>
+                  <th>Detail</th>
                 </tr>
               </thead>
               <tbody>

@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  * Una lista de parámetros por servidor no sirve de nada: nadie audita 28 filas
  * por 14 servidores. Lo que se busca es la **divergencia** — dos servidores que
  * deberían ser gemelos y no lo son — y el default silencioso, que es el
- * parámetro que nadie decidió nunca. Por eso la tabla pone una columna por
+ * parámetro que nadie decidió never. Por eso la tabla pone una columna por
  * instancia y resalta la fila donde los valores no coinciden.
  *
  * La comparación es por motor: comparar work_mem de PostgreSQL con
@@ -58,17 +58,17 @@ export default async function ConfigurationPage() {
     <div className="flex flex-col gap-[0.875rem]">
       <div className="stat-grid">
         <StatCard
-          label="Parámetros divergentes"
+          label="Divergent parameters"
           value={String(divergent)}
-          hint="difieren entre instancias del mismo motor"
+          hint="differ across instances of the same engine"
           tone={divergent > 0 ? 'warn' : 'ok'}
         />
         <StatCard
           label="En su valor por defecto"
           value={String(defaults)}
-          hint="nadie los decidió nunca"
+          hint="never explicitly set"
         />
-        <StatCard label="Parámetros auditados" value={String(new Set(rows.map((r) => r.name)).size)} />
+        <StatCard label="Audited parameters" value={String(new Set(rows.map((r) => r.name)).size)} />
         <StatCard label="Motores comparados" value={String(byEngine.size)} />
       </div>
 
@@ -76,7 +76,7 @@ export default async function ConfigurationPage() {
 
       {sections.length === 0 && (
         <section className="panel">
-          <div className="empty">Sin configuración inventariada todavía.</div>
+          <div className="empty">No inventoried configuration yet.</div>
         </section>
       )}
 
@@ -92,11 +92,11 @@ export default async function ConfigurationPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Parámetro</th>
+                  <th>Parameter</th>
                   {section.aliases.map((alias) => (
                     <th key={alias}>{alias}</th>
                   ))}
-                  <th>Reinicio</th>
+                  <th>Restart</th>
                 </tr>
               </thead>
               <tbody>
@@ -108,7 +108,7 @@ export default async function ConfigurationPage() {
                     <td className="font-mono text-[11px]">
                       {setting.name}
                       {setting.allDefault && (
-                        <span className="ml-1 tag tag--muted" title="Ninguna instancia lo tiene configurado explícitamente">
+                        <span className="ml-1 tag tag--muted" title="No instance has it set explicitly">
                           default
                         </span>
                       )}
@@ -117,7 +117,7 @@ export default async function ConfigurationPage() {
                       <td key={index} className="font-mono text-[11px]">
                         {row ? (
                           <>
-                            {row.value === '' ? '(vacío)' : row.value}
+                            {row.value === '' ? '(empty)' : row.value}
                             {row.unit ? <span className="text-foreground-muted"> {row.unit}</span> : null}
                           </>
                         ) : (
@@ -127,7 +127,7 @@ export default async function ConfigurationPage() {
                     ))}
                     <td>
                       {setting.values.some((row) => row?.requiresRestart) ? (
-                        <span className="tag tag--muted">sí</span>
+                        <span className="tag tag--muted">yes</span>
                       ) : (
                         '·'
                       )}

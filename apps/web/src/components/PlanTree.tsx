@@ -52,14 +52,14 @@ function misestimate(node: PlanNode): { under: boolean; label: string } | null {
   // Por debajo de este volumen, equivocarse no cambia el plan elegido.
   if (Math.max(estimated, actual) < 1_000) return null;
 
-  if (actual === 0) return { under: false, label: 'sin filas' };
-  if (estimated === 0) return { under: true, label: 'no estimadas' };
+  if (actual === 0) return { under: false, label: 'no rows' };
+  if (estimated === 0) return { under: true, label: 'not estimated' };
 
   const ratio = actual / estimated;
   if (ratio >= 0.5 && ratio <= 2) return null;
 
   return ratio > 1
-    ? { under: true, label: `${ratio < 10 ? ratio.toFixed(1) : ratio.toFixed(0)}× más` }
+    ? { under: true, label: `${ratio < 10 ? ratio.toFixed(1) : ratio.toFixed(0)}× more` }
     : { under: false, label: `${(1 / ratio).toFixed(1)}× menos` };
 }
 
@@ -143,7 +143,7 @@ function Node({
 
         {node.indexCond ? (
           <div className="plan-node__cond">
-            <span className="plan-node__cond-key">índice</span> {node.indexCond}
+            <span className="plan-node__cond-key">index</span> {node.indexCond}
           </div>
         ) : null}
         {node.filter ? (

@@ -57,7 +57,7 @@ export async function getDiscovered(): Promise<DiscoveredRow[]> {
  * Lanza un escaneo y guarda lo encontrado.
  *
  * Todo escaneo queda en la bitácora con el usuario, los rangos y el resultado.
- * Un escáner de puertos sin registro de quién lo disparó es exactamente lo que
+ * Un escáner de puertos no record de who lo disparó es exactamente lo que
  * un equipo de seguridad no puede aceptar dentro de su red.
  */
 export async function runDiscovery(
@@ -67,7 +67,7 @@ export async function runDiscovery(
   username: string,
 ): Promise<void> {
   if (ranges.length === 0) {
-    redirect('/admin/discovery?error=' + encodeURIComponent('Hay que indicar al menos un rango.'));
+    redirect('/admin/discovery?error=' + encodeURIComponent('Provide at least one range.'));
   }
 
   let found: Awaited<ReturnType<typeof discover>>;
@@ -75,7 +75,7 @@ export async function runDiscovery(
     found = await discover(ranges, { ports: ports.length > 0 ? ports : undefined, allowPublic });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await logConsoleEvent(username, 'descubrimiento rechazado', `${ranges.join(' ')} — ${message}`);
+    await logConsoleEvent(username, 'discovery rejected', `${ranges.join(' ')} — ${message}`);
     redirect('/admin/discovery?error=' + encodeURIComponent(message));
   }
 
@@ -100,9 +100,9 @@ export async function runDiscovery(
 
   await logConsoleEvent(
     username,
-    'descubrimiento',
+    'discovery',
     `${ranges.join(' ')} · ${found.scanned} sondas · ${found.found.length} respuesta(s)` +
-      (allowPublic ? ' · incluyó direcciones públicas' : ''),
+      (allowPublic ? ' · included public addresses' : ''),
   );
 
   redirect(
@@ -128,7 +128,7 @@ export async function setDiscoveredNote(
   ]);
   await logConsoleEvent(
     username,
-    ignored ? 'descubrimiento ignorado' : 'nota de descubrimiento',
+    ignored ? 'discovery ignored' : 'discovery note',
     `${host}:${port}${note.trim() ? ` — ${note.trim()}` : ''}`,
   );
 }

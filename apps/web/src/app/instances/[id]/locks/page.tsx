@@ -31,7 +31,7 @@ function session(
         </span>
         <span className="text-[10.5px]">{detail}</span>
       </div>
-      <div className="query-block">{queryText?.trim() || '(sin texto de query)'}</div>
+      <div className="query-block">{queryText?.trim() || '(no query text)'}</div>
     </div>
   );
 }
@@ -51,7 +51,7 @@ function LockTree({ episode }: { episode: LockEpisode }) {
         <span className="font-mono text-[12px] font-semibold">{formatDuration(episode.waitSeconds)}</span>
         <span className="text-[11.5px] text-foreground-secondary">
           esperando <span className="font-mono">{episode.lockMode ?? 'lock'}</span> sobre{' '}
-          <span className="font-mono">{episode.lockObject ?? 'objeto desconocido'}</span>
+          <span className="font-mono">{episode.lockObject ?? 'unknown object'}</span>
         </span>
         <span className="font-mono text-[10px] text-foreground-muted">
           desde {formatClock(episode.firstSeenAt)} · {episode.samples} muestra
@@ -66,7 +66,7 @@ function LockTree({ episode }: { episode: LockEpisode }) {
         episode.blockerApplication,
         `${episode.blockerState ?? 'estado desconocido'}${
           episode.blockerXactSeconds !== null
-            ? ` · transacción abierta ${formatDuration(episode.blockerXactSeconds)}`
+            ? ` · transaction open ${formatDuration(episode.blockerXactSeconds)}`
             : ''
         }`,
         episode.blockerQuery,
@@ -108,7 +108,7 @@ export default async function LocksPage({ params }: { params: Promise<{ id: stri
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: id }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -128,7 +128,7 @@ export default async function LocksPage({ params }: { params: Promise<{ id: stri
     return (
       <>
         <Topbar
-          crumbs={[{ label: 'Flota', href: '/' }, { label: instance.alias, href: `/instances/${instanceId}` }, { label: 'Bloqueos' }]}
+          crumbs={[{ label: 'Fleet', href: '/' }, { label: instance.alias, href: `/instances/${instanceId}` }, { label: 'Locks' }]}
         />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
@@ -145,17 +145,17 @@ export default async function LocksPage({ params }: { params: Promise<{ id: stri
     <>
       <Topbar
         crumbs={[
-          { label: 'Flota', href: '/' },
+          { label: 'Fleet', href: '/' },
           { label: instance.alias, href: `/instances/${instanceId}` },
-          { label: 'Bloqueos' },
+          { label: 'Locks' },
         ]}
       />
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Bloqueos · {instance.alias}</h1>
+            <h1 className="page-title">Locks · {instance.alias}</h1>
             <p className="page-sub">
-              Episodios de las últimas 24 h. Un episodio es una sesión esperando un lock, no un muestreo: mientras
+              Episodios de las last 24 h. Un episodio es una sesión esperando un lock, no un sampling: mientras
               el bloqueo vive se actualiza la misma fila.
             </p>
           </div>
@@ -165,52 +165,52 @@ export default async function LocksPage({ params }: { params: Promise<{ id: stri
 
         <div className="stat-grid">
           <StatCard
-            label="Activos ahora"
+            label="Active now"
             value={formatNumber(active.length)}
             tone={active.length > 0 ? 'error' : 'ok'}
-            hint={active.length === 0 ? 'nadie esperando locks' : 'sesiones esperando'}
+            hint={active.length === 0 ? 'nobody waiting on locks' : 'sessions waiting'}
           />
-          <StatCard label="Episodios 24 h" value={formatNumber(episodes.length)} tone={episodes.length > 0 ? 'warn' : 'ok'} />
+          <StatCard label="Episodes 24 h" value={formatNumber(episodes.length)} tone={episodes.length > 0 ? 'warn' : 'ok'} />
           <StatCard
-            label="Espera máxima"
+            label="Max wait"
             value={worst > 0 ? formatDuration(worst) : '—'}
             tone={worst >= 60 ? 'error' : worst > 0 ? 'warn' : 'ok'}
-            hint="en la ventana de 24 h"
+            hint="in the 24 h window"
           />
           <StatCard
-            label="Último episodio"
+            label="Last episode"
             value={episodes[0] ? formatAgo(episodes[0].lastSeenAt) : '—'}
             tone="neutral"
           />
         </div>
 
-        {/* Dos paneles y no uno: sesiones y segundos no comparten eje. */}
+        {/* Dos paneles y no uno: sessions y segundos no comparten eje. */}
         <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
           <TimeseriesPanel
-            title="Sesiones bloqueadas"
-            hint="ventana 6 h"
+            title="Blocked sessions"
+            hint="window 6 h"
             data={blocking}
             unit="count"
             height={150}
-            series={[{ metric: 'blocked_sessions', label: 'Sesiones bloqueadas', color: '#b01818' }]}
+            series={[{ metric: 'blocked_sessions', label: 'Blocked sessions', color: '#b01818' }]}
           />
           <TimeseriesPanel
-            title="Espera máxima"
-            hint="ventana 6 h"
+            title="Max wait"
+            hint="window 6 h"
             data={blocking}
             unit="seconds"
             height={150}
-            series={[{ metric: 'max_blocked_seconds', label: 'Espera máxima', color: '#9a4a00' }]}
+            series={[{ metric: 'max_blocked_seconds', label: 'Max wait', color: '#9a4a00' }]}
           />
         </div>
 
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Bloqueos activos</span>
-            <span className="font-mono text-[10px] text-foreground-muted">árbol bloqueador → esperando</span>
+            <span className="panel-title">Active locks</span>
+            <span className="font-mono text-[10px] text-foreground-muted">blocker → waiter tree</span>
           </div>
           {active.length === 0 ? (
-            <div className="empty">Ninguna sesión esperando un lock en este momento.</div>
+            <div className="empty">No session waiting on a lock right now.</div>
           ) : (
             active.map((episode) => <LockTree key={episode.episodeId} episode={episode} />)
           )}
@@ -218,23 +218,23 @@ export default async function LocksPage({ params }: { params: Promise<{ id: stri
 
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Episodios resueltos</span>
-            <span className="font-mono text-[10px] text-foreground-muted">últimas 24 h</span>
+            <span className="panel-title">Resolved episodes</span>
+            <span className="font-mono text-[10px] text-foreground-muted">last 24 h</span>
           </div>
           {history.length === 0 ? (
-            <div className="empty">Sin bloqueos registrados en las últimas 24 h.</div>
+            <div className="empty">Sin bloqueos registrados en las last 24 h.</div>
           ) : (
             <div className="table-scroll">
               <table className="data-table">
                 <thead>
                   <tr>
                     <th>Inicio</th>
-                    <th className="text-right">Duración</th>
-                    <th>Objeto</th>
+                    <th className="text-right">Duration</th>
+                    <th>Object</th>
                     <th>Modo</th>
                     <th>Esperaba</th>
                     <th>Bloqueaba</th>
-                    <th>Query bloqueada</th>
+                    <th>Blocked query</th>
                   </tr>
                 </thead>
                 <tbody>

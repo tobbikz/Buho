@@ -10,10 +10,10 @@ export const dynamic = 'force-dynamic';
 /**
  * Licenciamiento, con el "si aplica" tomado en serio.
  *
- * PostgreSQL y MariaDB no tienen nada que auditar y decirlo es la respuesta
+ * PostgreSQL y MariaDB no tienen nothing to audit y decirlo es la respuesta
  * correcta, no un vacío. Donde sí importa es en SQL Server, y ahí hay dos
- * hallazgos que valen dinero de verdad: una edición Developer o Evaluation
- * atendiendo producción (incumplimiento de licencia), y núcleos que la edición
+ * findings que valen dinero de verdad: una edición Developer o Evaluation
+ * atendiendo producción (incumplimiento de licencia), y cores que la edición
  * no puede usar (hardware pagado que el motor ignora).
  */
 export default async function LicensingPage() {
@@ -36,43 +36,43 @@ export default async function LicensingPage() {
     <div className="flex flex-col gap-[0.875rem]">
       <div className="stat-grid">
         <StatCard
-          label="Problemas de licencia"
+          label="License problems"
           value={String(violations.length)}
-          hint="ediciones sin derecho de producción"
+          hint="editions without production rights"
           tone={violations.length > 0 ? 'error' : 'ok'}
         />
         <StatCard
-          label="Núcleos desaprovechados"
+          label="Unused cores"
           value={String(wastedCores)}
-          hint="el hardware existe, la edición no los usa"
+          hint="hardware exists; the edition does not use them"
           tone={wastedCores > 0 ? 'warn' : 'ok'}
         />
-        <StatCard label="Instancias con licencia comercial" value={String(licensed.length)} />
-        <StatCard label="Motores libres" value={String(free.length)} hint="nada que auditar" tone="ok" />
+        <StatCard label="Instances with commercial licenses" value={String(licensed.length)} />
+        <StatCard label="Motores libres" value={String(free.length)} hint="nothing to audit" tone="ok" />
       </div>
 
-      <NotesPanel notes={notes} title="Qué significa la licencia de cada motor" />
+      <NotesPanel notes={notes} title="What each engine's license means" />
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Licenciamiento por instancia</span>
+          <span className="panel-title">Licensing by instance</span>
         </div>
         {rows.length === 0 ? (
-          <div className="empty">Sin datos de licenciamiento todavía.</div>
+          <div className="empty">No licensing data yet.</div>
         ) : (
           <div className="table-scroll" style={{ maxHeight: 'none' }}>
             <table className="data-table">
               <thead>
                 <tr>
                   <th>Instancia</th>
-                  <th>Motor</th>
-                  <th>Edición</th>
+                  <th>Engine</th>
+                  <th>Edition</th>
                   <th>Modelo</th>
-                  <th className="text-right">Núcleos</th>
-                  <th className="text-right">Tope de núcleos</th>
+                  <th className="text-right">Cores</th>
+                  <th className="text-right">Tope de cores</th>
                   <th className="text-right">Memoria</th>
                   <th className="text-right">Tope de memoria</th>
-                  <th>Producción</th>
+                  <th>Production</th>
                 </tr>
               </thead>
               <tbody>
@@ -86,7 +86,7 @@ export default async function LicensingPage() {
                     <td className="text-[11px] text-foreground-secondary">
                       {ENGINE_LABEL[row.engine] ?? row.engine}
                     </td>
-                    <td>{row.edition ?? <span className="text-foreground-muted">sin inventariar</span>}</td>
+                    <td>{row.edition ?? <span className="text-foreground-muted">not inventoried</span>}</td>
                     <td className="text-[11px]">{row.licenseModel ?? '·'}</td>
                     <td className="num">{formatNumber(row.cores)}</td>
                     <td className="num">
@@ -106,7 +106,7 @@ export default async function LicensingPage() {
                       ) : row.productionOk ? (
                         <span className="tag tag--ok">apta</span>
                       ) : (
-                        <span className="tag tag--error">no apta</span>
+                        <span className="tag tag--error">not eligible</span>
                       )}
                     </td>
                   </tr>
@@ -119,7 +119,7 @@ export default async function LicensingPage() {
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Qué implica cada edición</span>
+          <span className="panel-title">What each edition implies</span>
         </div>
         <div className="panel-body flex flex-col gap-2">
           {rows

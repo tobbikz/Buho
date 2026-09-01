@@ -4,13 +4,13 @@ import type { ChartPoint } from './queries';
 /**
  * Líneas base: qué es normal para esta métrica a esta hora.
  *
- * La pregunta que contestan es la que un umbral fijo no puede: 400 conexiones un
+ * La pregunta que contestan es la que un umbral fijo no puede: 400 connections un
  * martes a las 3 de la tarde puede ser rutina, y las mismas 400 un domingo a las
  * 4 de la mañana un proceso que se soltó. La referencia es el propio pasado del
  * servidor a la misma hora.
  *
  * Con pocas observaciones por celda una banda es ruido disfrazado de estadística,
- * así que hay un mínimo y, cuando no se alcanza, se dice que no hay línea base en
+ * así que hay un min y, cuando no se alcanza, se dice que no hay línea base en
  * lugar de dibujar una.
  */
 
@@ -227,7 +227,7 @@ export async function getAnomalies(instanceId: number, limit = 12): Promise<Anom
     const p90 = Number(row.p90);
 
     // El ancho de la banda es la unidad natural del exceso. Cuando es cero —una
-    // métrica que nunca se movió— se usa la mediana, y si también es cero, el
+    // métrica que never se movió— se usa la mediana, y si también es cero, el
     // propio valor: cualquier cosa distinta de cero ya es un cambio.
     const width = p90 - p10 || Math.abs(p50) || Math.abs(value) || 1;
     const above = value > p90;

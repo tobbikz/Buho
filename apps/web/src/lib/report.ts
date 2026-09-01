@@ -7,7 +7,7 @@ import { num } from './format';
  *
  * A diferencia del resto de la consola, que contesta "qué está pasando ahora",
  * este informe contesta "cómo se portó la semana". Por eso todo aquí es una
- * comparación contra la semana anterior o un extremo del periodo, nunca un
+ * comparación contra la semana anterior o un extremo del periodo, never un
  * valor instantáneo: lo que el cliente paga es la lectura, no el número.
  *
  * Se arma con lo que ya está en el store, sin recolectar nada nuevo, y se
@@ -94,10 +94,10 @@ export interface ReportInstance {
   topQueries: ReportQuery[];
   /**
    * Perfil de espera de la semana: proporción de fotos en cada familia.
-   * Null si no hubo muestreo de sesiones (instancia nueva o motor sin datos).
+   * Null si no hubo sampling de sessions (instancia nueva o motor sin datos).
    */
   waitProfile: ReportWaitShare[] | null;
-  /** Fotos de sesiones en el periodo: el divisor de los porcentajes. */
+  /** Fotos de sessions en el periodo: el divisor de los porcentajes. */
   waitSamples: number;
 }
 
@@ -170,7 +170,7 @@ type MetricName = (typeof METRICS)[number];
 /**
  * Resumen por métrica del periodo y del anterior en una sola pasada.
  *
- * Se lee del rollup de una hora y no de las muestras crudas: una semana de
+ * Se lee del rollup de una hora y no de las raw samples: una semana de
  * crudas son cientos de miles de filas por instancia, y para un informe
  * semanal la resolución horaria es de sobra.
  */
@@ -255,7 +255,7 @@ async function coverage(w: ReportWindow): Promise<Map<number, number>> {
   );
 }
 
-/** Score al principio y al final del periodo, con los hallazgos del cierre. */
+/** Score al principio y al final del periodo, con los findings del cierre. */
 async function scores(w: ReportWindow): Promise<
   Map<number, { start: number | null; end: number | null; critical: number; warning: number; info: number }>
 > {
@@ -311,7 +311,7 @@ async function locks(w: ReportWindow): Promise<Map<number, { count: number; wors
 }
 
 /**
- * Errores y deadlocks leídos del log.
+ * Errors y deadlocks read from the log.
  *
  * Se distingue "cero errores" de "no hay log configurado": son conclusiones
  * opuestas y el informe no puede confundirlas. La presencia de un cursor es lo
@@ -440,7 +440,7 @@ async function topQueries(w: ReportWindow, limit = 3): Promise<Map<number, Repor
 /**
  * Perfil de espera de la semana por instancia.
  *
- * Es el dato que convierte "hubo bloqueos" en "el 40 % del tiempo de sesión
+ * Es el dato que convierte "hubo bloqueos" en "el 40 % of session time
  * se fue en Lock": lo que un cliente de consultoría necesita oír el lunes.
  * Misma semántica que la pantalla de Sesiones —proporción de fotos, no cuenta
  * de esperas— para que el informe y la consola no digan cosas distintas.
@@ -494,11 +494,11 @@ async function waitProfiles(
 }
 
 /**
- * Acciones recomendadas: los checks abiertos al cierre, agrupados.
+ * Acciones recomendadas: los checks open at close, agrupados.
  *
  * Se agrupa por check y no por instancia porque el mismo problema en cinco
  * servidores es una sola decisión, y ordenarlo por cuántas instancias toca es
- * lo que convierte una lista de hallazgos en un plan de trabajo.
+ * lo que convierte una lista de findings en un plan de trabajo.
  */
 async function actions(limit = 12): Promise<ReportAction[]> {
   const rows = await query<{
@@ -672,7 +672,7 @@ export async function getWeeklyReport(weeksAgo = 0): Promise<WeeklyReport> {
     )
     .filter((value): value is number => value !== null);
 
-  // Pesos del parque: se promedian las instancias que sí tienen muestreo, no
+  // Pesos del parque: se promedian las instancias que sí tienen sampling, no
   // se inventa cero para las que no. Un parque a medias con "0 % Lock" mentiría.
   const conEsperas = rows.filter((row) => row.waitProfile && row.waitProfile.length > 0);
   const shareOf = (tipo: string): number | null => {
@@ -728,33 +728,33 @@ function buildPlan(
   if (criticos.length > 0) {
     const primero = criticos[0]!;
     plan.push(
-      `Prioridad 1: ${primero.title} en ${primero.instances.join(', ')}. ${primero.remediation}`,
+      `Priority 1: ${primero.title} on ${primero.instances.join(', ')}. ${primero.remediation}`,
     );
   } else if (lockWaitShare !== null && lockWaitShare >= 0.15) {
     const peores = rows
       .filter((r) => (r.waitProfile?.find((w) => w.waitType === 'Lock')?.share ?? 0) >= 0.15)
       .map((r) => r.alias);
     plan.push(
-      `Prioridad 1: el parque gastó ${(lockWaitShare * 100).toFixed(0)} % del tiempo de sesión ` +
-        `esperando bloqueos${peores.length ? ` (peor en ${peores.slice(0, 3).join(', ')})` : ''}. ` +
-        'Acortar transacciones y revisar el orden de los locks: no se arregla con hardware.',
+      `Priority 1: the estate spent ${(lockWaitShare * 100).toFixed(0)} % of session time ` +
+        `waiting on locks${peores.length ? ` (worst on ${peores.slice(0, 3).join(', ')})` : ''}. ` +
+        'Shorten transactions and review lock order: hardware will not fix this.',
     );
   }
 
   const atrasados = backupList.filter((b) => b.state === 'atrasado' || b.state === 'sin_recuperacion');
   if (atrasados.length > 0 && plan.length < 3) {
     plan.push(
-      `Prioridad ${plan.length + 1}: ${atrasados.length} respaldo${atrasados.length === 1 ? '' : 's'} ` +
-        `en mal estado (${[...new Set(atrasados.map((b) => b.alias))].slice(0, 4).join(', ')}). ` +
-        'Sin recuperación no hay discusión de rendimiento que importe.',
+      `Priority ${plan.length + 1}: ${atrasados.length} backup${atrasados.length === 1 ? '' : 's'} ` +
+        `in bad shape (${[...new Set(atrasados.map((b) => b.alias))].slice(0, 4).join(', ')}). ` +
+        'Without recovery, performance discussions do not matter.',
     );
   }
 
   if (ioWaitShare !== null && ioWaitShare >= 0.25 && plan.length < 3) {
     plan.push(
-      `Prioridad ${plan.length + 1}: ${(ioWaitShare * 100).toFixed(0)} % del tiempo de sesión ` +
-        'esperando disco. Revisar caché (shared_buffers / buffer pool) y el almacenamiento ' +
-        'antes de subir vCPU.',
+      `Priority ${plan.length + 1}: ${(ioWaitShare * 100).toFixed(0)} % of session time ` +
+        'waiting on disk. Check cache (shared_buffers / buffer pool) and storage ' +
+        'before adding vCPU.',
     );
   }
 
@@ -762,14 +762,14 @@ function buildPlan(
   if (advertencias.length > 0 && plan.length < 3) {
     const a = advertencias[0]!;
     plan.push(
-      `Prioridad ${plan.length + 1}: ${a.title} en ${a.instances.slice(0, 3).join(', ')}. ${a.remediation}`,
+      `Priority ${plan.length + 1}: ${a.title} on ${a.instances.slice(0, 3).join(', ')}. ${a.remediation}`,
     );
   }
 
   if (plan.length === 0) {
     plan.push(
-      'La semana no dejó trabajo urgente: sin críticos, sin bloqueos dominantes y con respaldos al día. ' +
-        'Conviene revisar igual el crecimiento y las consultas más caras, que es donde se gestan los problemas de la semana que viene.',
+      'The week left no urgent work: no criticals, no dominant locks, and backups are current. ' +
+        "Still worth reviewing growth and the most expensive queries — that is where next week's problems start.",
     );
   }
 

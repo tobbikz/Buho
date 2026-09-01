@@ -26,9 +26,9 @@ import type { FlowWeight } from '@buho/core';
 export const dynamic = 'force-dynamic';
 
 const WEIGHTS: { key: FlowWeight; label: string; hint: string }[] = [
-  { key: 'rows', label: 'Filas', hint: 'dónde cae el volumen de datos' },
-  { key: 'time', label: 'Tiempo', hint: 'dónde se gasta el servidor' },
-  { key: 'calls', label: 'Llamadas', hint: 'qué se llama más veces' },
+  { key: 'rows', label: 'Rows', hint: 'where data volume lands' },
+  { key: 'time', label: 'Time', hint: 'where the server spends time' },
+  { key: 'calls', label: 'Calls', hint: 'what is called most often' },
 ];
 
 const WINDOWS: { key: string; label: string; minutes: number }[] = [
@@ -39,10 +39,10 @@ const WINDOWS: { key: string; label: string; minutes: number }[] = [
 ];
 
 const HEAT_WINDOWS: { key: string; label: string; days: number }[] = [
-  { key: '7d', label: '7 días', days: 7 },
-  { key: '30d', label: '30 días', days: 30 },
-  { key: '90d', label: '90 días', days: 90 },
-  { key: '365d', label: '1 año', days: 365 },
+  { key: '7d', label: '7 days', days: 7 },
+  { key: '30d', label: '30 days', days: 30 },
+  { key: '90d', label: '90 days', days: 90 },
+  { key: '365d', label: '1 year', days: 365 },
 ];
 
 /** La unidad del peso elegido: el tiempo viene en milisegundos, el resto son cuentas. */
@@ -100,7 +100,7 @@ export default async function FlowPage({
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: id }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -110,9 +110,9 @@ export default async function FlowPage({
   if (!instance) notFound();
 
   const crumbs = [
-    { label: 'Flota', href: '/' },
+    { label: 'Fleet', href: '/' },
     { label: instance.alias, href: `/instances/${instanceId}` },
-    { label: 'Flujo' },
+    { label: 'Flow' },
   ];
 
   const enlace = (cambios: Record<string, string>) => {
@@ -156,14 +156,14 @@ export default async function FlowPage({
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Flujo y uso · {instance.alias}</h1>
+            <h1 className="page-title">Flow and usage · {instance.alias}</h1>
             <p className="page-sub">
               Por dónde entra el tráfico y dónde cae. El diagrama cruza el rol que ejecuta con la tabla que toca;
               la rejilla muestra a qué horas de la semana se usa el servidor. La atribución del diagrama es{' '}
               <strong>aproximada</strong>: sale de leer el texto de cada consulta
               {engine === 'postgres'
-                ? ', y los contadores de PostgreSQL están debajo para contrastarla.'
-                : ', y en este motor no hay contadores por tabla con los que contrastarla.'}
+                ? ', and PostgreSQL counters are below for contrast.'
+                : ', and this engine has no per-table counters to contrast against.'}
             </p>
           </div>
           <AutoRefresh intervalMs={30000} />
@@ -173,36 +173,36 @@ export default async function FlowPage({
 
         <div className="stat-grid">
           <StatCard
-            label={direction === 'escritura' ? 'Filas escritas' : 'Filas leídas'}
+            label={direction === 'escritura' ? 'Rows written' : 'Rows read'}
             value={formato(escriturasAtribuidas)}
-            hint={`atribuidas, ventana ${window.label}`}
+            hint={`attributed, window ${window.label}`}
             tone="accent"
           />
           <StatCard
-            label="Tablas con tráfico"
+            label="Tables with traffic"
             value={formatNumber(flow.tables.length)}
-            hint={direction === 'escritura' ? 'destino de algún DML' : 'leídas por alguna consulta'}
+            hint={direction === 'escritura' ? 'target of some DML' : 'read by some query'}
           />
           <StatCard
-            label="Consultas atribuidas"
+            label="Attributed queries"
             value={`${formatNumber(flow.attributed)} / ${formatNumber(flow.statements)}`}
-            hint={`${formatPct(cobertura, 0)} del peso total`}
+            hint={`${formatPct(cobertura, 0)} of total weight`}
             tone={cobertura >= 60 ? 'ok' : cobertura >= 25 ? 'warn' : 'neutral'}
           />
           {engine === 'postgres' ? (
             <StatCard
-              label="Según los contadores"
+              label="Per the counters"
               value={formatNumber(Math.round(escriturasContadas))}
-              hint="filas de DML medidas por PostgreSQL"
+              hint="DML rows measured by PostgreSQL"
             />
           ) : (
             <StatCard
               label="Rol de quien ejecuta"
-              value={engine === 'mariadb' ? 'no informado' : 'por sesión'}
+              value={engine === 'mariadb' ? 'no informado' : 'per session'}
               hint={
                 engine === 'mariadb'
-                  ? 'performance_schema no guarda el usuario en los digests'
-                  : 'SQL Server agrega por plan, sin el rol'
+                  ? 'performance_schema does not store the user in digests'
+                  : 'SQL Server aggregates by plan, without the role'
               }
             />
           )}
@@ -212,20 +212,20 @@ export default async function FlowPage({
         <section className="panel">
           <div className="panel-header">
             <span className="panel-title">
-              {direction === 'escritura' ? 'Quién escribe en qué' : 'Quién lee de dónde'}
+              {direction === 'escritura' ? 'Who writes where' : 'Who reads from where'}
             </span>
             <div className="flex flex-wrap items-center gap-1">
               <Link
                 href={enlace({ vista: 'vivo' })}
                 className={`tag ${enVivo ? 'tag--ok' : 'tag--muted'}`}
-                title="lo que se mueve ahora, en los últimos 5 minutos"
+                title="what is moving now, last 5 minutes"
               >
                 en vivo
               </Link>
               <Link
                 href={enlace({ vista: 'acumulado' })}
                 className={`tag ${enVivo ? 'tag--muted' : 'tag--info'}`}
-                title="el total de la ventana elegida"
+                title="total for the selected window"
               >
                 acumulado
               </Link>
@@ -237,8 +237,8 @@ export default async function FlowPage({
                   className={`tag ${opcion === actor ? 'tag--info' : 'tag--muted'}`}
                   title={
                     opcion === 'rol'
-                      ? 'exacto: pg_stat_statements guarda el rol'
-                      : 'estimado por muestreo de pg_stat_activity'
+                      ? 'exact: pg_stat_statements stores the role'
+                      : 'estimated by sampling pg_stat_activity'
                   }
                 >
                   por {opcion}
@@ -301,29 +301,29 @@ export default async function FlowPage({
                       // cuando quien escribe queda fuera de pg_stat_statements,
                       // y el caso más común es esta misma base, porque Búho
                       // marca sus consultas para no contarse a sí mismo.
-                      'Los contadores ven escrituras pero ninguna consulta quedó registrada en pg_stat_statements. Suele ser tráfico excluido a propósito: Búho marca sus propias consultas para no contarse a sí mismo.'
-                    : 'Sin consultas de la aplicación en la ventana. Las del propio Búho no cuentan, así que una instancia que sólo recibe monitoreo aparece vacía aquí; sin pg_stat_statements, también.'
+                      'Counters see writes but no query was recorded in pg_stat_statements. Often intentional exclusion: Búho tags monitor queries and does not attribute them.'
+                    : "No application queries in the window. Búho's own queries do not count, so an instance that only receives monitoring looks empty here."
                   : direction === 'escritura' && weight === 'rows' && engine === 'mssql'
                     ? // En SQL Server el DML no aporta filas a dm_exec_query_stats,
                       // así que pesar por filas deja el diagrama vacío aunque haya
                       // tráfico. Vale más decirlo que dejar la pantalla en blanco.
-                      'SQL Server no cuenta las filas modificadas por consulta, así que pesar las escrituras por filas da cero. Probar con "tiempo" o "llamadas".'
+                      'SQL Server does not count rows modified per query, so weighting writes by rows is zero. Try "tiempo" or "llamadas".'
                     : direction === 'escritura'
-                      ? 'Ninguna escritura pudo atribuirse a una tabla en esta ventana. Si la base sólo se lee, probar con "lectura".'
-                      : 'Ninguna lectura pudo atribuirse a una tabla en esta ventana.'
+                      ? 'No writes could be attributed to a table in this window. If the database is read-only, try "lectura".'
+                      : 'No reads could be attributed to a table in this window.'
               }
             />
             )}
             {actor === 'aplicacion' && (
               <p className="mt-2 text-[11px] text-foreground-muted">
-                La columna de la izquierda es una <strong>estimación</strong>: el nombre de aplicación no está en las
-                estadísticas acumuladas, así que sale de mirar cada cinco segundos quién está ejecutando qué y repartir
-                después el peso en esa proporción. Una consulta más corta que el intervalo puede no verse nunca, y por
-                eso las que no se observaron aparecen juntas como «no observado»
+                The left column is an <strong>estimate</strong>: the application name is not in the
+                cumulative statistics, so it comes from looking every five seconds at who is running what and then
+                distributing weight in that proportion. A query shorter than the interval may never be seen, and
+                that is why unobserved ones are grouped as «not observed»
                 {flow.weightAttributed > 0
-                  ? `, que hoy es ${formatPct(100 - (flow.weightWithActor / flow.weightAttributed) * 100, 0)} del peso atribuido.`
+                  ? `, which today is ${formatPct(100 - (flow.weightWithActor / flow.weightAttributed) * 100, 0)} of attributed weight.`
                   : '.'}{' '}
-                El rol, en cambio, es exacto.
+                The role, by contrast, is exact.
               </p>
             )}
             <p className="mt-2 text-[11px] text-foreground-muted">
@@ -342,11 +342,11 @@ export default async function FlowPage({
           {/* ------------------------------------------------- por operación */}
           <section className="panel xl:col-span-1">
             <div className="panel-header">
-              <span className="panel-title">Qué clase de tráfico recibe cada tabla</span>
+              <span className="panel-title">What kind of traffic recibe cada tabla</span>
             </div>
             <div className="panel-body">
               {flow.tables.length === 0 ? (
-                <div className="empty">Sin tablas atribuidas en la ventana.</div>
+                <div className="empty">No attributed tables in the window.</div>
               ) : (
                 <OperationBars
                   rows={flow.tables.map((tabla) => ({
@@ -365,16 +365,16 @@ export default async function FlowPage({
             <div className="panel-header">
               <span className="panel-title">
                 {engine === 'postgres'
-                  ? 'Lo que dicen los contadores de PostgreSQL'
-                  : 'Contraste con los contadores del motor'}
+                  ? 'What PostgreSQL counters say'
+                  : 'Contrast with engine counters'}
               </span>
-              <span className="font-mono text-[10px] text-foreground-muted">ventana {window.label}</span>
+              <span className="font-mono text-[10px] text-foreground-muted">window {window.label}</span>
             </div>
             <div className="panel-body">
               {engine !== 'postgres' ? (
                 <div className="empty">
                   {engine === 'mariadb' ? 'MariaDB' : 'SQL Server'} no expone contadores de filas por tabla como
-                  los de <span className="font-mono">pg_stat_user_tables</span>, así que aquí no hay con qué
+                  those in <span className="font-mono">pg_stat_user_tables</span>, so there is nothing here to
                   contrastar: en este motor el diagrama es la única fuente y su atribución es aproximada.
                 </div>
               ) : counters.length === 0 ? (
@@ -392,7 +392,7 @@ export default async function FlowPage({
                         <th className="text-right">HOT</th>
                         <th className="text-right">Borradas</th>
                         <th className="text-right">Secuenciales</th>
-                        <th className="text-right">Por índice</th>
+                        <th className="text-right">By index</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -409,8 +409,8 @@ export default async function FlowPage({
                                 '·'
                               ) : (
                                 // Por debajo del 50 % de HOT, cada update está
-                                // reescribiendo índices: es la señal más directa
-                                // de que sobran índices en una tabla caliente.
+                                // reescribiendo indexs: es la señal más directa
+                                // de que sobran indexes en una tabla caliente.
                                 <span className={hotPct < 50 ? 'text-[var(--warning)]' : ''}>
                                   {hotPct.toFixed(0)}%
                                 </span>
@@ -431,7 +431,7 @@ export default async function FlowPage({
                   Estos números no dependen de haber entendido ninguna consulta. Si no cuadran con el diagrama,
                   ellos tienen razón: la atribución se pierde con triggers, cascadas de claves foráneas y consultas
                   que se cayeron de <span className="font-mono">pg_stat_statements</span>. La columna HOT es la
-                  proporción de actualizaciones que no tocaron ningún índice.
+                  share of updates that touched no index.
                 </p>
               )}
             </div>
@@ -441,7 +441,7 @@ export default async function FlowPage({
         {/* ----------------------------------------------------------- calor */}
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Cuándo se usa · {heatOption.label}</span>
+            <span className="panel-title">When it is used · {heatOption.label}</span>
             <div className="flex flex-wrap items-center gap-1">
               {HEAT_OPTIONS.map((opcion) => (
                 <Link
@@ -461,11 +461,11 @@ export default async function FlowPage({
                   className={`tag ${opcion === heatAgg ? 'tag--info' : 'tag--muted'}`}
                   title={
                     opcion === 'avg'
-                      ? 'cómo es una hora típica'
-                      : 'qué tan mal se puso alguna vez a esa hora'
+                      ? 'what a typical hour looks like'
+                      : 'how bad it ever got at that hour'
                   }
                 >
-                  {opcion === 'avg' ? 'típico' : 'peor caso'}
+                  {opcion === 'avg' ? 'typical' : 'worst case'}
                 </Link>
               ))}
               <span className="mx-1 text-foreground-muted">·</span>
@@ -484,7 +484,7 @@ export default async function FlowPage({
           <div className="panel-body">
             {heat.cells.length === 0 ? (
               <div className="empty">
-                Sin rollups horarios todavía para {heatOption.label.toLowerCase()}. El primero aparece a la hora de
+                No hourly rollups yet for {heatOption.label.toLowerCase()}. The first appears at the hour of
                 arrancar el colector.
               </div>
             ) : (
@@ -505,7 +505,7 @@ export default async function FlowPage({
                             {WEEKDAY_LABEL[tranquila.weekday]} a las{' '}
                             {String(tranquila.hour).padStart(2, '0')}:00
                           </strong>{' '}
-                          con {formatoCalor(tranquila.value)}: ahí va la ventana de mantenimiento
+                          con {formatoCalor(tranquila.value)}: ahí va la window de mantenimiento
                         </>
                       )}
                       .
@@ -514,10 +514,10 @@ export default async function FlowPage({
                 </p>
                 <p className="mt-1 text-[11px] text-foreground-muted">
                   {heat.daysCovered < 14
-                    ? `Sólo hay ${Math.round(heat.daysCovered)} día${Math.round(heat.daysCovered) === 1 ? '' : 's'} de historia: la rejilla todavía no distingue un martes de un jueves. Con dos semanas empieza a significar algo, y ${heat.emptyCells} celda${heat.emptyCells === 1 ? '' : 's'} siguen sin dato.`
-                    : `${Math.round(heat.daysCovered)} días de historia. Las celdas rayadas no tienen dato y las pálidas se midieron una sola vez.`}{' '}
-                  El color es relativo a esta rejilla, así que no compara entre instancias. La hora es la del
-                  operador, no la del store.
+                    ? `Only ${Math.round(heat.daysCovered)} day${Math.round(heat.daysCovered) === 1 ? '' : 's'} of history: the grid does not yet distinguish Tuesday from Thursday. With two weeks it starts to mean something, and ${heat.emptyCells} cell${heat.emptyCells === 1 ? '' : 's'} still have no data.`
+                    : `${Math.round(heat.daysCovered)} days of history. Hatched cells have no data; pale ones were measured only once.`}{' '}
+                  Color is relative to this grid, so it does not compare across instances. The hour is the
+                  operator's, not the store's.
                 </p>
               </>
             )}

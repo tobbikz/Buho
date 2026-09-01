@@ -32,7 +32,7 @@ export default async function InstanceInventoryPage({ params }: { params: Promis
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: id }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -45,15 +45,15 @@ export default async function InstanceInventoryPage({ params }: { params: Promis
   return (
     <>
       <Topbar
-        crumbs={[{ label: 'Flota', href: '/' }, { label: instance.alias, href: `/instances/${instanceId}` }, { label: 'Inventario' }]}
+        crumbs={[{ label: 'Fleet', href: '/' }, { label: instance.alias, href: `/instances/${instanceId}` }, { label: 'Inventory' }]}
       />
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Inventario</h1>
+            <h1 className="page-title">Inventory</h1>
             <p className="page-sub">
               {instance.host}:{instance.port} · {ENGINE_LABEL[motor] ?? motor}
-              {inventory.engine?.capturedAt ? ` · leído ${formatAgo(inventory.engine.capturedAt)}` : ''}
+              {inventory.engine?.capturedAt ? ` · read ${formatAgo(inventory.engine.capturedAt)}` : ''}
             </p>
           </div>
           <span className="tag tag--info">{ENGINE_LABEL[motor] ?? motor}</span>

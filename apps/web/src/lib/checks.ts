@@ -1,7 +1,7 @@
 import { query } from './db';
 
 /**
- * Hallazgos de los 22 chequeos, vistos de toda la flota a la vez.
+ * Findings de los 22 chequeos, vistos de toda la flota a la vez.
  *
  * Instancia por instancia la pregunta es "¿cómo está este servidor?". A nivel de
  * flota es otra: "¿qué arreglo primero?". Con veinte instancias, un `warning`
@@ -44,7 +44,7 @@ export interface FleetCheckTotals {
   instancesAffected: number;
   instancesClean: number;
   instancesReporting: number;
-  /** Instancias que nunca reportaron un chequeo: un hueco, no un aprobado. */
+  /** Instancias que never reportaron un chequeo: un hueco, no un aprobado. */
   instancesSilent: number;
   worstScore: number | null;
   lastRunAt: Date | null;
@@ -132,7 +132,7 @@ export async function getFleetChecks(
 
   // Severidad primero, y dentro de la misma severidad, cuántas instancias
   // afecta: un problema repetido en la plataforma se arregla una vez y baja
-  // veinte hallazgos.
+  // veinte findings.
   return result.sort(
     (a, b) =>
       SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] ||

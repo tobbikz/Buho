@@ -50,27 +50,27 @@ export default async function BackupsPage() {
     <div className="flex flex-col gap-[0.875rem]">
       <div className="stat-grid">
         <StatCard
-          label="Sin respaldo verificable"
+          label="No verifiable backup"
           value={String(never.length)}
-          hint="nunca respaldadas o sin cadena de recuperación"
+          hint="never backed up or without a recovery chain"
           tone={never.length > 0 ? 'error' : 'ok'}
         />
         <StatCard
-          label="Respaldo atrasado"
+          label="Overdue backup"
           value={String(stale.length)}
-          hint="más viejo que su ventana tolerable"
+          hint="older than its tolerance window"
           tone={stale.length > 0 ? 'warn' : 'ok'}
         />
         <StatCard
           label="Bases cubiertas"
           value={`${protectedDbs.size} de ${allDbs.size}`}
-          hint="con al menos un respaldo dentro de ventana"
+          hint="with at least one backup inside the window"
           tone={protectedDbs.size === allDbs.size && allDbs.size > 0 ? 'ok' : 'warn'}
         />
         <StatCard
-          label="No verificable"
+          label="Not verifiable"
           value={String(unknown.length)}
-          hint="el motor no lleva catálogo de respaldos"
+          hint="the engine has no backup catalog"
           tone={unknown.length > 0 ? 'neutral' : 'ok'}
         />
       </div>
@@ -79,25 +79,25 @@ export default async function BackupsPage() {
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Estado de respaldos por base</span>
+          <span className="panel-title">Backup state by database</span>
           <span className="font-mono text-[10px] text-foreground-muted">
             completo ≤ 7 d · diferencial ≤ 24 h · log ≤ 4 h
           </span>
         </div>
         {rows.length === 0 ? (
-          <div className="empty">Ninguna instancia reportó respaldos todavía.</div>
+          <div className="empty">No instance has reported backups yet.</div>
         ) : (
           <div className="table-scroll" style={{ maxHeight: 'none' }}>
             <table className="data-table">
               <thead>
                 <tr>
                   <th>Instancia</th>
-                  <th>Motor</th>
-                  <th>Base</th>
+                  <th>Engine</th>
+                  <th>Database</th>
                   <th>Tipo</th>
-                  <th>Último</th>
-                  <th className="text-right">Antigüedad</th>
-                  <th className="text-right">Tamaño</th>
+                  <th>Last</th>
+                  <th className="text-right">Age</th>
+                  <th className="text-right">Size</th>
                   <th>Origen</th>
                   <th>Modelo</th>
                 </tr>
@@ -124,10 +124,10 @@ export default async function BackupsPage() {
                           {row.finishedAt
                             ? formatAgo(row.finishedAt)
                             : row.detail['archive_mode'] === 'off'
-                              ? 'sin archivado'
+                              ? 'no archiving'
                               : state === 'sin_recuperacion'
-                                ? 'nunca'
-                                : 'no verificable'}
+                                ? 'never'
+                                : 'not verifiable'}
                         </span>
                       </td>
                       <td className="num">{age === null ? '·' : `${age.toFixed(1)} h`}</td>

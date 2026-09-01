@@ -6,7 +6,7 @@ import { seriesSource } from './queries';
 /**
  * Misma serie que `getSeries`, pero en un intervalo absoluto.
  *
- * Sirve para comparar dos momentos: se pide la ventana de ahora y la de hace
+ * Sirve para comparar dos momentos: se pide la window de ahora y la de hace
  * N horas, se desplaza la antigua al eje de la nueva, y el ojo ve "antes vs.
  * después" sin tener que memorizar dos pantallas.
  */
@@ -99,9 +99,9 @@ export function mergeCompare(
 }
 
 export const COMPARE_OFFSETS = [
-  { key: '0', label: 'sin comparar', hours: 0 },
-  { key: '1h', label: 'vs hace 1 h', hours: 1 },
-  { key: '6h', label: 'vs hace 6 h', hours: 6 },
-  { key: '24h', label: 'vs hace 24 h', hours: 24 },
-  { key: '7d', label: 'vs hace 7 d', hours: 168 },
+  { key: '0', label: 'no compare', hours: 0 },
+  { key: '1h', label: 'vs 1 h ago', hours: 1 },
+  { key: '6h', label: 'vs 6 h ago', hours: 6 },
+  { key: '24h', label: 'vs 24 h ago', hours: 24 },
+  { key: '7d', label: 'vs 7 d ago', hours: 168 },
 ] as const;

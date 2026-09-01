@@ -20,11 +20,11 @@ export default async function EstateLayout({ children }: { children: React.React
 
   return (
     <>
-      <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: 'Parque' }]} />
+      <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: 'Estate' }]} />
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Parque</h1>
+            <h1 className="page-title">Estate</h1>
             <p className="page-sub">
               Inventario de todo el parque: respaldos, disco, tareas, replicación, configuración, licencias y
               versiones. Se lee una vez por hora, porque estas cosas cambian de mes en mes.

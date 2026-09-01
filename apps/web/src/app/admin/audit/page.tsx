@@ -5,10 +5,10 @@ import { listConsoleEvents, type ConsoleEvent } from '@/lib/users';
 export const dynamic = 'force-dynamic';
 
 /**
- * Bitácora de la consola: quién cambió qué.
+ * Console audit log: who cambió qué.
  *
  * Separada de los eventos del colector, que son del proceso de recolección.
- * Estos son de personas, y sin ellos "¿quién bajó la retención a 2 días?" no
+ * Estos son de personas, y sin ellos "¿who bajó la retención a 2 días?" no
  * tiene respuesta.
  */
 export default async function AuditPage() {
@@ -22,8 +22,8 @@ export default async function AuditPage() {
   return (
     <section className="panel">
       <div className="panel-header">
-        <span className="panel-title">Bitácora de la consola</span>
-        <span className="text-[11px] text-foreground-muted">últimos {events.length} registros</span>
+        <span className="panel-title">Console audit log</span>
+        <span className="text-[11px] text-foreground-muted">latest {events.length} events</span>
       </div>
       {events.length === 0 ? (
         <div className="empty">
@@ -34,10 +34,10 @@ export default async function AuditPage() {
         <table className="data-table">
           <thead>
             <tr>
-              <th style={{ width: '8rem' }}>Cuándo</th>
-              <th style={{ width: '11rem' }}>Usuario</th>
-              <th style={{ width: '13rem' }}>Acción</th>
-              <th>Detalle</th>
+              <th style={{ width: '8rem' }}>When</th>
+              <th style={{ width: '11rem' }}>Username</th>
+              <th style={{ width: '13rem' }}>Action</th>
+              <th>Detail</th>
             </tr>
           </thead>
           <tbody>
@@ -50,7 +50,7 @@ export default async function AuditPage() {
                     className={`tag ${
                       event.action.includes('borrada') || event.action.includes('rechazado')
                         ? 'tag--error'
-                        : event.action.includes('descubrimiento') || event.action.includes('retención')
+                        : event.action.includes('discovery') || event.action.includes('retención')
                           ? 'tag--warn'
                           : 'tag--muted'
                     }`}

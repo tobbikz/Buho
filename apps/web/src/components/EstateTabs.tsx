@@ -11,12 +11,12 @@ import { usePathname } from 'next/navigation';
  */
 const TABS = [
   { href: '/estate', label: 'Backups' },
-  { href: '/estate/disk', label: 'Disco' },
+  { href: '/estate/disk', label: 'Disk' },
   { href: '/estate/jobs', label: 'Jobs' },
-  { href: '/estate/replication', label: 'Replicación' },
-  { href: '/estate/configuration', label: 'Configuración' },
-  { href: '/estate/licensing', label: 'Licencias' },
-  { href: '/estate/versions', label: 'Versiones' },
+  { href: '/estate/replication', label: 'Replication' },
+  { href: '/estate/configuration', label: 'Configuration' },
+  { href: '/estate/licensing', label: 'Licensing' },
+  { href: '/estate/versions', label: 'Versions' },
 ];
 
 export function EstateTabs({ counters = {} }: { counters?: Record<string, number> }) {

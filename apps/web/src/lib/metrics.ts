@@ -6,7 +6,7 @@ import type { Unit } from '@/components/TimeseriesPanel';
  * El store guarda 93 series distintas por instancia. Un selector con 93 nombres
  * crudos tipo `db_tup_hot_updated_per_sec` no es un selector, es un examen. Acá
  * cada métrica recibe familia, nombre legible y **unidad**, que es el dato que
- * evita el error clásico de graficar sesiones y segundos en el mismo eje.
+ * evita el error clásico de graficar sessions y segundos en el mismo eje.
  *
  * La unidad y la familia se derivan del nombre por convención (`_pct`,
  * `_per_sec`, `_bytes`, `_seconds`) y sólo se listan a mano las excepciones. Así
@@ -20,7 +20,7 @@ export interface MetricMeta {
   unit: Unit;
   /** Etiquetas por las que se puede desglosar, en orden de utilidad. */
   labelKeys: string[];
-  /** Agregación por defecto entre etiquetas: los ratios nunca se suman. */
+  /** Agregación por defecto entre etiquetas: los ratios never se suman. */
   defaultAgg: 'sum' | 'avg' | 'min' | 'max';
   /** true = acumulado desde el arranque; casi siempre se quiere la tasa. */
   cumulative: boolean;
@@ -28,111 +28,111 @@ export interface MetricMeta {
 
 const FAMILIES: { prefix: string; family: string; labelKeys: string[] }[] = [
   { prefix: 'host_', family: 'Host', labelKeys: ['mount'] },
-  { prefix: 'connections_', family: 'Conexiones', labelKeys: [] },
+  { prefix: 'connections_', family: 'Connections', labelKeys: [] },
   { prefix: 'mongo_', family: 'MongoDB', labelKeys: ['database'] },
-  { prefix: 'db_', family: 'Base de datos', labelKeys: ['database'] },
-  { prefix: 'database_', family: 'Base de datos', labelKeys: ['database'] },
-  { prefix: 'xid_', family: 'Base de datos', labelKeys: ['database'] },
+  { prefix: 'db_', family: 'Database', labelKeys: ['database'] },
+  { prefix: 'database_', family: 'Database', labelKeys: ['database'] },
+  { prefix: 'xid_', family: 'Database', labelKeys: ['database'] },
   { prefix: 'wal_', family: 'WAL', labelKeys: [] },
   { prefix: 'checkpoint_', family: 'Checkpoints', labelKeys: [] },
   { prefix: 'io_', family: 'I/O', labelKeys: ['backend_type', 'context', 'object'] },
-  { prefix: 'table_', family: 'Tablas', labelKeys: ['schema', 'table'] },
-  { prefix: 'wait_event_', family: 'Esperas', labelKeys: ['wait_event_type', 'wait_event'] },
-  { prefix: 'replication_', family: 'Replicación', labelKeys: [] },
+  { prefix: 'table_', family: 'Tables', labelKeys: ['schema', 'table'] },
+  { prefix: 'wait_event_', family: 'Waits', labelKeys: ['wait_event_type', 'wait_event'] },
+  { prefix: 'replication_', family: 'Replication', labelKeys: [] },
 ];
 
 /** Nombres que la convención no puede adivinar bien. */
 const LABELS: Record<string, string> = {
-  blocked_sessions: 'Sesiones bloqueadas',
-  max_blocked_seconds: 'Espera máxima por bloqueo',
-  oldest_xact_seconds: 'Transacción abierta más vieja',
-  longest_active_query_seconds: 'Consulta activa más larga',
-  longest_idle_in_tx_seconds: 'Idle in transaction más largo',
-  probe_latency_ms: 'Latencia del sondeo',
+  blocked_sessions: 'Blocked sessions',
+  max_blocked_seconds: 'Max lock wait',
+  oldest_xact_seconds: 'Oldest open transaction',
+  longest_active_query_seconds: 'Longest active query',
+  longest_idle_in_tx_seconds: 'Longest idle in transaction',
+  probe_latency_ms: 'Probe latency',
   uptime_seconds: 'Uptime',
-  connections_used_pct: 'Conexiones usadas',
+  connections_used_pct: 'Connections used',
   connections_max: 'max_connections',
-  connections_total: 'Conexiones totales',
-  connections_active: 'Conexiones activas',
-  connections_idle: 'Conexiones inactivas (idle)',
-  connections_idle_in_transaction: 'Conexiones idle in transaction',
-  connections_idle_in_transaction_aborted: 'Conexiones idle in transaction (abortadas)',
+  connections_total: 'Total connections',
+  connections_active: 'Active connections',
+  connections_idle: 'Idle connections',
+  connections_idle_in_transaction: 'Idle-in-transaction connections',
+  connections_idle_in_transaction_aborted: 'Idle-in-transaction connections (aborted)',
   db_cache_hit_pct: 'Cache hit',
-  db_backends: 'Sesiones conectadas',
-  db_conflicts: 'Conflictos de recuperación',
+  db_backends: 'Connected sessions',
+  db_conflicts: 'Recovery conflicts',
   db_deadlocks: 'Deadlocks',
-  db_tup_inserted: 'Tuplas insertadas',
-  db_tup_updated: 'Tuplas modificadas',
-  db_tup_deleted: 'Tuplas borradas',
-  db_blks_hit: 'Bloques desde caché',
-  db_blks_read: 'Bloques leídos de disco',
-  db_tup_returned: 'Tuplas devueltas por scans',
-  db_tup_fetched: 'Tuplas obtenidas',
+  db_tup_inserted: 'Tuples inserted',
+  db_tup_updated: 'Tuples updated',
+  db_tup_deleted: 'Tuples deleted',
+  db_blks_hit: 'Blocks from cache',
+  db_blks_read: 'Blocks read from disk',
+  db_tup_returned: 'Tuples returned by scans',
+  db_tup_fetched: 'Tuples fetched',
   db_xact_commit: 'Commits',
   db_xact_rollback: 'Rollbacks',
-  db_temp_bytes: 'Bytes en archivos temporales',
-  db_temp_files: 'Archivos temporales',
-  database_size_bytes: 'Tamaño de la base',
+  db_temp_bytes: 'Temp file bytes',
+  db_temp_files: 'Temp files',
+  database_size_bytes: 'Database size',
   mongo_op_insert: 'Ops insert',
   mongo_op_query: 'Ops query',
   mongo_op_update: 'Ops update',
   mongo_op_delete: 'Ops delete',
   mongo_op_getmore: 'Ops getmore',
   mongo_op_command: 'Ops command',
-  mongo_mem_resident_mb: 'RAM residente (MB)',
-  mongo_mem_virtual_mb: 'RAM virtual (MB)',
-  mongo_cursors_open: 'Cursores abiertos',
-  mongo_net_in_bytes: 'Red entrante',
-  mongo_net_out_bytes: 'Red saliente',
-  mongo_data_size_bytes: 'Datos Mongo',
-  mongo_index_size_bytes: 'Índices Mongo',
-  mongo_collections: 'Colecciones',
-  mongo_objects: 'Documentos',
-  mongo_repl_members: 'Miembros del replica set',
-  mongo_repl_state: 'Estado de réplica',
-  xid_age: 'Edad del XID',
-  xid_age_pct: 'Edad del XID sobre el límite',
-  wal_bytes: 'WAL generado',
+  mongo_mem_resident_mb: 'Resident RAM (MB)',
+  mongo_mem_virtual_mb: 'Virtual RAM (MB)',
+  mongo_cursors_open: 'Open cursors',
+  mongo_net_in_bytes: 'Network in',
+  mongo_net_out_bytes: 'Network out',
+  mongo_data_size_bytes: 'Mongo data',
+  mongo_index_size_bytes: 'Mongo indexes',
+  mongo_collections: 'Collections',
+  mongo_objects: 'Documents',
+  mongo_repl_members: 'Replica set members',
+  mongo_repl_state: 'Replica state',
+  xid_age: 'XID age',
+  xid_age_pct: 'XID age vs limit',
+  wal_bytes: 'WAL generated',
   wal_fpi: 'Full page images',
-  wal_buffers_full: 'Buffers de WAL llenos',
-  wal_records: 'Registros de WAL',
-  checkpoint_num_timed: 'Checkpoints programados',
-  checkpoint_num_requested: 'Checkpoints forzados',
-  checkpoint_buffers_written: 'Buffers escritos por checkpoint',
-  checkpoint_write_time: 'Tiempo de escritura de checkpoint',
-  checkpoint_sync_time: 'Tiempo de sync de checkpoint',
-  table_dead_pct: 'Tuplas muertas (%)',
-  table_dead_tuples: 'Tuplas muertas',
-  table_live_tuples: 'Tuplas vivas',
-  table_total_bytes: 'Tamaño total de tabla',
-  table_index_bytes: 'Tamaño de índices',
-  table_seconds_since_vacuum: 'Tiempo desde el último vacuum',
-  wait_event_sessions: 'Sesiones esperando',
-  replication_slots_total: 'Slots de replicación',
-  replication_standbys: 'Standbys conectados',
-  host_cpu_pct: 'CPU del host',
-  host_cpu_iowait_pct: 'CPU esperando I/O',
-  host_cpu_steal_pct: 'CPU robada por el hipervisor',
-  host_mem_used_pct: 'Memoria usada',
-  host_mem_available_bytes: 'Memoria disponible',
-  host_mem_total_bytes: 'Memoria total',
-  host_swap_used_pct: 'Swap usado',
-  host_load1_per_core: 'Carga por núcleo',
-  host_cores: 'Núcleos',
-  host_disk_used_pct: 'Disco usado',
-  host_disk_free_bytes: 'Disco libre',
-  io_hits: 'Aciertos de caché de I/O',
-  io_reads: 'Lecturas',
-  io_writes: 'Escrituras',
+  wal_buffers_full: 'WAL buffers full',
+  wal_records: 'WAL records',
+  checkpoint_num_timed: 'Timed checkpoints',
+  checkpoint_num_requested: 'Requested checkpoints',
+  checkpoint_buffers_written: 'Buffers written by checkpoint',
+  checkpoint_write_time: 'Checkpoint write time',
+  checkpoint_sync_time: 'Checkpoint sync time',
+  table_dead_pct: 'Dead tuples (%)',
+  table_dead_tuples: 'Dead tuples',
+  table_live_tuples: 'Live tuples',
+  table_total_bytes: 'Total table size',
+  table_index_bytes: 'Index size',
+  table_seconds_since_vacuum: 'Time since last vacuum',
+  wait_event_sessions: 'Waiting sessions',
+  replication_slots_total: 'Replication slots',
+  replication_standbys: 'Connected standbys',
+  host_cpu_pct: 'Host CPU',
+  host_cpu_iowait_pct: 'CPU waiting on I/O',
+  host_cpu_steal_pct: 'CPU stolen by hypervisor',
+  host_mem_used_pct: 'Memory used',
+  host_mem_available_bytes: 'Memory available',
+  host_mem_total_bytes: 'Total memory',
+  host_swap_used_pct: 'Swap used',
+  host_load1_per_core: 'Load per core',
+  host_cores: 'Cores',
+  host_disk_used_pct: 'Disk used',
+  host_disk_free_bytes: 'Disk free',
+  io_hits: 'I/O cache hits',
+  io_reads: 'Reads',
+  io_writes: 'Writes',
   io_evictions: 'Evictions',
   io_fsyncs: 'fsyncs',
 };
 
 const WORDS: Record<string, string> = {
-  tup: 'tuplas',
-  xact: 'transacciones',
-  blks: 'bloques',
-  db: 'base',
+  tup: 'tuples',
+  xact: 'transactions',
+  blks: 'blocks',
+  db: 'database',
   io: 'I/O',
   wal: 'WAL',
   fpi: 'full page images',
@@ -157,7 +157,7 @@ function labelFor(metric: string): string {
 
   if (metric.endsWith('_per_sec')) {
     const base = metric.slice(0, -'_per_sec'.length);
-    return `${LABELS[base] ?? humanize(base)} por segundo`;
+    return `${LABELS[base] ?? humanize(base)} per second`;
   }
   return humanize(metric);
 }
@@ -175,10 +175,10 @@ function unitOf(metric: string): Unit {
 }
 
 /**
- * Ratios donde **más es mejor**. La distinción importa: el peor caso de un
- * porcentaje no es siempre el mínimo. Con 99 % y 80 % de cache hit en dos bases,
- * el peor caso es 80 (el mínimo); con 5 % y 40 % de tuplas muertas, es 40 (el
- * máximo). Tratar a todos los porcentajes igual esconde justo el problema que se
+ * Ratios donde **más es mejor**. La distinción importa: el worst case de un
+ * porcentaje no es siempre el min. Con 99 % y 80 % de cache hit en dos bases,
+ * el worst case es 80 (el min); con 5 % y 40 % de tuplas muertas, es 40 (el
+ * max). Tratar a todos los porcentajes igual esconde justo el problema que se
  * está buscando.
  */
 const HIGHER_IS_BETTER = new Set(['db_cache_hit_pct']);
@@ -186,7 +186,7 @@ const HIGHER_IS_BETTER = new Set(['db_cache_hit_pct']);
 function defaultAggFor(metric: string, unit: Unit): MetricMeta['defaultAgg'] {
   // Sumar porcentajes entre etiquetas da 397 %: el error ya ocurrió una vez.
   if (unit === 'pct') return HIGHER_IS_BETTER.has(metric) ? 'min' : 'max';
-  // Edades y esperas: la suma no significa nada, el máximo es el síntoma.
+  // Edades y esperas: la suma no significa nada, el max es el síntoma.
   if (unit === 'seconds' || metric.startsWith('xid_age') || metric.endsWith('_ms')) return 'max';
   return 'sum';
 }
@@ -199,7 +199,7 @@ export function describeMetric(metric: string, labelKeys: string[] = []): Metric
   return {
     metric,
     label: labelFor(metric),
-    family: match?.family ?? 'Actividad',
+    family: match?.family ?? 'Activity',
     unit,
     // Se prefieren las etiquetas que existen de verdad en el store; el catálogo
     // sólo aporta el orden.
@@ -254,15 +254,15 @@ for (const base of [
 
 export const FAMILY_ORDER = [
   'Host',
-  'Conexiones',
-  'Actividad',
-  'Base de datos',
+  'Connections',
+  'Activity',
+  'Database',
   'WAL',
   'Checkpoints',
   'I/O',
-  'Tablas',
-  'Esperas',
-  'Replicación',
+  'Tables',
+  'Waits',
+  'Replication',
 ];
 
 /** Punto de partida cuando se entra sin métricas elegidas. */

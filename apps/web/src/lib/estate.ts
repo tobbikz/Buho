@@ -107,7 +107,7 @@ export async function getEngineVersions(): Promise<EngineRow[]> {
 
   return rows.map((row) => ({
     ...base(row),
-    versionText: String(row['version_text'] ?? 'sin inventariar'),
+    versionText: String(row['version_text'] ?? 'not inventoried'),
     versionNum: num(row['version_num']),
     edition: (row['edition'] as string | null) ?? null,
     productLevel: (row['product_level'] as string | null) ?? null,
@@ -151,7 +151,7 @@ export async function getBackups(): Promise<BackupRow[]> {
     source: String(row['source'] ?? ''),
     detail: (row['detail'] as Record<string, unknown>) ?? {},
   })).sort((a, b) => {
-    // Lo más viejo (y lo que nunca ocurrió) primero: es el orden en el que
+    // Lo más viejo (y lo que never ocurrió) primero: es el orden en el que
     // alguien quiere leer una lista de respaldos.
     const left = a.finishedAt?.getTime() ?? 0;
     const right = b.finishedAt?.getTime() ?? 0;
@@ -163,7 +163,7 @@ export async function getBackups(): Promise<BackupRow[]> {
  * Ventana tolerable por tipo de respaldo, en horas.
  *
  * No son umbrales configurables todavía, y el valor está en que sean
- * explícitos: un log de transacciones de hace un día significa que se puede
+ * explícitos: un log de transactions de hace un día significa que se puede
  * perder un día de trabajo, y eso no depende de la opinión de nadie.
  */
 export const BACKUP_STALE_HOURS: Record<string, number> = {
@@ -177,8 +177,8 @@ export const BACKUP_STALE_HOURS: Record<string, number> = {
  * Tres estados distintos que es tentador confundir en uno:
  *
  * - `sin_recuperacion`: el servidor **no puede** recuperarse. Un catálogo real
- *   que dice "nunca respaldada", o el archivado de WAL apagado.
- * - `atrasado`: hay respaldo, pero más viejo que su ventana tolerable.
+ *   que dice "never respaldada", o el archivado de WAL apagado.
+ * - `atrasado`: hay respaldo, pero older than its tolerance window.
  * - `no_verificable`: el motor no lleva catálogo, así que Búho no lo sabe. No
  *   es un fallo del servidor y contarlo como tal sería mentir en la dirección
  *   contraria: alarmar por algo que quizá está perfecto.
@@ -199,7 +199,7 @@ export function backupState(row: BackupRow): BackupState {
 
   const age = backupAgeHours(row);
   if (age === null) {
-    // msdb es un catálogo real: sin fecha significa que nunca ocurrió.
+    // msdb es un catálogo real: sin fecha significa que never ocurrió.
     return row.source === 'msdb' ? 'sin_recuperacion' : 'no_verificable';
   }
 

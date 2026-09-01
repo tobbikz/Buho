@@ -778,6 +778,15 @@ Cinco piezas pensadas para el DBA que vende diagnóstico, no dashboards:
 5. **MongoDB** — motor nuevo: `serverStatus` / `dbStats`, inventario del parque,
    resumen e Análisis. Sin profiler ni bloqueos todavía (se dice en pantalla).
 
+
+## English UI and Add database (v0.4.1)
+
+- Console copy is English (Búho brand kept).
+- **Add database** on the fleet page (Admin → Databases) writes `buho.monitor_targets`. The collector picks new targets every ~30s without a restart. `config.json` still works and wins on alias clash.
+
+After pull: `BUHO_STORE_URL=... npm run migrate`
+
+
 ## Atribución por aplicación (v0.2)
 
 La primera columna del diagrama de flujo puede ser el **rol** o la

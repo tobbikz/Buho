@@ -67,13 +67,13 @@ export default async function DiscoveryPage({
       <div className="stat-grid">
         <StatCard label="Encontradas" value={String(rows.length)} hint="host:puerto vistos alguna vez" />
         <StatCard
-          label="Sin monitorear"
+          label="Not monitored"
           value={String(unmonitored.length)}
-          hint="motor identificado, fuera del config"
+          hint="engine identified, not in config"
           tone={unmonitored.length > 0 ? 'warn' : 'ok'}
         />
         <StatCard
-          label="Sin responder hace 7 días"
+          label="No response for 7 days"
           value={String(gone.length)}
           hint="apagadas, movidas o cambiadas de puerto"
           tone={gone.length > 0 ? 'warn' : 'ok'}
@@ -112,7 +112,7 @@ export default async function DiscoveryPage({
               permitir direcciones públicas
             </label>
             <button type="submit" className="btn btn--primary">
-              Escanear
+              Scan
             </button>
           </div>
 
@@ -122,7 +122,7 @@ export default async function DiscoveryPage({
           <p className="text-[11.5px] text-foreground-muted">
             No se envían credenciales ni se intenta iniciar sesión: Búho lee el saludo del protocolo y cierra la
             conexión. MariaDB y SQL Server entregan su versión así; PostgreSQL no la dice sin autenticar y queda en
-            blanco a propósito. El tope es de 1024 direcciones por escaneo y las redes públicas hay que habilitarlas
+            blank on purpose. Cap is 1024 addresses per scan and public networks must be enabled
             a mano.
           </p>
         </form>
@@ -131,21 +131,21 @@ export default async function DiscoveryPage({
       <section className="panel">
         <div className="panel-header">
           <span className="panel-title">Bases encontradas</span>
-          <span className="text-[11px] text-foreground-muted">las que no están en el config van primero</span>
+          <span className="text-[11px] text-foreground-muted">those not in config come first</span>
         </div>
         {rows.length === 0 ? (
-          <div className="empty">Sin escaneos todavía.</div>
+          <div className="empty">No scans yet.</div>
         ) : (
           <table className="data-table">
             <thead>
               <tr>
                 <th>Destino</th>
-                <th>Motor</th>
-                <th>Versión</th>
-                <th>Estado</th>
+                <th>Engine</th>
+                <th>Version</th>
+                <th>State</th>
                 <th className="text-right">Latencia</th>
                 <th>Visto por primera vez</th>
-                <th>Visto por última vez</th>
+                <th>Last seen</th>
                 <th>Nota</th>
               </tr>
             </thead>
@@ -161,7 +161,7 @@ export default async function DiscoveryPage({
                     </span>
                   </td>
                   <td className="font-mono text-[11px]">
-                    {row.versionText ?? <span className="text-foreground-muted">requiere credenciales</span>}
+                    {row.versionText ?? <span className="text-foreground-muted">requires credentials</span>}
                   </td>
                   <td>
                     {row.monitored ? (
@@ -190,7 +190,7 @@ export default async function DiscoveryPage({
                         ignorar
                       </label>
                       <button type="submit" className="btn">
-                        Guardar
+                        Save
                       </button>
                     </form>
                   </td>
@@ -203,10 +203,10 @@ export default async function DiscoveryPage({
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Qué hacer con lo encontrado</span>
+          <span className="panel-title">What to do with findings</span>
         </div>
         <div className="panel-body text-[12px] text-foreground-secondary">
-          El descubrimiento <strong>no agrega instancias al monitoreo</strong>: para eso hacen falta credenciales, y
+          El descubrimiento <strong>does not add instances to monitoring</strong>: para eso hacen falta credenciales, y
           pedirlas en un formulario web significaría guardarlas en la base del store. Las instancias se declaran en{' '}
           <span className="font-mono">config.json</span>, que es lo que se respalda y se versiona. Esta pantalla
           responde la otra pregunta, la que nadie puede contestar de memoria: qué bases hay en la red que nadie está

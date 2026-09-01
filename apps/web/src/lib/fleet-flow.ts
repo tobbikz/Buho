@@ -53,7 +53,7 @@ export interface FleetFlowResult {
  *
  * Se toman todas las registradas y no sólo las que tienen muestras recientes:
  * una instancia caída debe aparecer como silenciosa y explicada, no desaparecer
- * del informe como si nunca hubiera existido.
+ * del informe como si never hubiera existido.
  */
 async function fleetInstances(): Promise<{ instanceId: number; alias: string; engine: string }[]> {
   const rows = await query<{ instance_id: number; alias: string; engine: string }>(

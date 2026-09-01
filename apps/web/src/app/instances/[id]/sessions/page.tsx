@@ -70,7 +70,7 @@ export default async function SessionsPage({
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: 'Sesiones' }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: 'Sessions' }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -96,15 +96,15 @@ export default async function SessionsPage({
     <>
       <Topbar
         crumbs={[
-          { label: 'Flota', href: '/' },
+          { label: 'Fleet', href: '/' },
           { label: instancia.alias, href: `/instances/${instanceId}` },
-          { label: 'Sesiones' },
+          { label: 'Sessions' },
         ]}
       />
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Sesiones y esperas · {instancia.alias}</h1>
+            <h1 className="page-title">Sessions and waits · {instancia.alias}</h1>
             <p className="page-sub">
               En qué se va el tiempo del servidor —CPU, disco, bloqueos, red— y qué estaba corriendo en un momento
               concreto. Sale de una foto cada diez segundos (
@@ -113,7 +113,7 @@ export default async function SessionsPage({
                 : instancia.engine === 'mssql'
                   ? <span className="font-mono">dm_exec_requests</span>
                   : <span className="font-mono">pg_stat_activity</span>}
-              ), así que es <strong>muestreo</strong>: mide bien lo que dura y se pierde lo instantáneo.
+              ), so it is <strong>sampling</strong>: it measures what lasts and misses the instantaneous.
             </p>
           </div>
           <AutoRefresh intervalMs={30000} />
@@ -130,33 +130,33 @@ export default async function SessionsPage({
 
         <div className="stat-grid">
           <StatCard
-            label="Sesiones ocupadas"
+            label="Busy sessions"
             value={esperas.averageBusy.toFixed(1)}
-            hint="promedio a la vez en la ventana"
+            hint="average concurrent in the window"
             tone="accent"
           />
           <StatCard
             label="Trabajando (CPU)"
             value={cpu ? formatPct(cpu.share * 100, 0) : '·'}
-            hint="del tiempo de sesión, sin esperar nada"
+            hint="of session time, not waiting"
           />
           <StatCard
-            label="Esperando bloqueos"
+            label="Waiting on locks"
             value={formatPct(bloqueos * 100, 0)}
-            hint="esto no se arregla con hardware"
+            hint="hardware will not fix this"
             tone={bloqueos > 0.15 ? 'error' : bloqueos > 0.05 ? 'warn' : 'neutral'}
           />
           <StatCard
-            label="Esperando disco"
+            label="Waiting on disk"
             value={formatPct(disco * 100, 0)}
-            hint="falta caché o el almacenamiento no da más"
+            hint="cache is short or storage cannot keep up"
             tone={disco > 0.4 ? 'warn' : 'neutral'}
           />
         </div>
 
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Perfil de espera en el tiempo</span>
+            <span className="panel-title">Wait profile over time</span>
             <div className="flex items-center gap-1">
               {WINDOWS.map((opcion) => (
                 <Link
@@ -176,20 +176,20 @@ export default async function SessionsPage({
                 byType: cubo.byType,
                 total: cubo.total,
               }))}
-              emptyMessage="Todavía no hay fotos de sesiones en esta ventana. El muestreo escribe cada diez segundos; si la instancia acaba de agregarse, esperá un minuto."
+              emptyMessage="No session samples in this window yet. Sampling writes every ten seconds; if the instance was just added, wait a minute."
             />
             <p className="mt-2 text-[11px] text-foreground-muted">
-              La altura son <strong>sesiones a la vez</strong>, no esperas sumadas: así se puede comparar contra el
-              número de núcleos del servidor. Si la barra verde supera los núcleos, el cuello es CPU; si crece la roja,
-              son transacciones que se pisan y no hay hardware que lo arregle.
+              Height is <strong>sessions at once</strong>, not summed waits: so you can compare against
+              número de cores del servidor. Si la barra verde supera los cores, el cuello es CPU; si crece la roja,
+              son transactions que se pisan y no hay hardware que lo arregle.
             </p>
           </div>
         </section>
 
         <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
           <LabeledBars
-            title="En qué se espera"
-            footer={`${formatNumber(esperas.samples)} fotos`}
+            title="Where waits go"
+            footer={`${formatNumber(esperas.samples)} samples`}
             rows={esperas.waits.map((espera) => ({
               label: espera.waitEvent ? `${espera.waitType} · ${espera.waitEvent}` : espera.waitType,
               sub: WAIT_TYPE_HELP[espera.waitType],
@@ -204,21 +204,21 @@ export default async function SessionsPage({
                       ? 'accent'
                       : undefined,
             }))}
-            emptyMessage="Sin esperas registradas: o no hay actividad, o el muestreo todavía no arrancó."
+            emptyMessage="No waits recorded: either there is no activity, or sampling has not started yet."
           />
 
           <section className="panel">
             <div className="panel-header">
-              <span className="panel-title">Momentos que vale la pena mirar</span>
+              <span className="panel-title">Moments worth looking at</span>
             </div>
             <div className="panel-body">
               {/* Se ofrecen en vez de pedir una hora a ciegas: quien abre esto
-                  después de un incidente no siempre sabe la hora exacta, pero sí
+                  after an incident does not always know the exact hour, but does
                   reconoce el momento cuando lo ve descrito. */}
               {momentos.length === 0 ? (
                 <div className="empty">
-                  Nada llamativo en la ventana. Sólo se guardan las sesiones que esperan un bloqueo, las que llevan más
-                  de un segundo corriendo y las transacciones de más de un minuto; si no hubo ninguna, esto queda vacío
+                  Nada llamativo en la window. Sólo se guardan las sessions que esperan un bloqueo, las que llevan más
+                  de un segundo corriendo y las transactions de más de un minuto; si no hubo ninguna, esto queda vacío
                   y es una buena noticia.
                 </div>
               ) : (
@@ -226,9 +226,9 @@ export default async function SessionsPage({
                   <thead>
                     <tr>
                       <th>Momento</th>
-                      <th className="text-right">Sesiones</th>
+                      <th className="text-right">Sessions</th>
                       <th className="text-right">Bloqueadas</th>
-                      <th className="text-right">La más larga</th>
+                      <th className="text-right">Longest</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -236,7 +236,7 @@ export default async function SessionsPage({
                       <tr key={entrada.ts.toISOString()}>
                         <td>
                           <Link href={enlace({ t: entrada.ts.toISOString() })} className="link">
-                            {entrada.ts.toLocaleString('es')}
+                            {entrada.ts.toLocaleString('en')}
                           </Link>
                         </td>
                         <td className="num">{entrada.sessions}</td>
@@ -260,7 +260,7 @@ export default async function SessionsPage({
         <section className="panel">
           <div className="panel-header">
             <span className="panel-title">
-              Qué estaba corriendo {foto.at ? `· ${foto.at.toLocaleString('es')}` : ''}
+              What was running {foto.at ? `· ${foto.at.toLocaleString('en')}` : ''}
             </span>
             {t && (
               <Link href={enlace({ t: new Date().toISOString() })} className="tag tag--muted">
@@ -271,9 +271,9 @@ export default async function SessionsPage({
           <div className="panel-body">
             {foto.sessions.length === 0 ? (
               <div className="empty">
-                No hay ninguna foto con sesiones guardadas cerca de ese instante. El detalle se guarda sólo cuando hay
-                algo que reconstruir —un bloqueo, una consulta de más de un segundo, una transacción larga—, así que un
-                servidor tranquilo no deja rastro aquí a propósito.
+                No session snapshot near that instant. Detail is kept only when there is
+                something to reconstruct — a lock, a query over one second, a long transaction — so a
+                quiet server leaves no trail here on purpose.
               </div>
             ) : (
               <div className="table-scroll" style={{ maxHeight: '30rem' }}>
@@ -281,13 +281,13 @@ export default async function SessionsPage({
                   <thead>
                     <tr>
                       <th>PID</th>
-                      <th>Estado</th>
-                      <th>Esperando</th>
-                      <th>Aplicación</th>
+                      <th>State</th>
+                      <th>Waiting</th>
+                      <th>Application</th>
                       <th>Rol</th>
-                      <th className="text-right">Consulta</th>
-                      <th className="text-right">Transacción</th>
-                      <th>Consulta</th>
+                      <th className="text-right">Query</th>
+                      <th className="text-right">Transaction</th>
+                      <th>Query</th>
                     </tr>
                   </thead>
                   <tbody>

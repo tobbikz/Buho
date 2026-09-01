@@ -14,10 +14,10 @@ import type { SuggestionKind } from '@buho/core';
 export const dynamic = 'force-dynamic';
 
 const KIND_LABEL: Record<SuggestionKind, string> = {
-  seq_scan_filtrado: 'Escaneo secuencial que descarta casi todo lo que lee',
-  indice_no_selectivo: 'El índice encuentra las filas pero no filtra',
-  orden_sin_indice: 'Ordenamiento que se fue a disco',
-  join_sin_indice: 'Join sin índice del lado interno',
+  seq_scan_filtrado: 'Sequential scan that discards almost everything it reads',
+  indice_no_selectivo: 'The index finds rows but does not filter',
+  orden_sin_indice: 'Sort that spilled to disk',
+  join_sin_indice: 'Join without an index on the inner side',
 };
 
 const KIND_TAG: Record<SuggestionKind, string> = {
@@ -36,9 +36,9 @@ export default async function IndexesPage({ params }: { params: Promise<{ id: st
 
   let instance;
   let resultado: Awaited<ReturnType<typeof getIndexSuggestions>>;
-  let hallazgos: Awaited<ReturnType<typeof getIndexFindings>>;
+  let findings: Awaited<ReturnType<typeof getIndexFindings>>;
   try {
-    [instance, resultado, hallazgos] = await Promise.all([
+    [instance, resultado, findings] = await Promise.all([
       getInstance(instanceId),
       getIndexSuggestions(instanceId),
       getIndexFindings(instanceId),
@@ -46,7 +46,7 @@ export default async function IndexesPage({ params }: { params: Promise<{ id: st
   } catch (error) {
     return (
       <>
-        <Topbar crumbs={[{ label: 'Flota', href: '/' }, { label: id }]} />
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
         <div className="page">
           <StoreError message={error instanceof Error ? error.message : String(error)} />
         </div>
@@ -56,9 +56,9 @@ export default async function IndexesPage({ params }: { params: Promise<{ id: st
   if (!instance) notFound();
 
   const crumbs = [
-    { label: 'Flota', href: '/' },
+    { label: 'Fleet', href: '/' },
     { label: instance.alias, href: `/instances/${instanceId}` },
-    { label: 'Índices' },
+    { label: 'Indexes' },
   ];
 
   const filasDesperdiciadas = resultado.suggestions.reduce((suma, s) => suma + s.wastedRows, 0);
@@ -70,11 +70,11 @@ export default async function IndexesPage({ params }: { params: Promise<{ id: st
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Índices · {instance.alias}</h1>
+            <h1 className="page-title">Indexes · {instance.alias}</h1>
             <p className="page-sub">
-              Índices que faltan según los planes que ya se ejecutaron con ANALYZE. Cada sugerencia trae la
-              condición exacta que la motiva y cuántas filas se descartaron: es una{' '}
-              <strong>hipótesis con evidencia</strong>, no una orden. Un índice de más se paga en cada escritura y
+              Missing indexes according to plans already executed with ANALYZE. Each suggestion includes the
+              exact condition that motivates it and how many rows were discarded: it is a{' '}
+              <strong>hypothesis with evidence</strong>, not an order. An extra index is paid on every write and
               en cada vacuum.
             </p>
           </div>
@@ -88,23 +88,23 @@ export default async function IndexesPage({ params }: { params: Promise<{ id: st
             label="Sugerencias"
             value={formatNumber(resultado.suggestions.length)}
             tone={resultado.suggestions.length > 0 ? 'warn' : 'ok'}
-            hint={`de ${formatNumber(resultado.plansWithActuals)} planes con filas reales`}
+            hint={`of ${formatNumber(resultado.plansWithActuals)} plans with real rows`}
           />
           <StatCard
-            label="Filas descartadas"
+            label="Rows discarded"
             value={formatNumber(filasDesperdiciadas)}
-            hint="leídas para tirarlas, por ejecución y repeticiones"
+            hint="read then thrown away, per execution and repeats"
           />
           <StatCard
             label="Tiempo en esos nodos"
             value={formatDuration(tiempo)}
-            hint="lo observado, no lo que se ahorraría"
+            hint="observed, not what would be saved"
           />
           <StatCard
             label="Planes analizados"
             value={formatNumber(resultado.plansConsidered)}
             hint={
-              resultado.newestPlanAt ? `el más nuevo, de ${formatAgo(resultado.newestPlanAt)}` : 'ninguno todavía'
+              resultado.newestPlanAt ? `newest, from ${formatAgo(resultado.newestPlanAt)}` : 'none yet'
             }
           />
         </div>
@@ -112,29 +112,29 @@ export default async function IndexesPage({ params }: { params: Promise<{ id: st
         {resultado.plansWithActuals === 0 ? (
           <section className="panel">
             <div className="panel-header">
-              <span className="panel-title">Todavía no hay planes de los que opinar</span>
+              <span className="panel-title">No plans to judge yet</span>
             </div>
             <div className="panel-body text-[12px]">
               <p>
-                Esta pantalla no adivina: parte de planes ejecutados con ANALYZE, porque son los únicos que dicen
-                cuántas filas descartó cada filtro. Un plan estimado puede equivocarse por un factor de mil, y una
-                sugerencia basada en eso es una corazonada con formato de recomendación.
+                This screen does not guess: it starts from plans executed with ANALYZE, because those are the only ones that say
+                how many rows each filter discarded. An estimated plan can be wrong by a factor of a thousand, and a
+                suggestion based on that is a hunch dressed as a recommendation.
               </p>
               <p className="mt-2">
-                Para llenarla: entrar a{' '}
+                To fill it: go to{' '}
                 <Link href={`/instances/${instanceId}/queries`} className="text-accent">
-                  Consultas
+                  Queries
                 </Link>
-                , abrir las más caras y pedir su plan con ANALYZE. Sólo se ejecutan consultas de sólo lectura, y
-                siempre dentro de una transacción que se revierte.
+                , open the most expensive ones and request their plan with ANALYZE. Only read-only queries are run, and
+                always inside a transaction that is rolled back.
               </p>
             </div>
           </section>
         ) : resultado.suggestions.length === 0 ? (
           <div className="empty">
-            Ningún plan de los {formatNumber(resultado.plansWithActuals)} analizados muestra un patrón que un
-            índice arregle. Eso no significa que los índices estén perfectos: significa que las consultas cuyo
-            plan se pidió no están sufriendo por falta de uno.
+            None of the {formatNumber(resultado.plansWithActuals)} analyzed plans shows a pattern an
+            index would fix. That does not mean indexes are perfect: it means the queries whose
+            plan was requested are not suffering from a missing one.
           </div>
         ) : (
           <div className="flex flex-col gap-[0.875rem]">
@@ -150,17 +150,17 @@ export default async function IndexesPage({ params }: { params: Promise<{ id: st
                   <div className="query-block mt-2">{sugerencia.ddl}</div>
 
                   <p className="mt-2 text-foreground-muted">
-                    <strong>Antes de aplicarlo:</strong> {sugerencia.caveat}
+                    <strong>Before applying it:</strong> {sugerencia.caveat}
                   </p>
 
                   <div className="table-scroll mt-3">
                     <table className="data-table">
                       <thead>
                         <tr>
-                          <th>Consulta</th>
+                          <th>Query</th>
                           <th>Nodo</th>
-                          <th>Condición</th>
-                          <th className="text-right">Descartadas</th>
+                          <th>Condition</th>
+                          <th className="text-right">Discarded</th>
                           <th className="text-right">Devueltas</th>
                           <th className="text-right">Ejecuciones</th>
                           <th className="text-right">Tiempo</th>
@@ -206,18 +206,18 @@ export default async function IndexesPage({ params }: { params: Promise<{ id: st
           </div>
         )}
 
-        {hallazgos.length > 0 && (
+        {findings.length > 0 && (
           <section className="panel">
             <div className="panel-header">
-              <span className="panel-title">Lo que los chequeos ya dicen de los índices</span>
-              <span className="font-mono text-[10px] text-foreground-muted">último día</span>
+              <span className="panel-title">What checks already say about indexes</span>
+              <span className="font-mono text-[10px] text-foreground-muted">last day</span>
             </div>
             <div className="panel-body">
-              {/* Esto va debajo a propósito: antes de agregar un índice conviene
-                  ver si sobra alguno. Duplicar el prefijo de un índice existente
+              {/* Esto va debajo a propósito: antes de agregar un index conviene
+                  ver si sobra alguno. Duplicar el prefijo de un index existente
                   cuesta escrituras sin ganar lecturas. */}
               <ul className="list-disc pl-5 text-[12px]">
-                {hallazgos.map((hallazgo) => (
+                {findings.map((hallazgo) => (
                   <li key={`${hallazgo.checkId}-${hallazgo.object}`}>
                     <span className="font-mono text-[11px]">{hallazgo.object}</span> · {hallazgo.message}
                   </li>

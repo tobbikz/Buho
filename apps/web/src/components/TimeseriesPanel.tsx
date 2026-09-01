@@ -38,7 +38,7 @@ function formatValue(value: number | null, unit: Unit): string {
     case 'seconds':
       return `${formatNumber(value, value < 10 ? 2 : 0)}s`;
     default: {
-      // Los valores chicos (DB time, sesiones bloqueadas) se vuelven una
+      // Los valores chicos (DB time, sessions bloqueadas) se vuelven una
       // columna de "0.0" si se redondea a un decimal fijo.
       const magnitude = Math.abs(value);
       if (magnitude > 0 && magnitude < 1) return String(Number(value.toPrecision(2)));
@@ -49,7 +49,7 @@ function formatValue(value: number | null, unit: Unit): string {
 }
 
 /**
- * En ventanas de varios días la hora sola es ambigua: el eje repetía "22:00"
+ * En windows de varios días la hora sola es ambigua: el eje repetía "22:00"
  * tres veces sin decir de qué día. A partir de 24 h de span se agrega la fecha.
  */
 function timeFormatter(spanMs: number): (bucket: number) => string {
@@ -99,7 +99,7 @@ export function TimeseriesPanel({
       </div>
       {!hasData ? (
         <div className="empty" style={{ height }}>
-          Sin muestras en la ventana seleccionada.
+          No samples in the selected window.
         </div>
       ) : (
         <div className="panel-body" style={{ paddingBottom: 0 }}>
@@ -143,7 +143,7 @@ export function TimeseriesPanel({
               {band && (
                 <Area
                   type="monotone"
-                  name={band.label ?? 'Normal para esta hora'}
+                  name={band.label ?? 'Normal for this hour'}
                   dataKey={band.key}
                   stroke="none"
                   fill="#1f5f8b"
@@ -156,7 +156,7 @@ export function TimeseriesPanel({
               {band?.medianKey && (
                 <Line
                   type="monotone"
-                  name="Mediana histórica"
+                  name="Historical median"
                   dataKey={band.medianKey}
                   stroke="#7a828c"
                   strokeWidth={1}

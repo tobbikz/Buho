@@ -1,21 +1,21 @@
 import { query } from './db';
 
 /**
- * Lecturas del muestreo de sesiones.
+ * Lecturas del sampling de sessions.
  *
  * Toda esta pantalla se apoya en una idea: con fotos cada diez segundos no se
  * cuentan esperas, se estima **cuánto duraron**. Si una espera aparece en el
  * 40 % de las fotos, ocupó aproximadamente el 40 % del tiempo. Por eso todo se
- * expresa en proporción de fotos y en «sesiones promedio», nunca en «cantidad de
+ * expresa en proporción de fotos y en «sesiones promedio», never en «cantidad de
  * esperas», que sería inventar una cuenta que nadie midió.
  */
 
 export interface WaitShare {
   waitType: string;
   waitEvent: string | null;
-  /** Suma de sesiones vistas esperando esto. */
+  /** Suma de sessions vistas esperando esto. */
   sessions: number;
-  /** Sesiones promedio ocupadas en esto durante la ventana. */
+  /** Sesiones promedio ocupadas en esto durante la window. */
   averageSessions: number;
   share: number;
 }
@@ -42,7 +42,7 @@ export interface SessionRow {
   query: string | null;
 }
 
-/** Cuántas fotos hay en la ventana: es el divisor de todos los porcentajes. */
+/** Cuántas fotos hay en la window: es el divisor de todos los porcentajes. */
 async function sampleCount(instanceId: number, minutes: number): Promise<number> {
   const filas = await query<{ fotos: number }>(
     `select count(distinct ts) as fotos
@@ -74,18 +74,18 @@ export async function getWaitShares(
     [instanceId, minutes, top],
   );
 
-  const totalFilas = await query<{ total: number }>(
+  const totalRows = await query<{ total: number }>(
     `select coalesce(sum(sessions), 0) as total
        from buho.wait_samples
       where instance_id = $1 and ts > now() - ($2 || ' minutes')::interval`,
     [instanceId, minutes],
   );
-  const total = Number(totalFilas[0]?.total ?? 0);
+  const total = Number(totalRows[0]?.total ?? 0);
 
   return {
     samples: fotos,
     // Sesiones promedio ocupadas: es el número que se compara con el número de
-    // núcleos del servidor. Si hay ocho núcleos y este número es doce, el
+    // cores del servidor. Si hay ocho cores y este número es doce, el
     // servidor está por encima de su capacidad de CPU.
     averageBusy: fotos > 0 ? total / fotos : 0,
     waits: filas.map((fila) => ({
@@ -101,7 +101,7 @@ export async function getWaitShares(
 /**
  * Serie temporal por tipo de espera, para ver cuándo cambió el perfil.
  *
- * El tamaño del cubo se elige según la ventana: con cubos fijos, una semana
+ * El tamaño del cubo se elige según la window: con cubos fijos, una semana
  * daría sesenta mil puntos y una hora, seis.
  */
 export async function getWaitTimeline(instanceId: number, minutes: number): Promise<WaitBucket[]> {
@@ -123,7 +123,7 @@ export async function getWaitTimeline(instanceId: number, minutes: number): Prom
   for (const fila of filas) {
     const clave = new Date(fila.bucket).getTime();
     const cubo = cubos.get(clave) ?? { bucket: new Date(clave), byType: {}, total: 0 };
-    // Se divide por las fotos del cubo para que el eje sea "sesiones a la vez" y
+    // Se divide por las fotos del cubo para que el eje sea "sessions at once" y
     // no "sesiones sumadas", que crecería solo con el tamaño del cubo.
     const promedio = Number(fila.sessions) / Math.max(1, Number(fila.fotos));
     cubo.byType[fila.wait_type] = (cubo.byType[fila.wait_type] ?? 0) + promedio;
@@ -137,8 +137,8 @@ export async function getWaitTimeline(instanceId: number, minutes: number): Prom
  * Qué estaba corriendo en un momento dado.
  *
  * Se busca la foto más cercana al instante pedido y no un rango: promediar
- * sesiones de fotos distintas mezclaría consultas que nunca coexistieron, y esta
- * pantalla existe para poder decir «a las 3:04 estas siete sesiones estaban
+ * sessions de fotos distintas mezclaría consultas que never coexistieron, y esta
+ * pantalla existe para poder decir «a las 3:04 estas siete sessions estaban
  * esperando a esta otra».
  */
 export async function getSessionsAt(
@@ -212,12 +212,12 @@ export async function getInterestingMoments(
 ): Promise<{ ts: Date; sessions: number; blocked: number; longestMs: number | null }[]> {
   const filas = await query<{
     ts: Date;
-    sesiones: number;
+    sessions: number;
     bloqueadas: number;
     mas_larga: string | null;
   }>(
     `select ts,
-            count(*)                                        as sesiones,
+            count(*)                                        as sessions,
             count(*) filter (where wait_type = 'Lock')      as bloqueadas,
             max(query_ms)                                   as mas_larga
        from buho.session_samples
@@ -231,7 +231,7 @@ export async function getInterestingMoments(
 
   return filas.map((fila) => ({
     ts: new Date(fila.ts),
-    sessions: Number(fila.sesiones),
+    sessions: Number(fila.sessions),
     blocked: Number(fila.bloqueadas),
     longestMs: fila.mas_larga === null ? null : Number(fila.mas_larga),
   }));
@@ -239,15 +239,15 @@ export async function getInterestingMoments(
 
 /** Descripciones cortas: el nombre del evento no le dice nada a nadie sin esto. */
 export const WAIT_TYPE_HELP: Record<string, string> = {
-  CPU: 'no está esperando nada: está calculando. Si domina, el cuello es CPU o falta un índice.',
-  Lock: 'espera un bloqueo de otra transacción. Se arregla acortando transacciones, no con hardware.',
-  LWLock: 'contención interna del servidor, casi siempre por buffers o WAL bajo mucha concurrencia.',
-  IO: 'espera al disco. Si domina, o falta memoria para caché o el almacenamiento no da más.',
-  Client: 'espera a la aplicación, no al servidor. Suele ser un cliente que lee despacio.',
-  IPC: 'espera a otro proceso del servidor, típicamente en consultas paralelas o replicación.',
-  Timeout: 'espera programada, como un sleep o un intervalo de reintento.',
-  BufferPin: 'espera para acceder a una página del buffer que otro está usando.',
-  Extension: 'espera dentro de una extensión.',
-  Activity: 'procesos de fondo en reposo. Es normal y no indica problema.',
-  Other: 'espera que no encaja en las familias conocidas. En MariaDB el State es texto libre; en SQL Server, un wait_type raro. Conviene mirar el nombre concreto.',
+  CPU: 'not waiting: actively computing. If it dominates, the bottleneck is CPU or a missing index.',
+  Lock: 'waiting on a lock from another transaction. Fix by shortening transactions, not with hardware.',
+  LWLock: 'internal server contention, usually buffers or WAL under high concurrency.',
+  IO: 'waiting on disk. If it dominates, either cache memory is short or storage cannot keep up.',
+  Client: 'waiting on the application, not the server. Often a slow-fetching client.',
+  IPC: 'waiting on another server process, typically parallel queries or replication.',
+  Timeout: 'scheduled wait, such as a sleep or retry interval.',
+  BufferPin: 'waiting to access a buffer page another backend is using.',
+  Extension: 'waiting inside an extension.',
+  Activity: 'idle background processes. Normal and not a problem.',
+  Other: 'wait that does not fit known families. In MariaDB State is free text; in SQL Server, an uncommon wait_type. Check the concrete name.',
 };

@@ -18,7 +18,7 @@ export function GroupBy({ keys, current }: { keys: { key: string; label: string 
 
   return (
     <label className="flex items-center gap-1.5 text-[11px] text-foreground-muted">
-      Agrupar por
+      Group by
       <select
         value={current}
         onChange={(event) => change(event.target.value)}

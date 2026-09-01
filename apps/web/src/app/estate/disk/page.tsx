@@ -8,7 +8,7 @@ import { ENGINE_LABEL, getDiskUsage, getNotes, type DiskRow } from '@/lib/estate
 export const dynamic = 'force-dynamic';
 
 const KIND_LABEL: Record<string, string> = {
-  database: 'Base de datos',
+  database: 'Database',
   file: 'Archivo',
   tablespace: 'Tablespace',
   volume: 'Volumen',
@@ -41,20 +41,20 @@ export default async function DiskPage() {
   return (
     <div className="flex flex-col gap-[0.875rem]">
       <div className="stat-grid">
-        <StatCard label="Datos en el parque" value={formatBytes(totalData)} hint={`${databases.length} bases`} />
+        <StatCard label="Data in the estate" value={formatBytes(totalData)} hint={`${databases.length} bases`} />
         <StatCard
-          label="Volumen más apretado"
+          label="Tightest volume"
           value={tightest ? formatPct(tightest.pct, 1) : '—'}
-          hint={tightest ? `libre en ${tightest.row.alias}` : 'sin datos de volumen'}
+          hint={tightest ? `libre en ${tightest.row.alias}` : 'no volume data'}
           tone={tightest && tightest.pct < 10 ? 'error' : tightest && tightest.pct < 20 ? 'warn' : 'ok'}
         />
         <StatCard
-          label="Archivos cerca de su tope"
+          label="Files near their ceiling"
           value={String(capped.length)}
-          hint="más del 70 % del tamaño máximo declarado"
+          hint="over 70% of declared max size"
           tone={capped.length > 0 ? 'warn' : 'ok'}
         />
-        <StatCard label="Objetos inventariados" value={String(rows.length)} hint="bases, archivos, tablespaces y volúmenes" />
+        <StatCard label="Objetos inventariados" value={String(rows.length)} hint="databases, files, tablespaces, and volumes" />
       </div>
 
       <NotesPanel notes={notes} />
@@ -62,18 +62,18 @@ export default async function DiskPage() {
       {volumes.length > 0 && (
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Volúmenes</span>
-            <span className="font-mono text-[10px] text-foreground-muted">espacio real del sistema de archivos</span>
+            <span className="panel-title">Volumes</span>
+            <span className="font-mono text-[10px] text-foreground-muted">real filesystem space</span>
           </div>
           <div className="table-scroll" style={{ maxHeight: 'none' }}>
             <table className="data-table">
               <thead>
                 <tr>
                   <th>Instancia</th>
-                  <th>Volumen</th>
+                  <th>Volume</th>
                   <th className="text-right">Total</th>
                   <th className="text-right">Libre</th>
-                  <th className="text-right">Uso</th>
+                  <th className="text-right">Usage</th>
                   <th>Sistema de archivos</th>
                 </tr>
               </thead>
@@ -120,20 +120,20 @@ export default async function DiskPage() {
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Bases de datos por tamaño</span>
+          <span className="panel-title">Databases by size</span>
         </div>
         {databases.length === 0 ? (
-          <div className="empty">Sin datos de tamaño todavía.</div>
+          <div className="empty">No size data yet.</div>
         ) : (
           <div className="table-scroll" style={{ maxHeight: '26rem' }}>
             <table className="data-table">
               <thead>
                 <tr>
                   <th>Instancia</th>
-                  <th>Motor</th>
-                  <th>Base</th>
-                  <th className="text-right">Tamaño</th>
-                  <th className="text-right">Del cual log/índices</th>
+                  <th>Engine</th>
+                  <th>Database</th>
+                  <th className="text-right">Size</th>
+                  <th className="text-right">Of which log/indexes</th>
                   <th className="text-right">Reclamable</th>
                 </tr>
               </thead>
@@ -169,7 +169,7 @@ export default async function DiskPage() {
       {files.length > 0 && (
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Archivos de datos y log</span>
+            <span className="panel-title">Data and log files</span>
             <span className="font-mono text-[10px] text-foreground-muted">
               el tope declarado corta las escrituras aunque sobre disco
             </span>
@@ -179,12 +179,12 @@ export default async function DiskPage() {
               <thead>
                 <tr>
                   <th>Instancia</th>
-                  <th>Base</th>
+                  <th>Database</th>
                   <th>Archivo</th>
                   <th>Tipo</th>
-                  <th className="text-right">Tamaño</th>
+                  <th className="text-right">Size</th>
                   <th className="text-right">Tope</th>
-                  <th>Crecimiento</th>
+                  <th>Growth</th>
                   <th>Ruta</th>
                 </tr>
               </thead>
@@ -207,7 +207,7 @@ export default async function DiskPage() {
                     </td>
                     <td className="text-[11px]">
                       {row.detail['growth']
-                        ? `${row.detail['growth']}${row.detail['percent_growth'] ? ' %' : ' páginas'}`
+                        ? `${row.detail['growth']}${row.detail['percent_growth'] ? ' %' : ' pages'}`
                         : '·'}
                     </td>
                     <td className="max-w-0 truncate font-mono text-[10px] text-foreground-muted">
@@ -232,8 +232,8 @@ export default async function DiskPage() {
                 <tr>
                   <th>Instancia</th>
                   <th>Nombre</th>
-                  <th className="text-right">Tamaño</th>
-                  <th>Ubicación</th>
+                  <th className="text-right">Size</th>
+                  <th>Location</th>
                 </tr>
               </thead>
               <tbody>

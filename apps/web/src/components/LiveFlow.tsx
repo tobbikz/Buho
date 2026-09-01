@@ -14,14 +14,14 @@ import { formatUnit, type Unit } from '@/lib/units';
  * de filas esta mañana y nada en los últimos cinco minutos queda quieta.
  *
  * Está dibujado en canvas y no en SVG porque son cientos de partículas moviéndose
- * a sesenta cuadros por segundo: con un nodo del DOM por partícula el navegador
+ * a sesenta cuadros per second: con un nodo del DOM por partícula el navegador
  * se arrodilla. Y se dibuja sólo cuando la pestaña está visible, para no gastar
  * batería animando algo que nadie ve.
  *
  * Honestidad de lo que se ve: la posición de las partículas es decorativa —no
  * hay una fila viajando por un cable—, pero **la densidad no lo es**. Si una
  * cinta lanza el doble de partículas que otra, es porque movió el doble de peso
- * por segundo en la ventana. Y si todo está quieto, es porque no hay tráfico.
+ * per second en la window. Y si todo está quieto, es porque no hay tráfico.
  */
 
 export interface LiveNode {
@@ -33,7 +33,7 @@ export interface LiveNode {
 export interface LiveLink {
   source: number;
   target: number;
-  /** Peso por segundo. */
+  /** Peso per second. */
   value: number;
 }
 
@@ -63,7 +63,7 @@ const COLORES = ['#5b9cf8', '#3ecf8e', '#e0b341'];
 const ALTO_MINIMO = 26;
 
 /**
- * Techo de partículas por segundo en todo el lienzo.
+ * Techo de partículas per second en todo el lienzo.
  *
  * No es un límite estético: por encima de esto el ojo ya no distingue más
  * densidad y el navegador empieza a gastar batería para nada.
@@ -106,7 +106,7 @@ export function LiveFlow({
    *
    * Es la escala contra la que se mide "mucho" o "poco". Decae despacio para
    * que un pico de hace media hora no deje el lienzo apagado el resto de la
-   * tarde, y no baja de un mínimo para que un hilo de tráfico no se vea como
+   * tarde, y no baja de un min para que un hilo de tráfico no se vea como
    * una tormenta.
    */
   const referenciaRef = useRef(1);
@@ -152,7 +152,7 @@ export function LiveFlow({
           setFallo(null);
 
           // Referencia y ráfagas se calculan aquí y no en el bucle de dibujo:
-          // el bucle corre sesenta veces por segundo y comparar fotos ahí sería
+          // el bucle corre sesenta veces per second y comparar fotos ahí sería
           // repetir el mismo cálculo sesenta veces por cada dato nuevo.
           const totalNuevo = cuerpo.links.reduce((suma, enlace) => suma + enlace.value, 0);
           referenciaRef.current =
@@ -160,8 +160,8 @@ export function LiveFlow({
               ? // La referencia viene del servidor: es el percentil 90 de esta
                 // instancia en los últimos días. Se deja subir si ahora mismo se
                 // está superando —un récord tiene que verse a tope y no
-                // desbordado— pero nunca por debajo de la historia, que es lo
-                // que hacía que cualquier tráfico estable se viera al máximo.
+                // desbordado— pero never por debajo de la historia, que es lo
+                // que hacía que cualquier tráfico estable se viera al max.
                 Math.max(cuerpo.referenceRate, totalNuevo)
               : Math.max(0.35, totalNuevo, referenciaRef.current * 0.97);
 
@@ -342,7 +342,7 @@ export function LiveFlow({
       // informaba de nada.
       //
       // La escala se calibra contra la mayor tasa vista en esta sesión de
-      // observación, no contra un número fijo: 50 filas por segundo es mucho en
+      // observación, no contra un número fijo: 50 filas per second es mucho en
       // una base pequeña y nada en un datalake, y sin referencia propia habría
       // que elegir mal para todos. Con eso, cuando el tráfico se duplica se ven
       // el doble de partículas, y cuando cae se vacía.
@@ -490,7 +490,7 @@ export function LiveFlow({
   /**
    * La tasa se escribe con decimales cuando es pequeña.
    *
-   * Redondear a entero convertía «2,6 llamadas por segundo» en «0/s» —el
+   * Redondear a entero convertía «2,6 llamadas per second» en «0/s» —el
    * formateador de conteos redondea— y el lienzo quedaba lleno de partículas
    * junto a un rótulo que decía que no pasaba nada.
    */
@@ -537,11 +537,11 @@ export function LiveFlow({
     if (base) {
       destinos.push({
         href: `${base}/queries?buscar=${encodeURIComponent(elegido.depth === 2 ? (objetivo.split('.').pop() ?? objetivo) : objetivo)}`,
-        label: 'ver sus consultas',
+        label: 'see its queries',
       });
       if (elegido.depth === 2) {
         destinos.push({ href: `${base}/vacuum`, label: 'estado de vacuum y bloat' });
-        destinos.push({ href: `${base}/indexes`, label: 'índices y sugerencias' });
+        destinos.push({ href: `${base}/indexes`, label: 'indexes y sugerencias' });
       }
     }
   }
@@ -557,7 +557,7 @@ export function LiveFlow({
         {elegido && destinos.length > 0 && (
           <div className="absolute bottom-3 right-3 rounded-[3px] border border-[#26303f] bg-[#101724] px-3 py-2 text-[11px] shadow-lg">
             <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.08em] text-[#7f8ea6]">
-              {elegido.depth === 0 ? 'quién' : elegido.depth === 1 ? 'esquema' : 'tabla'}
+              {elegido.depth === 0 ? 'who' : elegido.depth === 1 ? 'esquema' : 'tabla'}
             </div>
             <div className="mb-2 font-mono text-[12px] text-[#dce6f5]">{elegido.label}</div>
             <div className="flex flex-col gap-1">
@@ -579,21 +579,21 @@ export function LiveFlow({
 
         <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1 font-mono text-[10px] uppercase tracking-[0.08em] text-[#7f8ea6]">
           <span>
-            en vivo · ventana {snapshot?.windowMinutes ?? 5} min · dato de hace {edad}s
+            en vivo · window {snapshot?.windowMinutes ?? 5} min · dato de hace {edad}s
           </span>
           <span className="text-[#c9d6ea]">
             {tasa}
-            {unit === 'ms' ? ' por segundo' : '/s'}
+            {unit === 'ms' ? ' per second' : '/s'}
             {snapshot?.activeSessions !== null && snapshot?.activeSessions !== undefined
-              ? ` · ${snapshot.activeSessions} sesión(es) activa(s)`
+              ? ` · ${snapshot.activeSessions} active session(s)`
               : ''}
-            {snapshot?.blockedSessions ? ` · ${snapshot.blockedSessions} bloqueada(s)` : ''}
+            {snapshot?.blockedSessions ? ` · ${snapshot.blockedSessions} blocked` : ''}
           </span>
           {snapshot?.referenceRate ? (
             <span>
               {total <= 0
                 ? 'quieto'
-                : `${Math.round((total / snapshot.referenceRate) * 100)} % de lo habitual en esta instancia`}
+                : `${Math.round((total / snapshot.referenceRate) * 100)} % of usual for this instance`}
             </span>
           ) : null}
         </div>
@@ -601,16 +601,16 @@ export function LiveFlow({
         {quieto && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-8 text-center text-[11px] leading-relaxed text-[#7f8ea6]">
             {fallo
-              ? `No se pudo leer la actividad: ${fallo}`
-              : 'Nada se mueve en los últimos minutos. El lienzo está quieto porque no hay tráfico que mostrar, no porque falle: el diagrama acumulado de abajo sigue teniendo la historia.'}
+              ? `Could not read activity: ${fallo}`
+              : 'Nothing moved in the last few minutes. The canvas is still because there is no traffic to show, not because it failed: the diagrama acumulado de abajo sigue teniendo la historia.'}
           </div>
         )}
       </div>
 
       <p className="mt-2 text-[11px] text-foreground-muted">
-        Se puede pinchar cualquier nodo para saltar a sus consultas, y en las tablas también a su vacuum y a sus
-        índices. Las partículas no son filas viajando por un cable —la posición es decorativa—, pero{' '}
-        <strong>la densidad sí es real</strong>: cada arista lanza partículas en proporción a lo que movió por segundo
+        Click any node to jump to its queries, and on tables also to vacuum and
+        indexes. Particles are not rows traveling a wire — position is decorative — but{' '}
+        <strong>the density is real</strong>: each edge emits particles in proportion to what it moved per second
         en los últimos {snapshot?.windowMinutes ?? 5} minutos. Si una cinta lanza el doble que otra, movió el doble. Si
         todo está quieto, no hay tráfico.
       </p>

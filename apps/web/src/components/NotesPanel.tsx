@@ -9,7 +9,7 @@ import { ENGINE_LABEL } from '@/lib/estate';
  * lo demás que muestra la herramienta; con la nota, el mismo vacío se convierte
  * en información: PostgreSQL no lleva catálogo de respaldos, y punto.
  */
-export function NotesPanel({ notes, title = 'Qué se puede y qué no se puede saber' }: { notes: NoteRow[]; title?: string }) {
+export function NotesPanel({ notes, title = 'What can and cannot be known' }: { notes: NoteRow[]; title?: string }) {
   if (notes.length === 0) return null;
 
   const problems = notes.filter((note) => note.level !== 'info');
@@ -20,7 +20,7 @@ export function NotesPanel({ notes, title = 'Qué se puede y qué no se puede sa
       {problems.length > 0 && (
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Hallazgos</span>
+            <span className="panel-title">Findings</span>
             <span className="tag tag--error">{problems.length}</span>
           </div>
           <div className="panel-body flex flex-col gap-2">

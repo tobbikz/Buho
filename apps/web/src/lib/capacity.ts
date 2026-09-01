@@ -28,7 +28,7 @@ export interface CapacityForecast {
   current: number | null;
   /** Umbral a partir del cual se considera "agotado". */
   threshold: number;
-  /** Crecimiento por día (misma unidad que current). */
+  /** Growth por día (misma unidad que current). */
   dailyRate: number | null;
   /** Días hasta cruzar el umbral; null si no crece o ya lo cruzó. */
   daysToExhaust: number | null;
@@ -124,7 +124,7 @@ function project(
       exhaustAt: null,
       rSquared: null,
       history,
-      summary: `Todavía no hay historia de ${label.toLowerCase()} para proyectar.`,
+      summary: `No history yet to project ${label.toLowerCase()}.`,
       tone: 'neutral',
     };
   }
@@ -159,28 +159,28 @@ function project(
 
   let summary: string;
   if (daysToExhaust === 0) {
-    summary = `${label} ya está en o por encima del umbral (${formatCurrent(threshold)}).`;
+    summary = `${label} is already at or above the threshold (${formatCurrent(threshold)}).`;
   } else if (daysToExhaust === null) {
     if (dailyRate !== null && dailyRate < -1e-9) {
       summary =
-        `${label} baja ~${formatCurrent(Math.abs(dailyRate))}/día: con la tendencia actual no se agota.`;
+        `${label} is falling ~${formatCurrent(Math.abs(dailyRate))}/day: at this trend it will not exhaust.`;
     } else {
       summary =
-        `${label} está en ${formatCurrent(current)} y no muestra crecimiento claro ` +
+        `${label} is at ${formatCurrent(current)} with no clear growth ` +
         `(R²=${fit ? fit.rSquared.toFixed(2) : '—'}).`;
     }
   } else {
     const semanas = daysToExhaust / 7;
     const cuando =
       daysToExhaust < 2
-        ? 'en menos de dos días'
+        ? 'in under two days'
         : daysToExhaust < 14
-          ? `en ~${Math.round(daysToExhaust)} días`
-          : `en ~${semanas.toFixed(1)} semanas`;
+          ? `in ~${Math.round(daysToExhaust)} days`
+          : `in ~${semanas.toFixed(1)} weeks`;
     summary =
-      `Con el crecimiento actual (~${formatCurrent(dailyRate!)}/día), ${label.toLowerCase()} ` +
-      `llega a ${formatCurrent(threshold)} ${cuando}` +
-      (exhaustAt ? ` (${exhaustAt.toLocaleDateString('es')})` : '') +
+      `At the current growth (~${formatCurrent(dailyRate!)}/day), ${label.toLowerCase()} ` +
+      `reaches ${formatCurrent(threshold)} ${cuando}` +
+      (exhaustAt ? ` (${exhaustAt.toLocaleDateString('en')})` : '') +
       `.`;
   }
 
@@ -204,7 +204,7 @@ function project(
  * Lee disco, XID, CPU y RAM y proyecta cuándo se cruzan los umbrales.
  *
  * Umbrales por defecto:
- * - disco: el tamaño actual × 1.5 no sirve como "lleno"; se usa el máximo
+ * - disco: el tamaño actual × 1.5 no sirve como "lleno"; se usa el max
  *   observado × 1.2 si no hay techo configurado — mejor: proyectamos crecimiento
  *   absoluto y el umbral es un techo opcional. Sin techo, reportamos tasa y
  *   "sin techo conocido".
@@ -245,24 +245,24 @@ export async function getCapacityBudget(
   return [
     project(
       'disco',
-      opts?.diskCeilingBytes ? 'Disco (techo configurado)' : 'Disco (hasta ×2 del tamaño actual)',
+      opts?.diskCeilingBytes ? 'Disk (configured ceiling)' : 'Disk (up to ×2 current size)',
       'bytes',
       disk,
       diskCeiling,
       (v) => formatBytes(v),
     ),
-    project('xid', 'Edad de XID', 'pct', xid, xidThreshold, (v) => formatPct(v, 1)),
-    project('cpu', 'CPU del host', 'pct', cpu, cpuThreshold, (v) => formatPct(v, 1)),
-    project('ram', 'RAM del host', 'pct', ram, ramThreshold, (v) => formatPct(v, 1)),
+    project('xid', 'XID age', 'pct', xid, xidThreshold, (v) => formatPct(v, 1)),
+    project('cpu', 'Host CPU', 'pct', cpu, cpuThreshold, (v) => formatPct(v, 1)),
+    project('ram', 'Host RAM', 'pct', ram, ramThreshold, (v) => formatPct(v, 1)),
   ];
 }
 
 export function formatDays(days: number | null): string {
   if (days === null) return '—';
-  if (days <= 0) return 'ya';
+  if (days <= 0) return 'now';
   if (days < 2) return `${(days * 24).toFixed(0)} h`;
   if (days < 14) return `${Math.round(days)} d`;
-  return `${(days / 7).toFixed(1)} sem`;
+  return `${(days / 7).toFixed(1)} wk`;
 }
 
 export { formatNumber };

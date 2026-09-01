@@ -4,7 +4,7 @@ import { getFlow, type FlowActor, type FlowDirection } from './flow';
 /**
  * Topología app ↔ tabla persistida semana a semana.
  *
- * El flujo vivo ya sabe quién toca qué. Aquí se congela un snapshot semanal
+ * El flujo vivo ya sabe who toca qué. Aquí se congela un snapshot semanal
  * para poder preguntar "¿cambió el grafo desde el deploy?" sin rehacer el
  * análisis léxico sobre meses de statement_stats.
  */
