@@ -92,6 +92,19 @@ export interface ReportInstance {
   logAvailable: boolean;
   worstTables: ReportTable[];
   topQueries: ReportQuery[];
+  /**
+   * Perfil de espera de la semana: proporción de fotos en cada familia.
+   * Null si no hubo muestreo de sesiones (instancia nueva o motor sin datos).
+   */
+  waitProfile: ReportWaitShare[] | null;
+  /** Fotos de sesiones en el periodo: el divisor de los porcentajes. */
+  waitSamples: number;
+}
+
+export interface ReportWaitShare {
+  waitType: string;
+  share: number;
+  averageSessions: number;
 }
 
 export interface ReportAction {
@@ -128,7 +141,16 @@ export interface WeeklyReport {
     lockEpisodes: number;
     deadlocks: number;
     growthBytes: number | null;
+    /** Proporción de tiempo de sesión del parque gastado en bloqueos. */
+    lockWaitShare: number | null;
+    /** Proporción gastada en disco. */
+    ioWaitShare: number | null;
   };
+  /**
+   * Plan de trabajo de la semana: tres frases, no una lista.
+   * Es lo que el cliente paga: la lectura, no el dump de métricas.
+   */
+  plan: string[];
 }
 
 /** Métricas de instancia que interesan como serie resumida en el informe. */
@@ -414,6 +436,63 @@ async function topQueries(w: ReportWindow, limit = 3): Promise<Map<number, Repor
   return byInstance;
 }
 
+
+/**
+ * Perfil de espera de la semana por instancia.
+ *
+ * Es el dato que convierte "hubo bloqueos" en "el 40 % del tiempo de sesión
+ * se fue en Lock": lo que un cliente de consultoría necesita oír el lunes.
+ * Misma semántica que la pantalla de Sesiones —proporción de fotos, no cuenta
+ * de esperas— para que el informe y la consola no digan cosas distintas.
+ */
+async function waitProfiles(
+  w: ReportWindow,
+): Promise<Map<number, { samples: number; waits: ReportWaitShare[] }>> {
+  const [fotos, filas] = await Promise.all([
+    query<{ instance_id: string; fotos: string }>(
+      `select instance_id, count(distinct ts) as fotos
+         from buho.wait_samples
+        where ts >= $1 and ts < $2
+        group by 1`,
+      [w.from, w.to],
+    ),
+    query<{ instance_id: string; wait_type: string; sessions: string }>(
+      `select instance_id, wait_type, sum(sessions) as sessions
+         from buho.wait_samples
+        where ts >= $1 and ts < $2
+        group by 1, 2`,
+      [w.from, w.to],
+    ),
+  ]);
+
+  const samples = new Map(fotos.map((row) => [Number(row.instance_id), Number(row.fotos)]));
+  const byInstance = new Map<number, { total: number; rows: { waitType: string; sessions: number }[] }>();
+  for (const row of filas) {
+    const id = Number(row.instance_id);
+    const entry = byInstance.get(id) ?? { total: 0, rows: [] };
+    const sessions = Number(row.sessions);
+    entry.total += sessions;
+    entry.rows.push({ waitType: row.wait_type, sessions });
+    byInstance.set(id, entry);
+  }
+
+  const result = new Map<number, { samples: number; waits: ReportWaitShare[] }>();
+  for (const [id, entry] of byInstance) {
+    const n = samples.get(id) ?? 0;
+    result.set(id, {
+      samples: n,
+      waits: entry.rows
+        .map((row) => ({
+          waitType: row.waitType,
+          share: entry.total > 0 ? row.sessions / entry.total : 0,
+          averageSessions: n > 0 ? row.sessions / n : 0,
+        }))
+        .sort((a, b) => b.share - a.share),
+    });
+  }
+  return result;
+}
+
 /**
  * Acciones recomendadas: los checks abiertos al cierre, agrupados.
  *
@@ -509,6 +588,7 @@ export async function getWeeklyReport(weeksAgo = 0): Promise<WeeklyReport> {
     logByInstance,
     tableByInstance,
     queryByInstance,
+    waitByInstance,
     actionList,
     backupList,
     prevScores,
@@ -531,6 +611,7 @@ export async function getWeeklyReport(weeksAgo = 0): Promise<WeeklyReport> {
     logs(w),
     worstTables(),
     topQueries(w),
+    waitProfiles(w),
     actions(),
     backups(),
     query<{ score_avg: number | null }>(
@@ -577,6 +658,8 @@ export async function getWeeklyReport(weeksAgo = 0): Promise<WeeklyReport> {
       logAvailable: log?.available ?? false,
       worstTables: tableByInstance.get(id) ?? [],
       topQueries: queryByInstance.get(id) ?? [],
+      waitProfile: waitByInstance.get(id)?.waits ?? null,
+      waitSamples: waitByInstance.get(id)?.samples ?? 0,
     };
   });
 
@@ -589,12 +672,27 @@ export async function getWeeklyReport(weeksAgo = 0): Promise<WeeklyReport> {
     )
     .filter((value): value is number => value !== null);
 
+  // Pesos del parque: se promedian las instancias que sí tienen muestreo, no
+  // se inventa cero para las que no. Un parque a medias con "0 % Lock" mentiría.
+  const conEsperas = rows.filter((row) => row.waitProfile && row.waitProfile.length > 0);
+  const shareOf = (tipo: string): number | null => {
+    if (conEsperas.length === 0) return null;
+    const suma = conEsperas.reduce(
+      (acc, row) => acc + (row.waitProfile?.find((w) => w.waitType === tipo)?.share ?? 0),
+      0,
+    );
+    return suma / conEsperas.length;
+  };
+  const lockWaitShare = shareOf('Lock');
+  const ioWaitShare = shareOf('IO');
+
   return {
     window: w,
     generatedAt: new Date(),
     instances: rows,
     actions: actionList,
     backups: backupList,
+    plan: buildPlan(rows, actionList, backupList, lockWaitShare, ioWaitShare),
     totals: {
       instances: rows.length,
       critical: rows.reduce((sum, row) => sum + row.critical, 0),
@@ -604,6 +702,76 @@ export async function getWeeklyReport(weeksAgo = 0): Promise<WeeklyReport> {
       lockEpisodes: rows.reduce((sum, row) => sum + row.lockEpisodes, 0),
       deadlocks: rows.reduce((sum, row) => sum + row.logDeadlocks, 0),
       growthBytes: growth.length ? growth.reduce((a, b) => a + b, 0) : null,
+      lockWaitShare,
+      ioWaitShare,
     },
   };
+}
+
+/**
+ * Tres frases de plan de trabajo.
+ *
+ * El informe sin esto es un dump de números. Con esto es lo que un DBA le
+ * diría al cliente el lunes: qué arreglar primero, qué vigilar y qué está bien.
+ * Se corta a tres a propósito: más de eso nadie lee.
+ */
+function buildPlan(
+  rows: ReportInstance[],
+  actionList: ReportAction[],
+  backupList: ReportBackup[],
+  lockWaitShare: number | null,
+  ioWaitShare: number | null,
+): string[] {
+  const plan: string[] = [];
+
+  const criticos = actionList.filter((a) => a.severity === 'critical');
+  if (criticos.length > 0) {
+    const primero = criticos[0]!;
+    plan.push(
+      `Prioridad 1: ${primero.title} en ${primero.instances.join(', ')}. ${primero.remediation}`,
+    );
+  } else if (lockWaitShare !== null && lockWaitShare >= 0.15) {
+    const peores = rows
+      .filter((r) => (r.waitProfile?.find((w) => w.waitType === 'Lock')?.share ?? 0) >= 0.15)
+      .map((r) => r.alias);
+    plan.push(
+      `Prioridad 1: el parque gastó ${(lockWaitShare * 100).toFixed(0)} % del tiempo de sesión ` +
+        `esperando bloqueos${peores.length ? ` (peor en ${peores.slice(0, 3).join(', ')})` : ''}. ` +
+        'Acortar transacciones y revisar el orden de los locks: no se arregla con hardware.',
+    );
+  }
+
+  const atrasados = backupList.filter((b) => b.state === 'atrasado' || b.state === 'sin_recuperacion');
+  if (atrasados.length > 0 && plan.length < 3) {
+    plan.push(
+      `Prioridad ${plan.length + 1}: ${atrasados.length} respaldo${atrasados.length === 1 ? '' : 's'} ` +
+        `en mal estado (${[...new Set(atrasados.map((b) => b.alias))].slice(0, 4).join(', ')}). ` +
+        'Sin recuperación no hay discusión de rendimiento que importe.',
+    );
+  }
+
+  if (ioWaitShare !== null && ioWaitShare >= 0.25 && plan.length < 3) {
+    plan.push(
+      `Prioridad ${plan.length + 1}: ${(ioWaitShare * 100).toFixed(0)} % del tiempo de sesión ` +
+        'esperando disco. Revisar caché (shared_buffers / buffer pool) y el almacenamiento ' +
+        'antes de subir vCPU.',
+    );
+  }
+
+  const advertencias = actionList.filter((a) => a.severity === 'warning');
+  if (advertencias.length > 0 && plan.length < 3) {
+    const a = advertencias[0]!;
+    plan.push(
+      `Prioridad ${plan.length + 1}: ${a.title} en ${a.instances.slice(0, 3).join(', ')}. ${a.remediation}`,
+    );
+  }
+
+  if (plan.length === 0) {
+    plan.push(
+      'La semana no dejó trabajo urgente: sin críticos, sin bloqueos dominantes y con respaldos al día. ' +
+        'Conviene revisar igual el crecimiento y las consultas más caras, que es donde se gestan los problemas de la semana que viene.',
+    );
+  }
+
+  return plan.slice(0, 3);
 }

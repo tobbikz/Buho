@@ -192,6 +192,18 @@ function instanceSection(row: ReportInstance): string {
     lines.push('');
   }
 
+  if (row.waitProfile && row.waitProfile.length > 0) {
+    lines.push(
+      `**En qué se esperó** (${row.waitSamples} fotos). ` +
+        row.waitProfile
+          .slice(0, 5)
+          .map((w) => `${w.waitType} ${(w.share * 100).toFixed(0)} %`)
+          .join(' · ') +
+        '.',
+    );
+    lines.push('');
+  }
+
   if (row.topQueries.length > 0) {
     lines.push('**Consultas que más tiempo consumieron.**');
     lines.push('');
@@ -227,6 +239,22 @@ export function reportToMarkdown(report: WeeklyReport): string {
   lines.push('');
   lines.push(verdict(report));
   lines.push('');
+
+  if (report.plan.length > 0) {
+    lines.push('## Plan de trabajo de la semana');
+    lines.push('');
+    lines.push(
+      'Tres cosas, en orden. Es el entregable de la consultoría: qué hacer el lunes, ' +
+        'no un dump de métricas.',
+    );
+    lines.push('');
+    let n = 1;
+    for (const item of report.plan) {
+      lines.push(`${n}. ${item}`);
+      n += 1;
+    }
+    lines.push('');
+  }
   lines.push('| | Esta semana | Anterior |');
   lines.push('| --- | --- | --- |');
   lines.push(
@@ -238,6 +266,16 @@ export function reportToMarkdown(report: WeeklyReport): string {
   lines.push(`| Advertencias | ${totals.warning} | — |`);
   lines.push(`| Episodios de bloqueo | ${totals.lockEpisodes} | — |`);
   lines.push(`| Deadlocks | ${totals.deadlocks} | — |`);
+  lines.push(
+    `| Tiempo de sesión en Lock | ${
+      totals.lockWaitShare === null ? '—' : pct(totals.lockWaitShare * 100, 0)
+    } | — |`,
+  );
+  lines.push(
+    `| Tiempo de sesión en IO | ${
+      totals.ioWaitShare === null ? '—' : pct(totals.ioWaitShare * 100, 0)
+    } | — |`,
+  );
   lines.push(
     `| Crecimiento de datos | ${
       totals.growthBytes === null ? '—' : formatBytes(totals.growthBytes)

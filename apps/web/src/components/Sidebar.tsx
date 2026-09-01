@@ -46,7 +46,7 @@ export function Sidebar({
     <aside className="sidebar">
       <div className="sidebar__brand">
         <span className="text-[15px]">Búho</span>
-        <span className="tag tag--muted">v0.2</span>
+        <span className="tag tag--muted">v0.3</span>
       </div>
 
       <nav className="sidebar__section">

@@ -212,9 +212,33 @@ Opciones:
 
 | Comando | Cuándo |
 | --- | --- |
-| `./install.sh` | instalar o actualizar |
-| `./install.sh --sin-build` | reiniciar sin reconstruir imágenes |
+| `./install.sh` | instalar o actualizar (compila en el host) |
+| `./install.sh --pull` | **bajar imágenes publicadas; el cliente no compila** |
+| `./install.sh --sin-build` | reiniciar sin reconstruir ni bajar |
 | `./install.sh --verificar` | comprobar una instalación existente |
+
+### Sin compilar (lo que se vende)
+
+El cliente no necesita Node ni `docker build`. Con Docker y Compose basta:
+
+```bash
+git clone https://github.com/tobbikz/buho-monitor.git
+cd buho-monitor
+# editar config.json (ver sección 2) y crear el usuario de monitoreo
+./install.sh --pull
+```
+
+Eso baja `collector` y `web` desde GHCR (`ghcr.io/tobbikz/buho-monitor/...`)
+y levanta el store. Para fijar una versión concreta:
+
+```bash
+export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho-monitor/collector:0.3.0
+export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho-monitor/web:0.3.0
+./install.sh --pull
+```
+
+Las imágenes se publican automáticamente al etiquetar un release (`v0.3.0`).
+Si GHCR pide autenticación para paquetes privados: `echo $TOKEN | docker login ghcr.io -u USUARIO --password-stdin`.
 
 ---
 

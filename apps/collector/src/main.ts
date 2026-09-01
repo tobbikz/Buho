@@ -46,6 +46,7 @@ import {
   ForeignStatementTracker,
   sampleForeignStatements,
   sampleForeignBlocking,
+  sampleForeignSessions,
   readForeignLog,
 } from '@buho/core';
 import type { Capabilities, EngineClient, InstanceConfig, Tier } from '@buho/core';
@@ -510,6 +511,28 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
       `${instance.alias}/locks: ${blocked.length} sesión(es) bloqueada(s)` +
         `${worst ? `, la peor ${worst.waitSeconds.toFixed(1)} s` : ''}`,
     );
+  });
+
+  // Misma cadencia que PostgreSQL: el detalle de "qué estaba corriendo" y el
+  // perfil de espera salen de una foto periódica, no de contadores acumulados.
+  startLoop(`${instance.alias}/sesiones`, SESSION_INTERVAL_MS, async () => {
+    const foto = summarizeSessions(await sampleForeignSessions(client, caps));
+    const escritas = await store.saveSessionSnapshot(instanceId, {
+      at: foto.at,
+      waits: foto.waits,
+      detail: foto.detail,
+    });
+    if (escritas === 0) return;
+    if (foto.blockedSessions > 0 || (foto.longestQueryMs ?? 0) > 30_000) {
+      log(
+        'info',
+        `${instance.alias}/sesiones: ${foto.activeSessions} activa(s), ` +
+          `${foto.blockedSessions} bloqueada(s)` +
+          (foto.longestQueryMs
+            ? `, la más larga ${(foto.longestQueryMs / 1000).toFixed(1)} s`
+            : ''),
+      );
+    }
   });
 
   const statements = new ForeignStatementTracker();

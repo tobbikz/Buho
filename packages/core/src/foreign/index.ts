@@ -19,6 +19,7 @@ export { runForeignCollectors } from './types';
 export type { ForeignCaps, ForeignCollector, ForeignRunResult } from './types';
 export { ForeignStatementTracker, sampleForeignStatements, digestToQueryid } from './statements';
 export { sampleForeignBlocking } from './blocking';
+export { sampleForeignSessions, classifyMariaState, classifyMssqlWait } from './sessions';
 export { readForeignLog, inspectForeignLogging } from './logs';
 
 import type { EngineKind } from '../engine';

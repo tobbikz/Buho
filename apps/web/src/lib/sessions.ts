@@ -249,4 +249,5 @@ export const WAIT_TYPE_HELP: Record<string, string> = {
   BufferPin: 'espera para acceder a una página del buffer que otro está usando.',
   Extension: 'espera dentro de una extensión.',
   Activity: 'procesos de fondo en reposo. Es normal y no indica problema.',
+  Other: 'espera que no encaja en las familias conocidas. En MariaDB el State es texto libre; en SQL Server, un wait_type raro. Conviene mirar el nombre concreto.',
 };

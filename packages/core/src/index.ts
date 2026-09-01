@@ -75,6 +75,7 @@ export {
   ForeignStatementTracker,
   sampleForeignStatements,
   sampleForeignBlocking,
+  sampleForeignSessions,
   readForeignLog,
   inspectForeignLogging,
   digestToQueryid,

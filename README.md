@@ -727,6 +727,41 @@ afectada en vez de promediar sobre los huecos y callarse.
 
 ---
 
+
+## Sesiones y esperas en los tres motores (v0.3)
+
+La pantalla Sesiones ya no es sólo de PostgreSQL.
+
+- **PostgreSQL:** `pg_stat_activity` (como antes).
+- **MariaDB:** `information_schema.PROCESSLIST`. El `State` es texto libre y se
+  clasifica a familias (`Lock`, `IO`, `Client`, `Timeout`, `CPU`, `Other`).
+- **SQL Server:** `sys.dm_exec_requests` + `sys.dm_exec_sessions`, con
+  `wait_type` y `blocking_session_id`.
+
+Misma pantalla, mismo gráfico de perfil de espera, misma reconstrucción de
+«qué estaba corriendo a las 3:04». Es muestreo cada 10 s: mide bien lo que dura.
+
+## Informe semanal como entregable (v0.3)
+
+El informe ahora incluye:
+
+1. **Plan de trabajo de la semana** — tres prioridades, no un dump de métricas.
+2. **Tiempo de sesión en Lock / IO** a nivel de parque.
+3. **Perfil de espera por instancia** (tags con porcentaje).
+
+Sigue exportándose a Markdown (`/report/export`) para pegarlo en el correo del
+lunes. Eso es lo que el cliente de consultoría DBAOps paga.
+
+## Empaquetado sin compilar (v0.3)
+
+```bash
+./install.sh --pull
+```
+
+Baja `collector` y `web` desde GHCR (`ghcr.io/tobbikz/buho-monitor/...`) y
+levanta el store. El cliente no necesita Node ni `docker build`. Las imágenes se
+publican al etiquetar un release (`v0.3.0`) con el workflow de GitHub Actions.
+
 ## Atribución por aplicación (v0.2)
 
 La primera columna del diagrama de flujo puede ser el **rol** o la

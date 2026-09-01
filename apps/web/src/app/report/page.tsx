@@ -103,8 +103,35 @@ function Verdict({ report }: { report: WeeklyReport }) {
   if (totals.growthBytes !== null && totals.growthBytes > 0) {
     frases.push(`los datos crecieron ${formatBytes(totals.growthBytes)}`);
   }
+  if (totals.lockWaitShare !== null && totals.lockWaitShare >= 0.1) {
+    frases.push(
+      `el ${(totals.lockWaitShare * 100).toFixed(0)} % del tiempo de sesión se fue en bloqueos`,
+    );
+  }
+  if (totals.ioWaitShare !== null && totals.ioWaitShare >= 0.2) {
+    frases.push(`el ${(totals.ioWaitShare * 100).toFixed(0)} % del tiempo de sesión esperó disco`);
+  }
 
   return <p className="text-[13px] leading-relaxed">{frases.join(', ')}.</p>;
+}
+
+function Plan({ report }: { report: WeeklyReport }) {
+  if (report.plan.length === 0) return null;
+  return (
+    <div className="rounded-[3px] border border-border bg-surface-2/40 px-3 py-2.5">
+      <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-foreground-muted">
+        Plan de trabajo de la semana
+      </div>
+      <ol className="space-y-1.5 text-[12.5px] leading-relaxed">
+        {report.plan.map((item, index) => (
+          <li key={index} className="flex gap-2">
+            <span className="font-mono text-foreground-muted">{index + 1}.</span>
+            <span>{item}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
 }
 
 function InstanceBlock({ row }: { row: ReportInstance }) {
@@ -229,6 +256,32 @@ function InstanceBlock({ row }: { row: ReportInstance }) {
             </p>
           </div>
         </div>
+
+        {row.waitProfile && row.waitProfile.length > 0 && (
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
+              En qué se esperó · {row.waitSamples} fotos
+            </div>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {row.waitProfile.slice(0, 6).map((w) => (
+                <span
+                  key={w.waitType}
+                  className={`tag ${
+                    w.waitType === 'Lock'
+                      ? 'tag--error'
+                      : w.waitType === 'IO'
+                        ? 'tag--warn'
+                        : w.waitType === 'CPU'
+                          ? 'tag--ok'
+                          : 'tag--muted'
+                  }`}
+                >
+                  {w.waitType} {(w.share * 100).toFixed(0)} %
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {row.worstTables.length > 0 && (
           <div>
@@ -361,6 +414,7 @@ export default async function ReportPage({
             </div>
 
             <Verdict report={report} />
+            <Plan report={report} />
 
             <div className="stat-grid">
               <StatCard
@@ -390,6 +444,26 @@ export default async function ReportPage({
                 value={String(totals.lockEpisodes)}
                 tone={totals.lockEpisodes > 0 ? 'warn' : 'ok'}
                 hint="sesiones que esperaron"
+              />
+              <StatCard
+                label="Tiempo en Lock"
+                value={totals.lockWaitShare === null ? '—' : `${(totals.lockWaitShare * 100).toFixed(0)} %`}
+                tone={
+                  totals.lockWaitShare !== null && totals.lockWaitShare >= 0.15
+                    ? 'error'
+                    : totals.lockWaitShare !== null && totals.lockWaitShare >= 0.05
+                      ? 'warn'
+                      : 'ok'
+                }
+                hint="del tiempo de sesión"
+              />
+              <StatCard
+                label="Tiempo en IO"
+                value={totals.ioWaitShare === null ? '—' : `${(totals.ioWaitShare * 100).toFixed(0)} %`}
+                tone={
+                  totals.ioWaitShare !== null && totals.ioWaitShare >= 0.25 ? 'warn' : 'ok'
+                }
+                hint="del tiempo de sesión"
               />
               <StatCard
                 label="Deadlocks"

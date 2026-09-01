@@ -26,9 +26,6 @@ export function InstanceTabs({
           { href: `${base}/queries`, label: 'Consultas' },
           { href: `${base}/indexes`, label: 'Índices' },
           { href: `${base}/flow`, label: 'Flujo' },
-          // Sesiones sólo en PostgreSQL: el desglose por wait_event no tiene
-          // equivalente directo en los otros dos motores, y ofrecer una pantalla
-          // vacía sería peor que no ofrecerla.
           { href: `${base}/sessions`, label: 'Sesiones' },
           { href: `${base}/host`, label: 'Host' },
           { href: `${base}/vacuum`, label: 'Vacuum' },
@@ -44,6 +41,10 @@ export function InstanceTabs({
           // la consulta, que se recoge igual en todos. Lo que cambia es el panel
           // de contadores por tabla, que sólo PostgreSQL expone.
           { href: `${base}/flow`, label: 'Flujo' },
+          // Sesiones: en MariaDB sale de PROCESSLIST y en SQL Server de
+          // dm_exec_requests. La taxonomía de esperas se normaliza a las mismas
+          // familias que PostgreSQL para que el gráfico se lea igual.
+          { href: `${base}/sessions`, label: 'Sesiones' },
           { href: `${base}/locks`, label: 'Bloqueos', badge: blockedCount },
           { href: `${base}/logs`, label: 'Log' },
           { href: `${base}/inventory`, label: 'Inventario' },

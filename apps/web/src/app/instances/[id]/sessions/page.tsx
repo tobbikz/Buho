@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { AutoRefresh } from '@/components/AutoRefresh';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { LabeledBars } from '@/components/LabeledBars';
@@ -8,7 +8,6 @@ import { StoreError } from '@/components/StoreError';
 import { Topbar } from '@/components/Topbar';
 import { WaitStack } from '@/components/WaitStack';
 import { formatNumber, formatPct } from '@/lib/format';
-import { getInstanceEngine } from '@/lib/estate';
 import { getInstance } from '@/lib/queries';
 import {
   getInterestingMoments,
@@ -47,10 +46,6 @@ export default async function SessionsPage({
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
 
-  // El desglose por wait_event es de PostgreSQL. En los otros motores se vuelve
-  // al resumen en vez de mostrar una pantalla que nunca tendrá datos.
-  const motor = await getInstanceEngine(instanceId);
-  if (motor && motor !== 'postgres') redirect(`/instances/${instanceId}`);
 
   const window = WINDOWS.find((entrada) => entrada.key === v) ?? WINDOWS[1]!;
   const momento = t ? new Date(t) : new Date();
@@ -108,8 +103,13 @@ export default async function SessionsPage({
             <h1 className="page-title">Sesiones y esperas · {instancia.alias}</h1>
             <p className="page-sub">
               En qué se va el tiempo del servidor —CPU, disco, bloqueos, red— y qué estaba corriendo en un momento
-              concreto. Sale de una foto de <span className="font-mono">pg_stat_activity</span> cada diez segundos, así
-              que es <strong>muestreo</strong>: mide bien lo que dura y se pierde lo instantáneo.
+              concreto. Sale de una foto cada diez segundos (
+              {instancia.engine === 'mariadb'
+                ? <span className="font-mono">PROCESSLIST</span>
+                : instancia.engine === 'mssql'
+                  ? <span className="font-mono">dm_exec_requests</span>
+                  : <span className="font-mono">pg_stat_activity</span>}
+              ), así que es <strong>muestreo</strong>: mide bien lo que dura y se pierde lo instantáneo.
             </p>
           </div>
           <AutoRefresh intervalMs={30000} />

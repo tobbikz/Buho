@@ -22,6 +22,9 @@ services:
     restart: unless-stopped
 
   collector:
+    # Por omisión se baja de GHCR (install.sh --pull). Si se construye en local
+    # (`docker compose build`), la imagen queda etiquetada con el mismo nombre.
+    image: ${BUHO_COLLECTOR_IMAGE:-ghcr.io/tobbikz/buho-monitor/collector:latest}
     build: .
     depends_on:
       store:
@@ -40,6 +43,7 @@ services:
     restart: unless-stopped
 
   web:
+    image: ${BUHO_WEB_IMAGE:-ghcr.io/tobbikz/buho-monitor/web:latest}
     build:
       context: .
       dockerfile: Dockerfile.web

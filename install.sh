@@ -10,8 +10,9 @@
 # regenerar secretos (regenerarlos cerraría todas las sesiones abiertas).
 #
 # Uso:
-#   ./install.sh                 instala o actualiza
-#   ./install.sh --sin-build     usa las imágenes ya construidas
+#   ./install.sh                 instala o actualiza (construye si hace falta)
+#   ./install.sh --pull          baja imágenes publicadas; el cliente no compila
+#   ./install.sh --sin-build     usa las imágenes ya presentes en el host
 #   ./install.sh --verificar     sólo comprueba el estado de una instalación
 set -euo pipefail
 
@@ -24,13 +25,15 @@ aviso() { printf '  %s!%s %s\n' "$AMARILLO" "$FIN" "$1"; }
 fatal() { printf '\n%serror:%s %s\n' "$ROJO" "$FIN" "$1" >&2; exit 1; }
 
 BUILD=1
+PULL=0
 SOLO_VERIFICAR=0
 for arg in "$@"; do
   case "$arg" in
     --sin-build) BUILD=0 ;;
+    --pull) PULL=1; BUILD=0 ;;
     --verificar) SOLO_VERIFICAR=1 ;;
     -h|--help)
-      sed -n '3,14p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) fatal "opción desconocida: $arg" ;;
@@ -126,7 +129,12 @@ ok "config.json declara $INSTANCIAS instancia(s)"
 # ------------------------------------------------------------------ arranque
 
 if [[ "$SOLO_VERIFICAR" -eq 0 ]]; then
-  if [[ "$BUILD" -eq 1 ]]; then
+  if [[ "$PULL" -eq 1 ]]; then
+    paso 'Bajando imágenes publicadas (sin compilar)'
+    # Se puede fijar la versión: BUHO_COLLECTOR_IMAGE=ghcr.io/.../collector:0.3.0
+    "${COMPOSE[@]}" pull collector web store
+    ok 'imágenes listas'
+  elif [[ "$BUILD" -eq 1 ]]; then
     paso 'Construyendo imágenes (la primera vez tarda varios minutos)'
     "${COMPOSE[@]}" build
     ok 'imágenes construidas'

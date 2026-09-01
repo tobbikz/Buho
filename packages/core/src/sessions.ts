@@ -148,9 +148,20 @@ export function summarizeSessions(samples: SessionSample[], at = new Date()): Se
   let transaccionMasLarga: number | null = null;
 
   for (const muestra of samples) {
-    const activa = muestra.state === 'active';
+    // 'active' es PostgreSQL. MariaDB reporta el Command (Query/Execute) y SQL
+    // Server el status de dm_exec_requests. Sin esto el perfil de espera de los
+    // otros dos motores quedaba siempre vacío aunque hubiera sesiones.
+    const activa =
+      muestra.state === 'active' ||
+      muestra.state === 'Query' ||
+      muestra.state === 'Execute' ||
+      muestra.state === 'Prepare' ||
+      muestra.state === 'running' ||
+      muestra.state === 'runnable' ||
+      muestra.state === 'suspended' ||
+      muestra.state === 'rollback';
     if (activa) activas += 1;
-    if (muestra.waitEventType === 'Lock') bloqueadas += 1;
+    if (muestra.waitEventType === 'Lock' || (muestra.blockedBy ?? 0) > 0) bloqueadas += 1;
 
     if (activa && muestra.queryMs !== null) {
       consultaMasLarga = Math.max(consultaMasLarga ?? 0, muestra.queryMs);
