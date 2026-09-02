@@ -1,22 +1,12 @@
+import { ConfigurationTable, type ConfigurationSetting } from '@/components/ConfigurationTable';
 import { NotesPanel } from '@/components/NotesPanel';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
+import { settingGuide } from '@/lib/setting-guides';
 import { ENGINE_LABEL, getNotes, getSettings, type SettingRow } from '@/lib/estate';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * Configuración comparada, no listada.
- *
- * Una lista de parámetros por servidor no sirve de nada: nadie audita 28 filas
- * por 14 servidores. Lo que se busca es la **divergencia** — dos servidores que
- * deberían ser gemelos y no lo son — y el default silencioso, que es el
- * parámetro que nadie decidió never. Por eso la tabla pone una columna por
- * instancia y resalta la fila donde los valores no coinciden.
- *
- * La comparación es por motor: comparar work_mem de PostgreSQL con
- * innodb_buffer_pool_size de MariaDB no significa nada.
- */
 export default async function ConfigurationPage() {
   let rows: SettingRow[];
   let notes;
@@ -41,14 +31,35 @@ export default async function ConfigurationPage() {
     const names = [...new Set(engineRows.map((row) => row.name))].sort();
     const lookup = new Map(engineRows.map((row) => [`${row.alias}|${row.name}`, row]));
 
-    const settings = names.map((name) => {
-      const values = aliases.map((alias) => lookup.get(`${alias}|${name}`));
-      const distinct = new Set(values.map((row) => row?.value ?? '—'));
+    const settings: ConfigurationSetting[] = names.map((name) => {
+      const instances = aliases
+        .map((alias) => lookup.get(`${alias}|${name}`))
+        .filter((row): row is SettingRow => row !== undefined)
+        .map((row) => ({
+          instanceId: row.instanceId,
+          alias: row.alias,
+          value: row.value,
+          unit: row.unit,
+          isDefault: row.isDefault,
+          requiresRestart: row.requiresRestart,
+          category: row.category,
+        }));
+
+      const distinct = new Set(instances.map((row) => row.value));
       const diverges = distinct.size > 1;
-      const allDefault = values.every((row) => row?.isDefault === true);
+      const allDefault = instances.every((row) => row.isDefault === true);
+      const requiresRestart = instances.some((row) => row.requiresRestart === true);
       if (diverges) divergent += 1;
       if (allDefault) defaults += 1;
-      return { name, values, diverges, allDefault };
+
+      return {
+        name,
+        diverges,
+        allDefault,
+        requiresRestart,
+        instances,
+        guide: settingGuide(engine, name),
+      };
     });
 
     return { engine, aliases, settings };
@@ -63,80 +74,32 @@ export default async function ConfigurationPage() {
           hint="differ across instances of the same engine"
           tone={divergent > 0 ? 'warn' : 'ok'}
         />
-        <StatCard
-          label="En su valor por defecto"
-          value={String(defaults)}
-          hint="never explicitly set"
-        />
+        <StatCard label="At default value" value={String(defaults)} hint="never explicitly set" />
         <StatCard label="Audited parameters" value={String(new Set(rows.map((r) => r.name)).size)} />
-        <StatCard label="Motores comparados" value={String(byEngine.size)} />
+        <StatCard label="Engines compared" value={String(byEngine.size)} />
       </div>
 
       <NotesPanel notes={notes} />
 
-      {sections.length === 0 && (
+      {sections.length === 0 ? (
         <section className="panel">
           <div className="empty">No inventoried configuration yet.</div>
         </section>
-      )}
+      ) : null}
 
       {sections.map((section) => (
         <section key={section.engine} className="panel">
           <div className="panel-header">
             <span className="panel-title">{ENGINE_LABEL[section.engine] ?? section.engine}</span>
             <span className="font-mono text-[10px] text-foreground-muted">
-              {section.aliases.length} instancia(s) · fila resaltada = valores distintos
+              {section.aliases.length} instance(s) · click a row for per-server detail and recommendations
             </span>
           </div>
-          <div className="table-scroll" style={{ maxHeight: '32rem' }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Parameter</th>
-                  {section.aliases.map((alias) => (
-                    <th key={alias}>{alias}</th>
-                  ))}
-                  <th>Restart</th>
-                </tr>
-              </thead>
-              <tbody>
-                {section.settings.map((setting) => (
-                  <tr
-                    key={setting.name}
-                    style={{ background: setting.diverges ? 'var(--warning-subtle, #fff8e1)' : undefined }}
-                  >
-                    <td className="font-mono text-[11px]">
-                      {setting.name}
-                      {setting.allDefault && (
-                        <span className="ml-1 tag tag--muted" title="No instance has it set explicitly">
-                          default
-                        </span>
-                      )}
-                    </td>
-                    {setting.values.map((row, index) => (
-                      <td key={index} className="font-mono text-[11px]">
-                        {row ? (
-                          <>
-                            {row.value === '' ? '(empty)' : row.value}
-                            {row.unit ? <span className="text-foreground-muted"> {row.unit}</span> : null}
-                          </>
-                        ) : (
-                          <span className="text-foreground-muted">—</span>
-                        )}
-                      </td>
-                    ))}
-                    <td>
-                      {setting.values.some((row) => row?.requiresRestart) ? (
-                        <span className="tag tag--muted">yes</span>
-                      ) : (
-                        '·'
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ConfigurationTable
+            engine={section.engine}
+            aliases={section.aliases}
+            settings={section.settings}
+          />
         </section>
       ))}
     </div>

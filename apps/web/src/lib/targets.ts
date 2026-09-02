@@ -1,6 +1,7 @@
 import { query } from './db';
 import { logConsoleEvent } from './users';
 import { requireAdmin } from './session';
+import { hostMetricsFromForm } from './test-target';
 
 /**
  * Targets added from the console.
@@ -41,6 +42,7 @@ export interface MonitorTargetInput {
   environment: string;
   ssl: boolean;
   tags?: Record<string, string>;
+  hostMetrics?: Record<string, unknown>;
   enabled?: boolean;
 }
 
@@ -123,6 +125,7 @@ export function parseTargetForm(form: FormData): MonitorTargetInput {
     environment: String(form.get('environment') ?? 'prod').trim() || 'prod',
     ssl: form.get('ssl') === 'on',
     tags,
+    hostMetrics: hostMetricsFromForm(form),
     enabled: true,
   };
 }
@@ -139,8 +142,8 @@ export async function saveMonitorTarget(input: MonitorTargetInput): Promise<numb
 
   const rows = await query<{ target_id: string }>(
     `insert into buho.monitor_targets
-       (alias, engine, host, port, database, username, password, environment, ssl, tags, enabled, created_by)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb, true, $11)
+       (alias, engine, host, port, database, username, password, environment, ssl, tags, host_metrics, enabled, created_by)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb, true, $12)
      on conflict (tenant, alias) do update set
        engine = excluded.engine,
        host = excluded.host,
@@ -151,6 +154,7 @@ export async function saveMonitorTarget(input: MonitorTargetInput): Promise<numb
        environment = excluded.environment,
        ssl = excluded.ssl,
        tags = excluded.tags,
+       host_metrics = excluded.host_metrics,
        enabled = true,
        updated_at = now()
      returning target_id`,
@@ -165,6 +169,7 @@ export async function saveMonitorTarget(input: MonitorTargetInput): Promise<numb
       input.environment,
       input.ssl,
       JSON.stringify(input.tags ?? {}),
+      JSON.stringify(input.hostMetrics ?? {}),
       session.username,
     ],
   );

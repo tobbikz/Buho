@@ -3,10 +3,47 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useTransition } from 'react';
 
+function IconPause() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+      <rect x="2" y="1.5" width="2.5" height="9" fill="currentColor" />
+      <rect x="7.5" y="1.5" width="2.5" height="9" fill="currentColor" />
+    </svg>
+  );
+}
+
+function IconPlay() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+      <path d="M3 1.5v9l7.5-4.5L3 1.5z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function IconRefresh({ spinning }: { spinning?: boolean }) {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      aria-hidden
+      className={spinning ? 'refresh-spin' : undefined}
+    >
+      <path
+        d="M10 6.5A4 4 0 1 1 9.2 3.4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="square"
+      />
+      <path d="M10 2v2.2H7.8" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="square" />
+    </svg>
+  );
+}
+
 /**
- * Refresco por polling desde el cliente. El estándar de la consola es 30 s
- * para vistas de salud (ver Design System Hub) y el operador siempre puede
- * pausarlo: nada peor que la tabla que estás leyendo se recargue sola.
+ * Client-side polling refresh. Lives in the topbar only so fleet tabs do not
+ * each carry their own pause/refresh controls.
  */
 export function AutoRefresh({ intervalMs = 30_000 }: { intervalMs?: number }) {
   const router = useRouter();
@@ -20,21 +57,25 @@ export function AutoRefresh({ intervalMs = 30_000 }: { intervalMs?: number }) {
   }, [paused, intervalMs, router]);
 
   return (
-    <div className="flex items-center gap-2">
-      {/* El contador de frescura se quitó a propósito: cada segundo re-renderizaba
-          el topbar para decir algo que el propio dato ya muestra. La frescura por
-          instancia sigue en la tabla de flota y en el encabezado del detalle. */}
-      {pending ? <span className="font-mono text-[10px] text-foreground-muted">actualizando…</span> : null}
-      <button type="button" className="btn-secondary" onClick={() => setPaused((value) => !value)}>
-        {paused ? 'Reanudar' : 'Pausar'}
+    <div className="refresh-toolbar">
+      <button
+        type="button"
+        className={`refresh-btn ${paused ? 'is-active' : ''}`}
+        onClick={() => setPaused((value) => !value)}
+        aria-label={paused ? 'Resume auto-refresh' : 'Pause auto-refresh'}
+        title={paused ? 'Resume auto-refresh' : 'Pause auto-refresh'}
+      >
+        {paused ? <IconPlay /> : <IconPause />}
       </button>
       <button
         type="button"
-        className="btn-secondary"
+        className="refresh-btn"
         onClick={() => startTransition(() => router.refresh())}
         disabled={pending}
+        aria-label="Refresh now"
+        title="Refresh now"
       >
-        Refrescar
+        <IconRefresh spinning={pending} />
       </button>
     </div>
   );

@@ -1,53 +1,17 @@
 import { NextResponse } from 'next/server';
-import { getFlow, referenceRate, type FlowActor, type FlowDirection } from '@/lib/flow';
+import { getFlow, referenceRate } from '@/lib/flow';
 import { getFleetFlow } from '@/lib/fleet-flow';
 import { query } from '@/lib/db';
 import type { FlowWeight } from '@buho/core';
 
-/**
- * Foto reciente del tráfico, para el lienzo animado.
- *
- * El diagrama acumulado contesta "qué pasó en las last 24 horas". Este
- * endpoint contesta otra cosa: **qué está pasando ahora**. La diferencia no es
- * cosmética: una tabla que recibió un millón de filas esta mañana y ninguna en
- * los últimos cinco minutos domina el diagrama acumulado y no debería mover una
- * sola partícula en el lienzo vivo.
- *
- * La window es corta a propósito (cinco minutos por omisión). Más corta no
- * serviría: el colector escribe los deltas de consultas cada minuto, así que
- * pedir treinta segundos daría un lienzo que se apaga y se enciende al ritmo del
- * colector y no al de la aplicación.
- *
- * Se devuelve el peso **por segundo** y no el acumulado de la window, porque es
- * lo que el lienzo necesita para decidir cuántas partículas lanzar: una tasa,
- * no un total.
- */
-
 export const dynamic = 'force-dynamic';
 
 const VENTANA_MINUTOS = 5;
-
-/**
- * Caché de tres segundos, compartida por todos los que miran lo mismo.
- *
- * No es por lentitud: medido con doscientas instancias sintéticas, este endpoint
- * responde en unos 65 ms. Es por multiplicación. Cada pestaña abierta pregunta
- * cada cinco segundos, y con diez personas mirando el parque son dos peticiones
- * per second que se convierten en cuatrocientas consultas per second contra el
- * store. Tres segundos de caché no cambian nada de lo que se ve —el dato ya venía
- * de una window de cinco minutos— y cortan esa multiplicación de raíz.
- *
- * Vive en memoria del proceso a propósito: es un dato que se puede perder sin
- * consecuencia, y meterlo en Redis sería agregar una pieza que hay que operar
- * para ahorrar 65 ms.
- */
 const CACHE_MS = 3000;
 const cache = new Map<string, { at: number; body: unknown }>();
 
 function guardar(clave: string, body: unknown): void {
   cache.set(clave, { at: Date.now(), body });
-  // La caché se limpia sola: sin esto, cada combinación de parámetros que
-  // alguien probó una vez se quedaría en memoria para siempre.
   if (cache.size > 64) {
     for (const [otra, entrada] of cache) {
       if (Date.now() - entrada.at > CACHE_MS) cache.delete(otra);
@@ -61,11 +25,9 @@ export async function GET(request: Request) {
   const weight = (['rows', 'time', 'calls'].includes(parametros.get('peso') ?? '')
     ? parametros.get('peso')
     : 'rows') as FlowWeight;
-  const direction: FlowDirection = parametros.get('dir') === 'lectura' ? 'lectura' : 'escritura';
-  const actor: FlowActor = parametros.get('quien') === 'aplicacion' ? 'aplicacion' : 'rol';
   const minutos = Math.max(1, Math.min(60, Number(parametros.get('min') ?? VENTANA_MINUTOS)));
 
-  const clave = `${alcance}|${parametros.get('instancia') ?? ''}|${weight}|${direction}|${actor}|${minutos}`;
+  const clave = `${alcance}|${parametros.get('instancia') ?? ''}|${weight}|${minutos}`;
   const guardado = cache.get(clave);
   if (guardado && Date.now() - guardado.at < CACHE_MS) {
     return NextResponse.json(guardado.body as Record<string, unknown>);
@@ -73,15 +35,12 @@ export async function GET(request: Request) {
 
   try {
     if (alcance === 'flota') {
-      const flujo = await getFleetFlow(minutos, weight, direction, actor, 24);
+      const flujo = await getFleetFlow(minutos, weight, 24);
       const cuerpo = {
         nodes: flujo.nodes,
         links: flujo.links.map((enlace) => ({ ...enlace, value: enlace.value / (minutos * 60) })),
         windowMinutes: minutos,
         generatedAt: new Date().toISOString(),
-        // En el parque no hay una historia común contra la que comparar, así que
-        // la referencia es la propia foto: el brillo dice cómo se reparte el
-        // tráfico entre servidores, no si el parque está cargado.
         referenceRate: null,
         activeSessions: null,
         blockedSessions: null,
@@ -102,14 +61,10 @@ export async function GET(request: Request) {
     const engine = engineRows[0]?.engine ?? 'postgres';
 
     const [flujo, referencia] = await Promise.all([
-      getFlow(instanceId, minutos, weight, direction, engine, actor, 18),
+      getFlow(instanceId, minutos, weight, 'both', engine, 'aplicacion', 18),
       referenceRate(instanceId, weight),
     ]);
 
-    // Dos números que sí son del instante y no de la window: cuántas sessions
-    // están trabajando y cuántas esperando. El lienzo los usa para latir incluso
-    // cuando la window de consultas todavía no trajo nada, que es lo que pasa
-    // en el primer minuto después de que arranca el tráfico.
     const vivas = await query<{ metric: string; value: number }>(
       `select metric, value
          from buho.metric_samples

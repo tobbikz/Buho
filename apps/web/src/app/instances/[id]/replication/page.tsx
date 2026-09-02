@@ -1,5 +1,4 @@
 import { notFound, redirect } from 'next/navigation';
-import { AutoRefresh } from '@/components/AutoRefresh';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
@@ -169,7 +168,6 @@ export default async function ReplicationPage({
               cuando haga falta promoverlo.
             </p>
           </div>
-          <AutoRefresh intervalMs={30000} />
         </header>
 
         <InstanceTabs instanceId={instanceId} />

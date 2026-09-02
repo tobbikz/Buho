@@ -107,6 +107,7 @@ export async function ForeignSummary({
   const saturacion = ultimo(connections, 'connections_used_pct');
   const cacheAhora = ultimo(cache, 'db_cache_hit_pct');
   const bloqueadas = ultimo(bloqueos, 'blocked_sessions');
+  const maxEspera = ultimo(bloqueos, 'max_blocked_seconds');
   const transaccionVieja = ultimo(bloqueos, 'oldest_xact_seconds');
 
   const dmlPorSegundo = (() => {
@@ -156,7 +157,7 @@ export async function ForeignSummary({
 
   return (
     <>
-      <div className="stat-grid">
+      <div className="stat-grid stat-grid--5">
         <StatCard label="Connections" value={connectionsAhora === null ? '—' : formatNumber(connectionsAhora)} />
         <StatCard
           label="Saturation"
@@ -165,16 +166,35 @@ export async function ForeignSummary({
           hint="of configured maximum"
         />
         <StatCard
-          label="Cache hits"
+          label="Cache hit"
           value={cacheAhora === null ? '—' : formatPct(cacheAhora, 2)}
           tone={cacheAhora === null ? undefined : toneForMinimum(cacheAhora, 99, 95)}
-          hint={esMaria ? 'buffer pool de InnoDB' : 'buffer pool'}
+          hint={esMaria ? 'InnoDB buffer pool' : 'buffer pool'}
         />
         <StatCard
           label="DML per second"
           value={dmlPorSegundo === null ? '—' : formatNumber(dmlPorSegundo, 1)}
           hint="insert + update + delete"
         />
+        <StatCard
+          label="Wait time"
+          value={
+            maxEspera === null ? '—' : maxEspera > 0 ? formatDuration(maxEspera) : '0s'
+          }
+          hint="max lock wait now"
+          tone={
+            maxEspera === null
+              ? undefined
+              : maxEspera > 60
+                ? 'error'
+                : maxEspera > 0
+                  ? 'warn'
+                  : 'ok'
+          }
+        />
+      </div>
+
+      <div className="stat-grid stat-grid--5">
         <StatCard
           label="Blocked sessions"
           value={bloqueadas === null ? '—' : formatNumber(bloqueadas)}
@@ -196,7 +216,7 @@ export async function ForeignSummary({
               hint="of the buffer pool"
             />
             <StatCard
-              label="Buffer pool libre"
+              label="Free buffer pool"
               value={ultimo(extra, 'buffer_pool_free_pct') === null
                 ? '—'
                 : formatPct(ultimo(extra, 'buffer_pool_free_pct') ?? 0, 1)}
@@ -210,8 +230,6 @@ export async function ForeignSummary({
               value={ultimo(extra, 'page_life_expectancy_seconds') === null
                 ? '—'
                 : formatDuration(ultimo(extra, 'page_life_expectancy_seconds') ?? 0)}
-              // 300 s es el umbral histórico, pensado para 4 GB de RAM; con más
-              // memoria lo razonable es más alto, y por eso el aviso es suave.
               tone={
                 ultimo(extra, 'page_life_expectancy_seconds') === null
                   ? undefined

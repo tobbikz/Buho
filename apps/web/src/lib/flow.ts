@@ -1,5 +1,6 @@
 import { statementObjects, type FlowWeight, type StatementOperation } from '@buho/core';
 import { query } from './db';
+import { buildHotTablesSankey, tableHeat } from './flow-graph';
 
 /**
  * De dónde a dónde va el tráfico de la base.
@@ -23,9 +24,9 @@ import { query } from './db';
 
 export interface FlowNode {
   name: string;
-  /** En qué columna va: 0 rol, 1 esquema, 2 tabla. */
-  depth: 0 | 1 | 2;
-  /** Nombre corto para dibujar; el completo va en el tooltip. */
+  /** Column index in the Sankey (0 = source, last = tables). */
+  depth: number;
+  /** Short label drawn on the chart. */
   label: string;
 }
 
@@ -33,6 +34,7 @@ export interface FlowLink {
   source: number;
   target: number;
   value: number;
+  kind?: 'write' | 'read';
 }
 
 export interface FlowTable {
@@ -41,9 +43,11 @@ export interface FlowTable {
   rows: number;
   calls: number;
   execMs: number;
+  writeWeight: number;
+  readWeight: number;
   /** Qué operaciones la tocaron y con qué peso. */
   byOperation: Partial<Record<StatementOperation, number>>;
-  /** Los actores que la tocaron: roles o aplicaciones, según lo elegido. */
+  /** Apps or roles that touched this table. */
   roles: string[];
 }
 
@@ -51,6 +55,8 @@ export interface FlowResult {
   nodes: FlowNode[];
   links: FlowLink[];
   tables: FlowTable[];
+  /** Every attributed table — use for ORM; `tables` is capped for Sankey UI. */
+  allTables: FlowTable[];
   /** Consultas consideradas y cuántas se pudieron atribuir a una tabla. */
   statements: number;
   attributed: number;
@@ -63,6 +69,8 @@ export interface FlowResult {
    * que dice si el sampling alcanzó a ver el trabajo o se lo perdió.
    */
   weightWithActor: number;
+  writeTotal: number;
+  readTotal: number;
 }
 
 /**
@@ -86,6 +94,9 @@ const SYSTEM_SCHEMAS = new Set([
 const WRITES: StatementOperation[] = ['insert', 'update', 'delete', 'copy', 'truncate'];
 
 export type FlowDirection = 'escritura' | 'lectura';
+
+/** Attribute writes only, reads only, or both (default for Flow UI). */
+export type FlowMode = 'both' | FlowDirection;
 
 /**
  * Quién es el actor de la primera columna.
@@ -169,9 +180,9 @@ export async function getFlow(
   instanceId: number,
   minutes: number,
   weight: FlowWeight,
-  direction: FlowDirection,
+  mode: FlowMode = 'both',
   engine = 'postgres',
-  actor: FlowActor = 'rol',
+  actor: FlowActor = 'aplicacion',
   topTables = 14,
 ): Promise<FlowResult> {
   const rows = await query<{
@@ -184,7 +195,7 @@ export async function getFlow(
     database: string | null;
   }>(
     `select s.queryid::text as queryid,
-            coalesce(s.username, '(sin rol)') as username,
+            coalesce(s.username, '(no role)') as username,
             max(s.database) as database,
             sum(s.calls)   as calls,
             sum(s.exec_ms) as exec_ms,
@@ -200,7 +211,7 @@ export async function getFlow(
         -- desplazan del diagrama a las tablas del cliente, que es lo único que
         -- esta pantalla existe para mostrar. La marca va al final del texto.
         and (t.query is null or t.query not like '%/* buho */%')
-      group by s.queryid, coalesce(s.username, '(sin rol)')`,
+      group by s.queryid, coalesce(s.username, '(no role)')`,
     [instanceId, minutes],
   );
 
@@ -214,12 +225,16 @@ export async function getFlow(
 
   // Se acumula por (rol, tabla) y por tabla. Un mapa intermedio en vez de SQL
   // porque la tabla sale de analizar el texto en JavaScript, no del store.
-  const porRolTabla = new Map<string, number>();
   const porTabla = new Map<string, FlowTable>();
   let atribuidas = 0;
   let pesoAtribuido = 0;
   let pesoTotal = 0;
   let pesoConActor = 0;
+  let writeTotal = 0;
+  let readTotal = 0;
+
+  const includeWrites = mode === 'both' || mode === 'escritura';
+  const includeReads = mode === 'both' || mode === 'lectura';
 
   for (const fila of rows) {
     const peso = pesoDe(fila);
@@ -227,45 +242,42 @@ export async function getFlow(
     if (!fila.query || peso <= 0) continue;
 
     const objetos = statementObjects(fila.query, defaultSchemaFor(engine, fila.database));
-    const relaciones =
-      direction === 'escritura'
-        ? WRITES.includes(objetos.operation) && objetos.target
-          ? [objetos.target]
-          : []
-        : objetos.operation === 'select' || objetos.operation === 'copy'
-          ? objetos.sources
-          : objetos.sources;
+    const writeTargets =
+      includeWrites && WRITES.includes(objetos.operation) && objetos.target ? [objetos.target] : [];
+    const readTargets =
+      includeReads && (objetos.operation === 'select' || objetos.operation === 'copy')
+        ? objetos.sources
+        : [];
 
-    const utiles = relaciones.filter(
+    const utiles = [...writeTargets, ...readTargets].filter(
       (relacion) => !SYSTEM_SCHEMAS.has(relacion.split('.')[0] ?? ''),
     );
     if (utiles.length === 0) continue;
 
     atribuidas += 1;
     if (actor === 'rol' || reparto?.has(fila.queryid)) pesoConActor += peso;
-    // Cuando una consulta lee cinco tablas, el peso se reparte: cargar el total
-    // a cada una multiplicaría el tráfico por cinco y el diagrama mentiría sobre
-    // el volumen absoluto.
-    const porcion = peso / utiles.length;
-    pesoAtribuido += peso;
 
-    // Con atribución por aplicación una misma consulta puede repartirse entre
-    // varias; sin observaciones para ella, cae en un actor explícito en vez de
-    // desaparecer del diagrama, porque el trabajo existió aunque no se viera
-    // who lo pedía.
     const actores: { nombre: string; peso: number }[] =
       actor === 'aplicacion'
         ? (reparto?.get(fila.queryid)?.map((entrada) => ({
             nombre: entrada.application,
             peso: entrada.share,
           })) ?? [{ nombre: '(not observed)', peso: 1 }])
-        : [{ nombre: fila.username ?? '(sin rol)', peso: 1 }];
+        : [{ nombre: fila.username ?? '(no role)', peso: 1 }];
 
-    for (const relacion of utiles) {
-      for (const quien of actores) {
-        const clave = `${quien.nombre}\u0000${relacion}`;
-        porRolTabla.set(clave, (porRolTabla.get(clave) ?? 0) + porcion * quien.peso);
-      }
+    const writeSet = new Set(writeTargets.filter((r) => !SYSTEM_SCHEMAS.has(r.split('.')[0] ?? '')));
+    const readSet = new Set(readTargets.filter((r) => !SYSTEM_SCHEMAS.has(r.split('.')[0] ?? '')));
+    const writeCount = writeSet.size;
+    const readCount = readSet.size;
+    if (writeCount === 0 && readCount === 0) continue;
+
+    const writePorcion = writeCount > 0 ? peso / writeCount : 0;
+    const readPorcion = readCount > 0 ? peso / readCount : 0;
+    pesoAtribuido += writePorcion * writeCount + readPorcion * readCount;
+    writeTotal += writePorcion * writeCount;
+    readTotal += readPorcion * readCount;
+
+    const touch = (relacion: string, porcion: number, kind: 'write' | 'read') => {
       const esquema = relacion.split('.')[0] ?? 'public';
       const existente = porTabla.get(relacion) ?? {
         relation: relacion,
@@ -273,102 +285,50 @@ export async function getFlow(
         rows: 0,
         calls: 0,
         execMs: 0,
+        writeWeight: 0,
+        readWeight: 0,
         byOperation: {},
         roles: [],
       };
-      existente.rows += Number(fila.rows) / utiles.length;
-      existente.calls += Number(fila.calls) / utiles.length;
-      existente.execMs += Number(fila.exec_ms) / utiles.length;
+      existente.rows += Number(fila.rows) * (porcion / peso);
+      existente.calls += Number(fila.calls) * (porcion / peso);
+      existente.execMs += Number(fila.exec_ms) * (porcion / peso);
+      if (kind === 'write') existente.writeWeight += porcion;
+      else existente.readWeight += porcion;
       existente.byOperation[objetos.operation] =
         (existente.byOperation[objetos.operation] ?? 0) + porcion;
-      // La lista lleva los actores que se están usando, no siempre el rol: con
-      // atribución por aplicación, ver «tomy.berrios» en la columna de
-      // aplicaciones sería contradecir el selector que el usuario acaba de
-      // mover.
       for (const quien of actores) {
         if (!existente.roles.includes(quien.nombre)) existente.roles.push(quien.nombre);
       }
       porTabla.set(relacion, existente);
-    }
+    };
+
+    for (const relacion of writeSet) touch(relacion, writePorcion, 'write');
+    for (const relacion of readSet) touch(relacion, readPorcion, 'read');
   }
 
-  const pesoTabla = (tabla: FlowTable): number =>
-    weight === 'calls' ? tabla.calls : weight === 'time' ? tabla.execMs : tabla.rows;
-
-  const tablas = [...porTabla.values()].sort((a, b) => pesoTabla(b) - pesoTabla(a));
-  const visibles = new Set(tablas.slice(0, topTables).map((tabla) => tabla.relation));
-
-  // ------------------------------------------------------------- nodos y cintas
-  const nodos: FlowNode[] = [];
-  const indice = new Map<string, number>();
-  const nodo = (clave: string, depth: 0 | 1 | 2, label: string): number => {
-    const existente = indice.get(clave);
-    if (existente !== undefined) return existente;
-    const nuevo = nodos.length;
-    nodos.push({ name: clave, depth, label });
-    indice.set(clave, nuevo);
-    return nuevo;
-  };
-
-  const rolEsquema = new Map<string, number>();
-  const esquemaTabla = new Map<string, number>();
-
-  for (const [clave, peso] of porRolTabla) {
-    const [rol = '(sin rol)', relacion = ''] = clave.split('\u0000');
-    if (!visibles.has(relacion)) continue;
-    const esquema = relacion.split('.')[0] ?? 'public';
-
-    const claveRolEsquema = `${rol}\u0000${esquema}`;
-    rolEsquema.set(claveRolEsquema, (rolEsquema.get(claveRolEsquema) ?? 0) + peso);
-    esquemaTabla.set(`${esquema}\u0000${relacion}`, (esquemaTabla.get(`${esquema}\u0000${relacion}`) ?? 0) + peso);
-  }
-
-  // Dos tablas con el mismo nombre en esquemas distintos son frecuentes (una
-  // `customers` por cada origen, por ejemplo). Si la etiqueta fuera sólo el
-  // nombre, quedarían dos nodos idénticos y el diagrama no se podría leer, así
-  // que en ese caso se muestra el nombre calificado.
-  const nombresRepetidos = new Set<string>();
-  const vistos = new Set<string>();
-  for (const relacion of visibles) {
-    const corto = relacion.split('.').slice(1).join('.') || relacion;
-    if (vistos.has(corto)) nombresRepetidos.add(corto);
-    vistos.add(corto);
-  }
-
-  const enlaces: FlowLink[] = [];
-  for (const [clave, peso] of rolEsquema) {
-    const [rol = '', esquema = ''] = clave.split('\u0000');
-    enlaces.push({
-      source: nodo(`rol:${rol}`, 0, rol),
-      target: nodo(`esquema:${esquema}`, 1, esquema),
-      value: peso,
-    });
-  }
-  for (const [clave, peso] of esquemaTabla) {
-    const [esquema = '', relacion = ''] = clave.split('\u0000');
-    enlaces.push({
-      source: nodo(`esquema:${esquema}`, 1, esquema),
-      target: nodo(
-        `tabla:${relacion}`,
-        2,
-        (() => {
-          const corto = relacion.split('.').slice(1).join('.') || relacion;
-          return nombresRepetidos.has(corto) ? relacion : corto;
-        })(),
-      ),
-      value: peso,
-    });
-  }
+  const tablas = [...porTabla.values()].sort((a, b) => tableHeat(b, weight) - tableHeat(a, weight));
+  const graph =
+    mode === 'both'
+      ? buildHotTablesSankey(tablas, topTables, weight)
+      : buildHotTablesSankey(
+          tablas,
+          topTables,
+          weight,
+        );
 
   return {
-    nodes: nodos,
-    links: enlaces,
+    nodes: graph.nodes,
+    links: graph.links,
     tables: tablas.slice(0, topTables),
+    allTables: tablas,
     statements: rows.length,
     attributed: atribuidas,
     weightAttributed: pesoAtribuido,
     weightTotal: pesoTotal,
     weightWithActor: pesoConActor,
+    writeTotal,
+    readTotal,
   };
 }
 

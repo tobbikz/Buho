@@ -41,37 +41,37 @@ const EDITION_LIMITS: Record<string, { cores: number | null; memoryGb: number | 
   enterprise: {
     cores: null,
     memoryGb: null,
-    note: 'Enterprise: sin límite de núcleos ni memoria. Es la edición más cara por núcleo.',
+    note: 'Enterprise: no core or memory cap. Most expensive per-core edition.',
     productionOk: true,
   },
   standard: {
     cores: 24,
     memoryGb: 128,
-    note: 'Standard: tope de 24 núcleos (o 4 sockets, el menor) y 128 GB de buffer pool. Los núcleos por encima del tope no los usa el motor.',
+    note: 'Standard: capped at 24 cores (or 4 sockets, whichever is lower) and 128 GB buffer pool. Cores above the cap are unused.',
     productionOk: true,
   },
   web: {
     cores: 16,
     memoryGb: 64,
-    note: 'Web: tope de 16 núcleos y 64 GB. Sólo se puede licenciar a través de un proveedor de hosting.',
+    note: 'Web: capped at 16 cores and 64 GB. Only licensable through a hosting provider.',
     productionOk: true,
   },
   express: {
     cores: 4,
     memoryGb: 1.4,
-    note: 'Express: tope de 4 núcleos, 1.4 GB de buffer pool y 10 GB por base de datos. Gratis, y el límite de 10 GB es la sorpresa clásica en producción.',
+    note: 'Express: 4 cores, 1.4 GB buffer pool, 10 GB per database. Free — the 10 GB cap is the classic production surprise.',
     productionOk: true,
   },
   developer: {
     cores: null,
     memoryGb: null,
-    note: 'Developer: tiene todas las capacidades de Enterprise y es gratis, pero su licencia PROHÍBE usarlo en producción. Si esta instancia atiende cargas reales, es un incumplimiento de licencia.',
+    note: 'Developer: Enterprise features, free license, but production use is prohibited. Real workloads on this edition are a compliance violation.',
     productionOk: false,
   },
   evaluation: {
     cores: null,
     memoryGb: null,
-    note: 'Evaluation: caduca a los 180 días y deja de arrancar. No es apta para producción.',
+    note: 'Evaluation: expires after 180 days and stops starting. Not for production.',
     productionOk: false,
   },
 };
@@ -468,7 +468,7 @@ export async function collectMssql(client: EngineClient): Promise<InventorySnaps
     notes.push({
       domain: 'licensing',
       level: 'error',
-      message: `Edición ${edition}: ${limits.note}`,
+      message: `${edition} edition: ${limits.note}`,
     });
   }
   // Núcleos que la edición no puede usar: se están pagando (o enfriando) para
@@ -477,9 +477,9 @@ export async function collectMssql(client: EngineClient): Promise<InventorySnaps
     notes.push({
       domain: 'licensing',
       level: 'warn',
-      message: `El servidor tiene ${cores} núcleos pero la edición ${edition} sólo puede usar ${limits.cores}. Los ${
+      message: `Server has ${cores} cores but ${edition} can only use ${limits.cores}. The remaining ${
         cores - limits.cores
-      } restantes no los aprovecha el motor.`,
+      } cores are unused by the engine.`,
     });
   }
 

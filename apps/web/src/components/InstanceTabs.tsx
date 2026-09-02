@@ -26,6 +26,7 @@ export function InstanceTabs({
           { href: `${base}/queries`, label: 'Queries' },
           { href: `${base}/indexes`, label: 'Indexes' },
           { href: `${base}/flow`, label: 'Flow' },
+          { href: `${base}/orm`, label: 'ORM' },
           { href: `${base}/topology`, label: 'Topology' },
           { href: `${base}/sessions`, label: 'Sessions' },
           { href: `${base}/capacity`, label: 'Capacity' },

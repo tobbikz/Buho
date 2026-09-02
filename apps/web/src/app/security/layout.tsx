@@ -19,8 +19,8 @@ export default function SecurityLayout({ children }: { children: React.ReactNode
             <h1 className="page-title">Security</h1>
             <p className="page-sub">
               Audit of authentication, privileges, encryption, attack surface, and logging across the three
-              engines. Reviewed every 6 hours: posture changes when someone edits configuration, not
-              forma continua.
+              engines. Reviewed every 6 hours — posture changes when someone edits configuration, not
+              continuously.
             </p>
           </div>
         </header>

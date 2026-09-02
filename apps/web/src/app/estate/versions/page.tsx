@@ -62,7 +62,7 @@ export default async function VersionsPage() {
           tone={expired.length > 0 ? 'error' : 'ok'}
         />
         <StatCard
-          label="Vencen en 6 meses"
+          label="Expiring in 6 months"
           value={String(expiring.length)}
           hint="an upgrade needs planning"
           tone={expiring.length > 0 ? 'warn' : 'ok'}
@@ -80,7 +80,7 @@ export default async function VersionsPage() {
         <div className="panel-header">
           <span className="panel-title">Estate versions</span>
           <span className="font-mono text-[10px] text-foreground-muted">
-            fechas de fin de soporte desde tabla local, sin llamadas a internet
+            support end dates from local table · no internet calls
           </span>
         </div>
         {rows.length === 0 ? (
@@ -90,16 +90,16 @@ export default async function VersionsPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Instancia</th>
+                  <th>Instance</th>
                   <th>Engine</th>
                   <th>Version</th>
                   <th>Edition</th>
-                  <th>Parche</th>
-                  <th>Fin de soporte</th>
+                  <th>Patch</th>
+                  <th>End of support</th>
                   <th className="text-right">Days</th>
-                  <th>Arranque</th>
+                  <th>Started</th>
                   <th className="text-right">Cores</th>
-                  <th className="text-right">Memoria</th>
+                  <th className="text-right">Memory</th>
                 </tr>
               </thead>
               <tbody>
@@ -132,11 +132,11 @@ export default async function VersionsPage() {
                             {row.eolDate}
                           </span>
                         ) : (
-                          <span className="tag tag--muted">desconocido</span>
+                          <span className="tag tag--muted">unknown</span>
                         )}
                       </td>
                       <td className="num">
-                        {days === null ? '·' : days < 0 ? `vencido hace ${-days}` : days}
+                        {days === null ? '·' : days < 0 ? `${-days}d ago` : days}
                       </td>
                       <td className="text-[11px]">{row.startedAt ? formatAgo(row.startedAt) : '·'}</td>
                       <td className="num">{row.cores ?? '·'}</td>
@@ -153,14 +153,14 @@ export default async function VersionsPage() {
       {mixed.length > 0 && (
         <section className="panel" style={{ borderLeft: '3px solid var(--warning)' }}>
           <div className="panel-header">
-            <span className="panel-title">Versiones mezcladas</span>
+            <span className="panel-title">Mixed versions</span>
           </div>
           <div className="panel-body flex flex-col gap-2 text-[12px]">
             {mixed.map(([engine, versions]) => (
               <div key={engine}>
-                <strong>{ENGINE_LABEL[engine] ?? engine}</strong> corre en {versions.size} versiones distintas:{' '}
-                <span className="font-mono text-[11px]">{[...versions].join(' · ')}</span>. Una diferencia de parche
-                across servers that should be twins explains bugs that only happen on one.
+                <strong>{ENGINE_LABEL[engine] ?? engine}</strong> runs {versions.size} different versions:{' '}
+                <span className="font-mono text-[11px]">{[...versions].join(' · ')}</span>. A patch gap across
+                servers that should be twins explains bugs that only happen on one.
               </div>
             ))}
           </div>

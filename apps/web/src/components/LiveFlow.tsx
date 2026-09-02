@@ -4,26 +4,6 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatUnit, type Unit } from '@/lib/units';
 
-/**
- * Lienzo de actividad en vivo.
- *
- * El diagrama acumulado dice cuánto tráfico hubo; esto dice si **ahora mismo**
- * está pasando algo. Cada partícula que viaja por una arista representa trabajo
- * medido en los últimos minutos, y la cantidad de partículas es proporcional a
- * la tasa de esa arista, no a su total histórico. Una tabla que recibió millones
- * de filas esta mañana y nada en los últimos cinco minutos queda quieta.
- *
- * Está dibujado en canvas y no en SVG porque son cientos de partículas moviéndose
- * a sesenta cuadros per second: con un nodo del DOM por partícula el navegador
- * se arrodilla. Y se dibuja sólo cuando la pestaña está visible, para no gastar
- * batería animando algo que nadie ve.
- *
- * Honestidad de lo que se ve: la posición de las partículas es decorativa —no
- * hay una fila viajando por un cable—, pero **la densidad no lo es**. Si una
- * cinta lanza el doble de partículas que otra, es porque movió el doble de peso
- * per second en la window. Y si todo está quieto, es porque no hay tráfico.
- */
-
 export interface LiveNode {
   name: string;
   depth: number;
@@ -33,8 +13,9 @@ export interface LiveNode {
 export interface LiveLink {
   source: number;
   target: number;
-  /** Peso per second. */
+  /** Weight per second. */
   value: number;
+  kind?: 'write' | 'read';
 }
 
 interface Snapshot {
@@ -42,7 +23,6 @@ interface Snapshot {
   links: LiveLink[];
   windowMinutes: number;
   generatedAt: string;
-  /** Tasa "normal" de esta instancia, para saber si lo de ahora es mucho. */
   referenceRate: number | null;
   activeSessions: number | null;
   blockedSessions: number | null;
@@ -51,29 +31,43 @@ interface Snapshot {
 
 interface Particle {
   link: number;
-  /** Avance de 0 a 1 sobre la curva. */
   t: number;
   speed: number;
   size: number;
-  /** Las de ráfaga se dibujan más brillantes: marcan lo que acaba de subir. */
-  burst: boolean;
 }
 
-const COLORES = ['#5b9cf8', '#3ecf8e', '#e0b341'];
-const ALTO_MINIMO = 26;
+const WRITE = '#0a6e42';
+const READ = '#005eb8';
+const NODE_COLORS = [WRITE, READ, '#5c6b7a', '#8a5a00'];
+function hexAlpha(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
-/**
- * Techo de partículas per second en todo el lienzo.
- *
- * No es un límite estético: por encima de esto el ojo ya no distingue más
- * densidad y el navegador empieza a gastar batería para nada.
- */
-const MAX_PARTICULAS_POR_SEGUNDO = 220;
+const MIN_NODE_HEIGHT = 26;
 
-/** Cuántas partículas de golpe por cada duplicación de una arista. */
-const RAFAGA_MAXIMA = 14;
+/** Visible particles per unit of measured rate (rows/s, calls/s, ms/s). */
+const PARTICLES_PER_RATE = 1.25;
+/** Hard cap so the canvas stays readable on hot instances. */
+const MAX_PARTICLES_PER_SECOND = 48;
+/** Max particles on screen at once. */
+const MAX_PARTICLES = 36;
 
-interface Posicion {
+const THEME = {
+  bg: '#f2f4f6',
+  grid: 'rgba(160, 172, 190, 0.22)',
+  edge: 'rgba(0, 94, 184, 0.14)',
+  edgeHot: 'rgba(0, 94, 184, 0.32)',
+  particle: 'rgba(0, 94, 184, 0.82)',
+  particleGlow: 'rgba(0, 94, 184, 0.12)',
+  label: 'rgba(74, 82, 92, 0.92)',
+  labelMuted: 'rgba(122, 130, 140, 0.55)',
+  nodeIdle: '#a8b0ba',
+};
+
+interface NodePos {
   x: number;
   y: number;
   label: string;
@@ -81,12 +75,14 @@ interface Posicion {
   weight: number;
 }
 
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
 export function LiveFlow({
   scope,
   instanceId,
   weight,
-  direction,
-  actor,
   unit,
   height = 420,
   intervalMs = 5000,
@@ -94,33 +90,16 @@ export function LiveFlow({
   scope: 'instancia' | 'flota';
   instanceId?: number;
   weight: string;
-  direction: string;
-  actor: string;
   unit: Unit;
   height?: number;
   intervalMs?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  /**
-   * Mayor tasa vista desde que se abrió la pantalla, con decaimiento.
-   *
-   * Es la escala contra la que se mide "mucho" o "poco". Decae despacio para
-   * que un pico de hace media hora no deje el lienzo apagado el resto de la
-   * tarde, y no baja de un min para que un hilo de tráfico no se vea como
-   * una tormenta.
-   */
-  const referenciaRef = useRef(1);
-  /**
-   * Dónde quedó dibujado cada nodo, para poder acertar el clic.
-   *
-   * El lienzo se dibuja en canvas, así que no hay elementos que reciban eventos:
-   * la posición hay que guardarla al pintar y buscar el nodo más cercano al
-   * punto donde se pinchó.
-   */
+  const snapshotRef = useRef<Snapshot | null>(null);
+  const smoothLinksRef = useRef<LiveLink[]>([]);
+  const referenceRef = useRef(1);
   const posicionesRef = useRef<{ x: number; y: number; label: string; depth: number; name: string }[]>([]);
   const [elegido, setElegido] = useState<{ label: string; depth: number; name: string } | null>(null);
-  const rafagasRef = useRef<{ link: number; count: number }[]>([]);
-  const previoRef = useRef<Map<string, number>>(new Map());
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [fallo, setFallo] = useState<string | null>(null);
   const [edad, setEdad] = useState(0);
@@ -129,14 +108,11 @@ export function LiveFlow({
     const parametros = new URLSearchParams({
       alcance: scope,
       peso: weight,
-      dir: direction,
-      quien: actor,
     });
     if (instanceId !== undefined) parametros.set('instancia', String(instanceId));
     return `/api/flow-live?${parametros.toString()}`;
-  }, [scope, instanceId, weight, direction, actor]);
+  }, [scope, instanceId, weight]);
 
-  // ------------------------------------------------------------------- datos
   useEffect(() => {
     let vivo = true;
     let temporizador: ReturnType<typeof setTimeout> | undefined;
@@ -150,55 +126,19 @@ export function LiveFlow({
           setFallo(cuerpo.error ?? `HTTP ${respuesta.status}`);
         } else {
           setFallo(null);
-
-          // Referencia y ráfagas se calculan aquí y no en el bucle de dibujo:
-          // el bucle corre sesenta veces per second y comparar fotos ahí sería
-          // repetir el mismo cálculo sesenta veces por cada dato nuevo.
           const totalNuevo = cuerpo.links.reduce((suma, enlace) => suma + enlace.value, 0);
-          referenciaRef.current =
+          referenceRef.current =
             cuerpo.referenceRate && cuerpo.referenceRate > 0
-              ? // La referencia viene del servidor: es el percentil 90 de esta
-                // instancia en los últimos días. Se deja subir si ahora mismo se
-                // está superando —un récord tiene que verse a tope y no
-                // desbordado— pero never por debajo de la historia, que es lo
-                // que hacía que cualquier tráfico estable se viera al max.
-                Math.max(cuerpo.referenceRate, totalNuevo)
-              : Math.max(0.35, totalNuevo, referenciaRef.current * 0.97);
+              ? Math.max(cuerpo.referenceRate, totalNuevo)
+              : Math.max(totalNuevo, referenceRef.current * 0.985, 0.001);
 
-          const previo = previoRef.current;
-          const actual = new Map<string, number>();
-          const rafagas: { link: number; count: number }[] = [];
-          cuerpo.links.forEach((enlace, indice) => {
-            const origen = cuerpo.nodes[enlace.source]?.name ?? String(enlace.source);
-            const destino = cuerpo.nodes[enlace.target]?.name ?? String(enlace.target);
-            const clave = `${origen}->${destino}`;
-            actual.set(clave, enlace.value);
-            const antes = previo.get(clave);
-            if (antes === undefined) {
-              // Arista nueva: algo empezó a moverse donde antes no había nada.
-              if (enlace.value > 0) rafagas.push({ link: indice, count: 6 });
-              return;
-            }
-            if (antes > 0 && enlace.value > antes * 1.15) {
-              const veces = enlace.value / antes;
-              rafagas.push({
-                link: indice,
-                count: Math.min(RAFAGA_MAXIMA, Math.ceil((veces - 1) * 8)),
-              });
-            }
-          });
-          previoRef.current = actual;
-          if (rafagas.length > 0) rafagasRef.current = rafagas;
-
+          snapshotRef.current = cuerpo;
           setSnapshot(cuerpo);
           setEdad(0);
         }
       } catch (error) {
         if (vivo) setFallo(error instanceof Error ? error.message : String(error));
       }
-      // Se reprograma al terminar y no en un intervalo fijo: si una consulta
-      // tarda más que el intervalo, encadenar peticiones sólo empeoraría la
-      // carga del store.
       if (vivo) temporizador = setTimeout(traer, intervalMs);
     };
 
@@ -214,56 +154,40 @@ export function LiveFlow({
     return () => clearInterval(reloj);
   }, []);
 
-  // ----------------------------------------------------------------- animación
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    let cuadro = 0;
     const particulas: Particle[] = [];
-    // Un acumulador por arista y no uno global: con uno solo, la arista que más
-    // pesa se llevaba casi todas las partículas por sorteo y las demás
-    // parpadeaban. Cada arista emite a su propio ritmo, que es lo que hace que
-    // el dibujo se parezca al tráfico y no a un promedio.
     const acumulado: number[] = [];
     let anterior = performance.now();
-
+    let cuadro = 0;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-    const posiciones = (): { nodos: Posicion[]; ancho: number; alto: number } => {
-      const ancho = canvas.clientWidth;
-      const alto = canvas.clientHeight;
-      const nodos: Posicion[] = [];
-      if (!snapshot) return { nodos, ancho, alto };
-
+    const layoutNodes = (snap: Snapshot, ancho: number, alto: number): NodePos[] => {
+      const nodos: NodePos[] = [];
       const pesoDe = new Map<number, number>();
-      for (const enlace of snapshot.links) {
+      for (const enlace of snap.links) {
         pesoDe.set(enlace.source, (pesoDe.get(enlace.source) ?? 0) + enlace.value);
         pesoDe.set(enlace.target, (pesoDe.get(enlace.target) ?? 0) + enlace.value);
       }
 
       const columnas = new Map<number, number[]>();
-      snapshot.nodes.forEach((nodo, indice) => {
+      snap.nodes.forEach((nodo, indice) => {
         const lista = columnas.get(nodo.depth) ?? [];
         lista.push(indice);
         columnas.set(nodo.depth, lista);
       });
 
       const profundidades = [...columnas.keys()].sort((a, b) => a - b);
-      // Márgenes distintos a cada lado: a la izquierda van nombres de rol o
-      // aplicación, a la derecha nombres de tabla calificados, que son más
-      // largos. Con el mismo margen en ambos lados el nombre de la tabla —el
-      // dato que menos se puede perder— se salía del lienzo.
       const margenIzq = 96;
       const margenDer = 190;
       const utilX = Math.max(ancho - margenIzq - margenDer, 120);
 
       for (const profundidad of profundidades) {
         const lista = (columnas.get(profundidad) ?? []).slice();
-        // Dentro de cada columna se ordena por peso: lo que más se mueve queda
-        // en el centro vertical, donde el ojo va primero.
         lista.sort((a, b) => (pesoDe.get(b) ?? 0) - (pesoDe.get(a) ?? 0));
         const x =
           profundidades.length === 1
@@ -271,7 +195,7 @@ export function LiveFlow({
             : margenIzq + (utilX * profundidad) / (profundidades.length - 1);
         const paso = alto / (lista.length + 1);
         lista.forEach((indice, orden) => {
-          const nodo = snapshot.nodes[indice]!;
+          const nodo = snap.nodes[indice]!;
           nodos[indice] = {
             x,
             y: paso * (orden + 1),
@@ -281,15 +205,16 @@ export function LiveFlow({
           };
         });
       }
-      return { nodos, ancho, alto };
+      return nodos;
     };
 
     const dibujar = (ahora: number) => {
-      const delta = Math.min((ahora - anterior) / 1000, 0.1);
+      const delta = Math.min((ahora - anterior) / 1000, 0.05);
       anterior = ahora;
 
+      const snap = snapshotRef.current;
       const ancho = canvas.clientWidth;
-      const alto = Math.max(canvas.clientHeight, ALTO_MINIMO);
+      const alto = Math.max(canvas.clientHeight, MIN_NODE_HEIGHT);
       if (canvas.width !== Math.floor(ancho * dpr) || canvas.height !== Math.floor(alto * dpr)) {
         canvas.width = Math.floor(ancho * dpr);
         canvas.height = Math.floor(alto * dpr);
@@ -297,96 +222,88 @@ export function LiveFlow({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, ancho, alto);
 
-      // Fondo oscuro propio: el lienzo es una zona de observación y el contraste
-      // con la consola clara ayuda a ver que esto es "lo que pasa ahora".
-      ctx.fillStyle = '#0b0f16';
+      ctx.fillStyle = THEME.bg;
       ctx.fillRect(0, 0, ancho, alto);
 
-      const { nodos } = posiciones();
+      if (!snap || snap.links.length === 0) {
+        cuadro = requestAnimationFrame(dibujar);
+        return;
+      }
+
+      const targetLinks = snap.links;
+      if (smoothLinksRef.current.length !== targetLinks.length) {
+        smoothLinksRef.current = targetLinks.map((enlace) => ({ ...enlace }));
+      } else {
+        const blend = 1 - Math.exp(-delta * 5);
+        for (let i = 0; i < targetLinks.length; i += 1) {
+          const suave = smoothLinksRef.current[i]!;
+          const objetivo = targetLinks[i]!;
+          suave.value = lerp(suave.value, objetivo.value, blend);
+          suave.source = objetivo.source;
+          suave.target = objetivo.target;
+        }
+      }
+
+      const enlaces = smoothLinksRef.current;
+      const nodos = layoutNodes({ ...snap, links: enlaces }, ancho, alto);
       posicionesRef.current = nodos
         .map((nodo, indice) =>
           nodo
-            ? { x: nodo.x, y: nodo.y, label: nodo.label, depth: nodo.depth, name: snapshot?.nodes[indice]?.name ?? nodo.label }
+            ? {
+                x: nodo.x,
+                y: nodo.y,
+                label: nodo.label,
+                depth: nodo.depth,
+                name: snap.nodes[indice]?.name ?? nodo.label,
+              }
             : null,
         )
-        .filter((nodo): nodo is { x: number; y: number; label: string; depth: number; name: string } => nodo !== null);
-      const enlaces = snapshot?.links ?? [];
+        .filter(
+          (nodo): nodo is { x: number; y: number; label: string; depth: number; name: string } =>
+            nodo !== null,
+        );
+
       const total = enlaces.reduce((suma, enlace) => suma + enlace.value, 0);
+      const referencia = Math.max(referenceRef.current, total, 0.001);
+      const actividad = Math.min(1, total / referencia);
 
-      // La actividad relativa a la referencia gobierna el brillo de todo el
-      // lienzo: con poco tráfico las cintas quedan apenas insinuadas y con mucho
-      // se encienden. Es la diferencia entre un dibujo y un instrumento.
-      const actividad = Math.min(1, total / referenciaRef.current);
-
-      // ------------------------------------------------------------- aristas
       for (const enlace of enlaces) {
         const origen = nodos[enlace.source];
         const destino = nodos[enlace.target];
         if (!origen || !destino) continue;
         const intensidad = total > 0 ? enlace.value / total : 0;
+        const alpha = 0.06 + intensidad * 0.12 + actividad * 0.1;
+        const color = enlace.kind === 'write' ? WRITE : enlace.kind === 'read' ? READ : '#005eb8';
         ctx.beginPath();
         ctx.moveTo(origen.x, origen.y);
         const medio = (origen.x + destino.x) / 2;
         ctx.bezierCurveTo(medio, origen.y, medio, destino.y, destino.x, destino.y);
-        ctx.strokeStyle = `rgba(120, 160, 220, ${0.05 + intensidad * 0.2 + actividad * 0.2})`;
-        ctx.lineWidth = 0.6 + Math.sqrt(intensidad) * 3.2;
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = alpha;
+        ctx.lineWidth = 0.5 + Math.sqrt(intensidad) * 2.2;
         ctx.stroke();
+        ctx.globalAlpha = 1;
       }
 
-      // ---------------------------------------------------------- partículas
-      //
-      // La emisión de cada arista es **proporcional a su tasa**, sin piso: si no
-      // se movió nada, no sale nada. La primera versión sumaba una constante y
-      // aplicaba raíz cuadrada al total, y el resultado era que media llamada por
-      // segundo y cincuenta se veían casi igual: una animación bonita que no
-      // informaba de nada.
-      //
-      // La escala se calibra contra la mayor tasa vista en esta sesión de
-      // observación, no contra un número fijo: 50 filas per second es mucho en
-      // una base pequeña y nada en un datalake, y sin referencia propia habría
-      // que elegir mal para todos. Con eso, cuando el tráfico se duplica se ven
-      // el doble de partículas, y cuando cae se vacía.
-      const referencia = referenciaRef.current;
-      const porSegundoTotal = Math.min(MAX_PARTICULAS_POR_SEGUNDO, (total / referencia) * MAX_PARTICULAS_POR_SEGUNDO);
+      // Emit in proportion to the measured per-second rate — not normalized to
+      // fill the canvas. At 0.03/s you should see a particle every ~30s, not a stream.
+      const rawEmission = Math.min(MAX_PARTICLES_PER_SECOND, total * PARTICLES_PER_RATE);
 
       for (let i = 0; i < enlaces.length; i += 1) {
         const enlace = enlaces[i]!;
         if (enlace.value <= 0) continue;
         const cuota = total > 0 ? enlace.value / total : 0;
-        acumulado[i] = (acumulado[i] ?? Math.random()) + delta * porSegundoTotal * cuota;
-        while ((acumulado[i] ?? 0) >= 1) {
+        acumulado[i] = (acumulado[i] ?? Math.random()) + delta * rawEmission * cuota;
+        while ((acumulado[i] ?? 0) >= 1 && particulas.length < MAX_PARTICLES) {
           acumulado[i] = (acumulado[i] ?? 0) - 1;
+          const linkRate = enlace.value;
           particulas.push({
             link: i,
             t: 0,
-            // La velocidad también sigue a la tasa: un flujo intenso se ve
-            // rápido además de denso, que es cómo se lee "está pasando algo".
-            speed: 0.16 + Math.min(0.55, (total / referencia) * 0.5) + Math.random() * 0.12,
-            size: 1 + Math.sqrt(cuota) * 2.2,
-            burst: false,
+            speed: 0.05 + Math.min(0.22, linkRate * 0.025 + 0.04),
+            size: 1.2 + Math.min(1.8, Math.sqrt(cuota) * 1.4),
           });
         }
-      }
-
-      // Ráfagas: cuando una arista sube respecto a la foto anterior, se lanza un
-      // puñado de partículas brillantes de golpe. Es lo que hace visible el
-      // cambio; sin esto, una subida sólo se notaría comparando densidades de
-      // memoria.
-      const pendientes = rafagasRef.current;
-      if (pendientes.length > 0) {
-        for (const rafaga of pendientes) {
-          if (!enlaces[rafaga.link]) continue;
-          for (let n = 0; n < rafaga.count; n += 1) {
-            particulas.push({
-              link: rafaga.link,
-              t: Math.random() * 0.12,
-              speed: 0.45 + Math.random() * 0.25,
-              size: 1.8 + Math.random(),
-              burst: true,
-            });
-          }
-        }
-        rafagasRef.current = [];
       }
 
       for (let i = particulas.length - 1; i >= 0; i -= 1) {
@@ -409,8 +326,6 @@ export function LiveFlow({
         }
         const t = particula.t;
         const medio = (origen.x + destino.x) / 2;
-        // Cúbica de Bézier con los tiradores en el medio: la misma curva que la
-        // arista, así que la partícula viaja por encima de la cinta y no al lado.
         const x =
           (1 - t) ** 3 * origen.x +
           3 * (1 - t) ** 2 * t * medio +
@@ -423,50 +338,45 @@ export function LiveFlow({
           t ** 3 * destino.y;
 
         const brillo = Math.sin(Math.PI * t);
+        const color = enlace.kind === 'write' ? WRITE : enlace.kind === 'read' ? READ : '#005eb8';
         ctx.beginPath();
         ctx.arc(x, y, particula.size, 0, Math.PI * 2);
-        ctx.fillStyle = particula.burst
-          ? `rgba(255, 246, 214, ${0.45 + brillo * 0.55})`
-          : `rgba(226, 240, 255, ${0.35 + brillo * 0.6})`;
+        ctx.fillStyle = hexAlpha(color, 0.45 + brillo * 0.4);
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(x, y, particula.size * 3.2, 0, Math.PI * 2);
-        ctx.fillStyle = particula.burst
-          ? `rgba(255, 210, 120, ${0.08 + brillo * 0.18})`
-          : `rgba(120, 180, 255, ${0.05 + brillo * 0.12})`;
+        ctx.arc(x, y, particula.size * 2.4, 0, Math.PI * 2);
+        ctx.fillStyle = hexAlpha(color, 0.04 + brillo * 0.08);
         ctx.fill();
       }
 
-      // --------------------------------------------------------------- nodos
-      // El latido de los nodos se acelera con la actividad: quieto es un
-      // parpadeo lento, cargado es un pulso rápido.
-      const pulso = 0.5 + 0.5 * Math.sin(ahora / (900 - actividad * 500));
-      nodos.forEach((nodo) => {
+      const pulso = 0.5 + 0.5 * Math.sin(ahora / (1200 - actividad * 500));
+      nodos.forEach((nodo, indice) => {
         if (!nodo) return;
-        const color = COLORES[Math.min(nodo.depth, COLORES.length - 1)]!;
+        const snapNode = snap.nodes[indice]?.name ?? '';
+        const color =
+          nodo.depth === 0
+            ? snapNode.includes('writes')
+              ? WRITE
+              : READ
+            : NODE_COLORS[Math.min(nodo.depth, NODE_COLORS.length - 1)]!;
         const activo = nodo.weight > 0;
-        const radio = activo ? 3 + pulso * (0.6 + actividad * 1.4) : 2.2;
+        const radio = activo ? 3 + pulso * (0.4 + actividad * 0.9) : 2.2;
 
         if (activo) {
           ctx.beginPath();
-          ctx.arc(nodo.x, nodo.y, radio * 4.2, 0, Math.PI * 2);
-          ctx.fillStyle = `${color}18`;
+          ctx.arc(nodo.x, nodo.y, radio * 3.5, 0, Math.PI * 2);
+          ctx.fillStyle = `${color}14`;
           ctx.fill();
         }
         ctx.beginPath();
         ctx.arc(nodo.x, nodo.y, radio, 0, Math.PI * 2);
-        ctx.fillStyle = activo ? color : '#3a4353';
+        ctx.fillStyle = activo ? color : THEME.nodeIdle;
         ctx.fill();
 
         ctx.font = '10px ui-monospace, SFMono-Regular, monospace';
-        ctx.fillStyle = activo ? 'rgba(226, 236, 250, 0.86)' : 'rgba(160, 172, 190, 0.5)';
+        ctx.fillStyle = activo ? THEME.label : THEME.labelMuted;
         ctx.textBaseline = 'middle';
         const etiqueta = nodo.label.length > 26 ? `${nodo.label.slice(0, 25)}…` : nodo.label;
-
-        // La primera columna escribe hacia dentro y la última hacia fuera, pero
-        // la última se sale del lienzo si el nombre es largo: el nombre de tabla
-        // es justo el dato que no se puede perder, así que se ancla al borde
-        // derecho en vez de dejar que se corte.
         if (nodo.depth === 0) {
           ctx.textAlign = 'right';
           ctx.fillText(etiqueta, nodo.x - 8, nodo.y);
@@ -481,34 +391,20 @@ export function LiveFlow({
 
     cuadro = requestAnimationFrame(dibujar);
     return () => cancelAnimationFrame(cuadro);
-  }, [snapshot]);
+  }, []);
 
   const total = (snapshot?.links ?? [])
     .filter((enlace) => (snapshot?.nodes[enlace.source]?.depth ?? 0) === 0)
     .reduce((suma, enlace) => suma + enlace.value, 0);
 
-  /**
-   * La tasa se escribe con decimales cuando es pequeña.
-   *
-   * Redondear a entero convertía «2,6 llamadas per second» en «0/s» —el
-   * formateador de conteos redondea— y el lienzo quedaba lleno de partículas
-   * junto a un rótulo que decía que no pasaba nada.
-   */
   const tasa =
     unit === 'ms'
       ? formatUnit(total, 'ms')
       : total > 0 && total < 10
-        ? total.toLocaleString('es', { maximumFractionDigits: total < 1 ? 2 : 1 })
+        ? total.toLocaleString('en', { maximumFractionDigits: total < 1 ? 2 : 1 })
         : formatUnit(total, unit);
   const quieto = !snapshot || snapshot.links.length === 0 || total <= 0;
 
-  /**
-   * Busca el nodo más cercano al clic.
-   *
-   * Con un radio generoso: los nodos son puntos de tres píxeles y exigir
-   * puntería sobre eso sería una función que existe pero nadie usa. Si no hay
-   * nada cerca, se cierra el menú, que es lo que espera quien pincha al vacío.
-   */
   const alPinchar = (evento: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -528,9 +424,7 @@ export function LiveFlow({
     setElegido(mejor);
   };
 
-  // El nombre interno viene con prefijo ('tabla:esquema.tabla'), que es lo que
-  // hay que buscar en las consultas; la etiqueta es sólo lo que se dibuja.
-  const objetivo = elegido ? elegido.name.replace(/^[a-zá-ú]+:/i, '') : null;
+  const objetivo = elegido ? elegido.name.replace(/^[a-z]+:/i, '') : null;
   const destinos: { href: string; label: string }[] = [];
   if (elegido && objetivo) {
     const base = instanceId !== undefined ? `/instances/${instanceId}` : null;
@@ -540,8 +434,8 @@ export function LiveFlow({
         label: 'see its queries',
       });
       if (elegido.depth === 2) {
-        destinos.push({ href: `${base}/vacuum`, label: 'estado de vacuum y bloat' });
-        destinos.push({ href: `${base}/indexes`, label: 'indexes y sugerencias' });
+        destinos.push({ href: `${base}/vacuum`, label: 'vacuum and bloat' });
+        destinos.push({ href: `${base}/indexes`, label: 'indexes and suggestions' });
       }
     }
   }
@@ -549,20 +443,20 @@ export function LiveFlow({
   return (
     <div>
       <div
-        className="relative overflow-hidden rounded-[3px] border border-border"
-        style={{ height, background: '#0b0f16' }}
+        className="relative overflow-hidden rounded-[3px] border border-border bg-[var(--surface-muted)]"
+        style={{ height }}
       >
         <canvas ref={canvasRef} className="h-full w-full cursor-pointer" onClick={alPinchar} />
 
         {elegido && destinos.length > 0 && (
-          <div className="absolute bottom-3 right-3 rounded-[3px] border border-[#26303f] bg-[#101724] px-3 py-2 text-[11px] shadow-lg">
-            <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.08em] text-[#7f8ea6]">
-              {elegido.depth === 0 ? 'who' : elegido.depth === 1 ? 'esquema' : 'tabla'}
+          <div className="absolute bottom-3 right-3 rounded-[3px] border border-border bg-[var(--surface)] px-3 py-2 text-[11px] shadow-sm">
+            <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.08em] text-foreground-muted">
+              {elegido.depth === 0 ? 'traffic' : elegido.depth === 1 ? 'schema' : 'table'}
             </div>
-            <div className="mb-2 font-mono text-[12px] text-[#dce6f5]">{elegido.label}</div>
+            <div className="mb-2 font-mono text-[12px] text-foreground">{elegido.label}</div>
             <div className="flex flex-col gap-1">
               {destinos.map((destino) => (
-                <Link key={destino.href} href={destino.href} className="text-[#7fb2ff] hover:underline">
+                <Link key={destino.href} href={destino.href} className="link">
                   {destino.label}
                 </Link>
               ))}
@@ -570,18 +464,18 @@ export function LiveFlow({
             <button
               type="button"
               onClick={() => setElegido(null)}
-              className="mt-2 font-mono text-[10px] text-[#6b7889] hover:text-[#9fb0c6]"
+              className="mt-2 font-mono text-[10px] text-foreground-muted hover:text-foreground-secondary"
             >
-              cerrar
+              close
             </button>
           </div>
         )}
 
-        <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1 font-mono text-[10px] uppercase tracking-[0.08em] text-[#7f8ea6]">
+        <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1 font-mono text-[10px] uppercase tracking-[0.08em] text-foreground-muted">
           <span>
-            en vivo · window {snapshot?.windowMinutes ?? 5} min · dato de hace {edad}s
+            Live · {snapshot?.windowMinutes ?? 5} min window · updated {edad}s ago
           </span>
-          <span className="text-[#c9d6ea]">
+          <span className="text-foreground-secondary">
             {tasa}
             {unit === 'ms' ? ' per second' : '/s'}
             {snapshot?.activeSessions !== null && snapshot?.activeSessions !== undefined
@@ -589,30 +483,29 @@ export function LiveFlow({
               : ''}
             {snapshot?.blockedSessions ? ` · ${snapshot.blockedSessions} blocked` : ''}
           </span>
-          {snapshot?.referenceRate ? (
-            <span>
-              {total <= 0
-                ? 'quieto'
-                : `${Math.round((total / snapshot.referenceRate) * 100)} % of usual for this instance`}
+          {snapshot?.referenceRate && total > 0 ? (
+            <span className="normal-case tracking-normal text-foreground-muted">
+              {Math.round((total / snapshot.referenceRate) * 100)}% of this instance&apos;s usual rate
+            </span>
+          ) : total > 0 ? (
+            <span className="normal-case tracking-normal text-foreground-muted">
+              {total < 0.5 ? 'very light traffic' : total < 5 ? 'light traffic' : 'active'}
             </span>
           ) : null}
         </div>
 
         {quieto && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-8 text-center text-[11px] leading-relaxed text-[#7f8ea6]">
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-8 text-center text-[11px] leading-relaxed text-foreground-muted">
             {fallo
               ? `Could not read activity: ${fallo}`
-              : 'Nothing moved in the last few minutes. The canvas is still because there is no traffic to show, not because it failed: the diagrama acumulado de abajo sigue teniendo la historia.'}
+              : 'Nothing moved in the last few minutes. Switch to Accumulated for history.'}
           </div>
         )}
       </div>
 
       <p className="mt-2 text-[11px] text-foreground-muted">
-        Click any node to jump to its queries, and on tables also to vacuum and
-        indexes. Particles are not rows traveling a wire — position is decorative — but{' '}
-        <strong>the density is real</strong>: each edge emits particles in proportion to what it moved per second
-        en los últimos {snapshot?.windowMinutes ?? 5} minutos. Si una cinta lanza el doble que otra, movió el doble. Si
-        todo está quieto, no hay tráfico.
+        Particle <strong>density matches the measured rate</strong>. Green = writes, blue = reads. Writes and reads
+        flow through schema into table.
       </p>
     </div>
   );

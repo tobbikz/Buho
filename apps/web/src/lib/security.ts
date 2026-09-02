@@ -52,6 +52,18 @@ export interface Finding extends EstateInstance {
   capturedAt: Date | null;
 }
 
+export interface SecurityGrant {
+  scope: string;
+  name: string;
+  privileges: string[];
+}
+
+export interface PrincipalDetail {
+  memberOf?: string[];
+  members?: string[];
+  grants?: SecurityGrant[];
+}
+
 export interface Principal extends EstateInstance {
   name: string;
   principalHost: string;
@@ -63,6 +75,7 @@ export interface Principal extends EstateInstance {
   passwordSetAt: Date | null;
   expiresAt: Date | null;
   privileges: string[];
+  detail: PrincipalDetail;
 }
 
 export interface Posture extends EstateInstance {
@@ -146,7 +159,7 @@ export async function getPrincipals(): Promise<Principal[]> {
   const rows = await query(
     `select ${INSTANCE_COLUMNS}, s.name, s.host as principal_host, s.kind, s.can_login,
             s.is_superuser, s.disabled, s.auth_method, s.password_set_at, s.expires_at,
-            s.privileges
+            s.privileges, s.detail
        from buho.security_principals s
        join buho.instances i using (instance_id)
       order by s.is_superuser desc, i.alias, s.name`,
@@ -164,6 +177,7 @@ export async function getPrincipals(): Promise<Principal[]> {
     passwordSetAt: row['password_set_at'] ? new Date(row['password_set_at'] as string) : null,
     expiresAt: row['expires_at'] ? new Date(row['expires_at'] as string) : null,
     privileges: (row['privileges'] as string[]) ?? [],
+    detail: (row['detail'] as PrincipalDetail) ?? {},
   }));
 }
 

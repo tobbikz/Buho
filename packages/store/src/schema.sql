@@ -518,9 +518,12 @@ create table if not exists buho.security_principals (
   password_set_at timestamptz,
   expires_at      timestamptz,
   privileges      text[]      not null default '{}',
+  detail          jsonb       not null default '{}',
   captured_at     timestamptz not null default now(),
   primary key (instance_id, name, host)
 );
+
+alter table buho.security_principals add column if not exists detail jsonb not null default '{}';
 
 -- La postura sí conserva historia: sirve para responder "¿mejoramos?" y es una
 -- fila por instancia y por corrida, así que no crece de forma preocupante.
@@ -627,6 +630,20 @@ alter table buho.vacuum_tables add column if not exists xid_pct        double pr
 alter table buho.vacuum_tables add column if not exists mxid_pct       double precision;
 
 create index if not exists vacuum_tables_xid on buho.vacuum_tables (instance_id, xid_pct desc nulls last);
+
+-- Foreign keys for the ORM graph (refreshed with each vacuum scan).
+create table if not exists buho.table_fks (
+  instance_id       bigint      not null references buho.instances (instance_id) on delete cascade,
+  from_schema       text        not null,
+  from_table        text        not null,
+  to_schema         text        not null,
+  to_table          text        not null,
+  constraint_name   text        not null,
+  captured_at       timestamptz not null default now(),
+  primary key (instance_id, from_schema, from_table, constraint_name)
+);
+
+create index if not exists table_fks_to on buho.table_fks (instance_id, to_schema, to_table);
 
 -- Vacuums y analyzes en curso. Se borra y se reescribe: es un estado vivo.
 create table if not exists buho.vacuum_progress (
@@ -890,6 +907,9 @@ create table if not exists buho.monitor_targets (
 create index if not exists monitor_targets_enabled_idx
   on buho.monitor_targets (enabled) where enabled;
 
+-- Host metrics (CPU/mem/disk) declared from the console — same shape as config.json hostMetrics.
+alter table buho.monitor_targets add column if not exists host_metrics jsonb not null default '{}'::jsonb;
+
 -- Allow MongoDB on the instances table (older installs had a narrower check).
 alter table buho.instances drop constraint if exists instances_engine_check;
 alter table buho.instances
@@ -905,10 +925,26 @@ create table if not exists buho.collector_events (
   level       text        not null check (level in ('info', 'warn', 'error')),
   component   text        not null,
   message     text        not null,
-  detail      jsonb
+  detail      jsonb,
+  status      text        not null default 'open'
+              check (status in ('open', 'acknowledged', 'resolved')),
+  acked_at    timestamptz,
+  acked_by    text
 );
 
 create index if not exists collector_events_ts on buho.collector_events (ts desc);
+
+-- Older installs: add triage columns without rewriting history.
+alter table buho.collector_events add column if not exists status text not null default 'open';
+alter table buho.collector_events add column if not exists acked_at timestamptz;
+alter table buho.collector_events add column if not exists acked_by text;
+alter table buho.collector_events drop constraint if exists collector_events_status_check;
+alter table buho.collector_events
+  add constraint collector_events_status_check
+  check (status in ('open', 'acknowledged', 'resolved'));
+
+create index if not exists collector_events_open_idx
+  on buho.collector_events (ts desc) where status = 'open';
 
 -- ---------------------------------------------------- particiones y limpieza
 

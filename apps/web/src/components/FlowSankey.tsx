@@ -1,29 +1,77 @@
 'use client';
 
-import { Fragment, useMemo, useState } from 'react';
-import { Sankey, Tooltip, ResponsiveContainer, Layer, Rectangle } from 'recharts';
+import { Fragment, useMemo, useRef, useState } from 'react';
+import { Layer, Rectangle, ResponsiveContainer, Sankey, Tooltip } from 'recharts';
 import type { FlowLink, FlowNode } from '@/lib/flow';
 import { formatUnit, type Unit } from '@/lib/units';
 
-/**
- * Diagrama de flujo del tráfico: rol → esquema → tabla.
- *
- * Se eligió un Sankey y no un grafo de fuerza porque la pregunta tiene una
- * dirección: el tráfico *sale* de un rol y *llega* a una tabla. Un grafo que se
- * acomoda solo queda bonito y obliga a rastrear con el dedo qué es grueso; aquí
- * el grosor de la cinta es la única variable y se lee de izquierda a derecha.
- *
- * El color distingue las tres columnas, no la magnitud: la magnitud ya está en
- * el grosor, y pintarla otra vez con color haría creer que son dos datos.
- */
+const WRITE = '#0a6e42';
+const READ = '#005eb8';
+const SCHEMA = '#5c6b7a';
+const TABLE = '#8a5a00';
 
-const COLOR = {
-  rol: '#005eb8',
-  esquema: '#0a6e42',
-  tabla: '#8a5a00',
-} as const;
+const COLUMN_LABELS = ['Traffic', 'Schema', 'Table'];
 
-const COLUMN_COLOR = [COLOR.rol, COLOR.esquema, COLOR.tabla];
+interface Viewport {
+  scale: number;
+  tx: number;
+  ty: number;
+}
+
+function linkColor(kind: FlowLink['kind']): string {
+  if (kind === 'write') return WRITE;
+  if (kind === 'read') return READ;
+  return '#7a8a9a';
+}
+
+function nodeColor(depth: number, name: string): string {
+  if (depth === 0) return name.includes('writes') ? WRITE : READ;
+  if (depth === 1) return SCHEMA;
+  return TABLE;
+}
+
+function SankeyLink(props: {
+  sourceX?: number;
+  targetX?: number;
+  sourceY?: number;
+  targetY?: number;
+  sourceControlX?: number;
+  targetControlX?: number;
+  linkWidth?: number;
+  index?: number;
+  payload?: FlowLink & { source?: number; target?: number };
+  links?: (FlowLink & { source?: number; target?: number })[];
+}) {
+  const {
+    sourceX = 0,
+    targetX = 0,
+    sourceY = 0,
+    targetY = 0,
+    sourceControlX = 0,
+    targetControlX = 0,
+    linkWidth = 0,
+    payload,
+    links,
+    index = 0,
+  } = props;
+
+  const kind = payload?.kind ?? links?.[index]?.kind;
+  const color = linkColor(kind);
+  const opacity = kind === 'write' ? 0.28 : kind === 'read' ? 0.22 : 0.18;
+
+  return (
+    <path
+      d={`
+        M${sourceX},${sourceY}
+        C${sourceControlX},${sourceY} ${targetControlX},${targetY} ${targetX},${targetY}
+      `}
+      fill="none"
+      stroke={color}
+      strokeWidth={Math.max(linkWidth, 1)}
+      strokeOpacity={opacity}
+    />
+  );
+}
 
 function NodeShape({
   x,
@@ -39,18 +87,16 @@ function NodeShape({
   width?: number;
   height?: number;
   index?: number;
-  payload?: FlowNode & { value?: number };
+  payload?: FlowNode & { value?: number; name?: string };
   onHover?: (index: number | null) => void;
 }) {
   const depth = payload?.depth ?? 0;
-  const color = COLUMN_COLOR[depth] ?? COLOR.rol;
+  const name = payload?.name ?? '';
+  const color = nodeColor(depth, name);
   const alto = height ?? 0;
   const ancho = width ?? 0;
   const izquierda = x ?? 0;
   const arriba = y ?? 0;
-
-  // La etiqueta va fuera del bloque, del lado que no tapa nada: a la derecha en
-  // las dos primeras columnas y a la izquierda en la última.
   const alDerecha = depth < 2;
 
   return (
@@ -59,15 +105,24 @@ function NodeShape({
       onMouseLeave={() => onHover?.(null)}
       style={{ cursor: 'default' }}
     >
-      <Rectangle x={izquierda} y={arriba} width={ancho} height={alto} fill={color} fillOpacity={0.85} />
-      {alto >= 9 && (
+      <Rectangle
+        x={izquierda}
+        y={arriba}
+        width={ancho}
+        height={alto}
+        fill={color}
+        fillOpacity={0.9}
+        radius={[2, 2, 2, 2]}
+      />
+      {alto >= 8 && (
         <text
-          x={alDerecha ? izquierda + ancho + 6 : izquierda - 6}
+          x={alDerecha ? izquierda + ancho + 8 : izquierda - 8}
           y={arriba + alto / 2}
           textAnchor={alDerecha ? 'start' : 'end'}
           dominantBaseline="middle"
-          fontSize={10.5}
-          fill="var(--foreground-muted, #6b7280)"
+          fontSize={11}
+          fontWeight={depth === 0 ? 600 : 400}
+          fill="var(--foreground-secondary, #4a525c)"
         >
           {payload?.label ?? ''}
         </text>
@@ -82,21 +137,22 @@ export function FlowSankey({
   unit,
   height = 420,
   emptyMessage,
+  zoomable = true,
 }: {
   nodes: FlowNode[];
   links: FlowLink[];
-  /**
-   * Unidad del peso, no un formateador: las funciones no cruzan de un
-   * componente de servidor a uno de cliente.
-   */
   unit: Unit;
   height?: number;
   emptyMessage: string;
+  zoomable?: boolean;
 }) {
   const [resaltado, setResaltado] = useState<number | null>(null);
+  const [viewport, setViewport] = useState<Viewport>({ scale: 1, tx: 0, ty: 0 });
+  const [panning, setPanning] = useState(false);
+  const dragRef = useRef<{ ox: number; oy: number } | null>(null);
 
-  // Recharts muta el objeto que recibe, así que se le pasa una copia: sin esto,
-  // un re-render con los mismos datos produce posiciones acumuladas.
+  const maxDepth = useMemo(() => Math.max(0, ...nodes.map((n) => n.depth)), [nodes]);
+
   const data = useMemo(
     () => ({
       nodes: nodes.map((nodo) => ({ ...nodo })),
@@ -105,49 +161,140 @@ export function FlowSankey({
     [nodes, links],
   );
 
+  const resetView = () => setViewport({ scale: 1, tx: 0, ty: 0 });
+
+  const onWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (!zoomable) return;
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const factor = e.deltaY > 0 ? 0.92 : 1.08;
+    setViewport((v) => {
+      const nextScale = Math.min(3, Math.max(0.5, v.scale * factor));
+      const wx = (sx - v.tx) / v.scale;
+      const wy = (sy - v.ty) / v.scale;
+      return {
+        scale: nextScale,
+        tx: sx - wx * nextScale,
+        ty: sy - wy * nextScale,
+      };
+    });
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!zoomable || e.button !== 0) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setPanning(true);
+    dragRef.current = { ox: e.clientX - viewport.tx, oy: e.clientY - viewport.ty };
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    setViewport((v) => ({
+      ...v,
+      tx: e.clientX - dragRef.current!.ox,
+      ty: e.clientY - dragRef.current!.oy,
+    }));
+  };
+
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    setPanning(false);
+    dragRef.current = null;
+  };
+
   if (nodes.length === 0 || links.length === 0) {
     return <div className="empty">{emptyMessage}</div>;
   }
 
   return (
-    <div style={{ width: '100%', height }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <Sankey
-          data={data}
-          nodePadding={14}
-          nodeWidth={10}
-          margin={{ top: 8, right: 130, bottom: 8, left: 8 }}
-          link={{ stroke: '#005eb8', strokeOpacity: 0.18 }}
-          node={<NodeShape onHover={setResaltado} />}
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-4 px-1">
+        <div className="flex gap-4 text-[10px] uppercase tracking-[0.08em] text-foreground-muted">
+          {COLUMN_LABELS.slice(0, maxDepth + 1).map((label) => (
+            <span key={label}>{label}</span>
+          ))}
+        </div>
+        <div className="flex items-center gap-3 text-[10px] text-foreground-muted">
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-2 w-3 rounded-[1px]" style={{ background: WRITE, opacity: 0.7 }} />
+            Writes
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-2 w-3 rounded-[1px]" style={{ background: READ, opacity: 0.7 }} />
+            Reads
+          </span>
+          {zoomable ? <span className="text-border">|</span> : null}
+          {zoomable ? <span>Scroll · zoom · drag · pan</span> : null}
+        </div>
+      </div>
+
+      <div
+        className="relative overflow-hidden rounded-[3px] border border-border bg-[var(--surface-muted)] touch-none"
+        style={{ width: '100%', height, cursor: panning ? 'grabbing' : zoomable ? 'grab' : 'default' }}
+        onWheel={onWheel}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={onPointerUp}
+      >
+        {zoomable ? (
+          <button
+            type="button"
+            onClick={resetView}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="absolute right-2 top-2 z-10 rounded-[3px] border border-border bg-[var(--surface)] px-2 py-1 font-mono text-[10px] text-foreground-secondary hover:text-foreground"
+          >
+            Reset view
+          </button>
+        ) : null}
+
+        <div
+          style={{
+            width: '100%',
+            height: '100%',
+            transform: zoomable
+              ? `translate(${viewport.tx}px, ${viewport.ty}px) scale(${viewport.scale})`
+              : undefined,
+            transformOrigin: '0 0',
+          }}
         >
-          <Tooltip
-            contentStyle={{
-              background: 'var(--surface-raised, #fff)',
-              border: '1px solid var(--border, #d1d5db)',
-              borderRadius: 2,
-              fontSize: 11,
-            }}
-            formatter={(value) => formatUnit(Number(value ?? 0), unit)}
-            labelFormatter={() => ''}
-          />
-        </Sankey>
-      </ResponsiveContainer>
+          <ResponsiveContainer width="100%" height="100%">
+            <Sankey
+              data={data}
+              nodePadding={18}
+              nodeWidth={12}
+              margin={{ top: 12, right: 140, bottom: 12, left: 12 }}
+              link={<SankeyLink links={data.links} />}
+              node={<NodeShape onHover={setResaltado} />}
+            >
+              <Tooltip
+                contentStyle={{
+                  background: 'var(--surface-raised, #fff)',
+                  border: '1px solid var(--border, #d1d5db)',
+                  borderRadius: 2,
+                  fontSize: 11,
+                }}
+                formatter={(value) => formatUnit(Number(value ?? 0), unit)}
+                labelFormatter={() => ''}
+              />
+            </Sankey>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
       {resaltado !== null && nodes[resaltado] && (
         <div className="mt-1 font-mono text-[10px] text-foreground-muted">
-          {nodes[resaltado].name.replace(/^(rol|esquema|tabla):/, '')}
+          {nodes[resaltado].name.replace(/^(traffic|schema|table):/, '')}
         </div>
       )}
     </div>
   );
 }
 
-/**
- * Barras de una tabla, desglosadas por operación.
- *
- * Complementa el Sankey en lo que el Sankey no puede: ahí una tabla es una
- * cinta y no se ve si el tráfico es de inserts o de deletes, que para decidir
- * qué hacer es la diferencia entre "crece" y "se recicla".
- */
 export function OperationBars({
   rows,
   unit,

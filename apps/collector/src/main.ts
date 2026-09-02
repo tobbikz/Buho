@@ -167,7 +167,7 @@ function startInventoryLoop(instance: InstanceConfig, instanceId: number, pool?:
           `${snapshot.jobs.length} jobs, ${problems.length} hallazgo(s)`,
       );
       for (const note of problems) {
-        await store.logEvent(instanceId, note.level, `inventario:${note.domain}`, note.message);
+        await store.logEvent(instanceId, note.level, `inventory:${note.domain}`, note.message);
       }
     } finally {
       if (!pool) await client.close().catch(() => {});
@@ -209,7 +209,7 @@ function startSecurityLoop(instance: InstanceConfig, instanceId: number, pool?: 
         await store.logEvent(
           instanceId,
           finding.severity === 'critica' ? 'error' : 'warn',
-          `seguridad:${finding.category}`,
+          `security:${finding.category}`,
           finding.title,
         );
       }
@@ -219,8 +219,8 @@ function startSecurityLoop(instance: InstanceConfig, instanceId: number, pool?: 
         await store.logEvent(
           instanceId,
           'info',
-          'seguridad:cobertura',
-          `${blind.length} comprobación(es) sin permisos suficientes: ${blind
+          'security:coverage',
+          `${blind.length} check(s) could not run (insufficient privileges): ${blind
             .map((finding) => finding.checkId)
             .join(', ')}`,
         );
@@ -344,7 +344,7 @@ function startActorLoop(
           instanceId,
           'info',
           'actors',
-          soporte.reason ?? 'sin atribución por aplicación',
+          soporte.reason ?? 'application attribution unavailable',
         );
         return;
       }
@@ -624,146 +624,163 @@ async function monitorInstance(instance: InstanceConfig): Promise<void> {
 
   const instanceId = await store.upsertInstance(instance);
   let caps: Capabilities;
+  let monitoringStarted = false;
+
+  const startMonitoringLoops = () => {
+    if (monitoringStarted) return;
+    monitoringStarted = true;
+
+    for (const tier of Object.keys(TIER_INTERVAL_MS) as Tier[]) {
+      startLoop(`${instance.alias}/${tier}`, TIER_INTERVAL_MS[tier], async () => {
+        const collectors = collectorsFor(caps, tier);
+        if (collectors.length === 0) return;
+
+        const result = await runCollectors(pool, caps, collectors);
+        const { rates, discarded } = deltas.rates(key, result.samples);
+        const written = await store.insertSamples(instanceId, [...result.samples, ...rates]);
+
+        if (result.errors.length > 0) {
+          for (const error of result.errors) {
+            log('warn', `${instance.alias}/${tier}: colector ${error.collectorId}: ${error.message}`);
+            await store.logEvent(instanceId, 'warn', `collector:${error.collectorId}`, error.message);
+          }
+        }
+        if (discarded > 0) {
+          log('info', `${instance.alias}/${tier}: ${discarded} contadores descartados por reset de estadísticas`);
+        }
+        log('info', `${instance.alias}/${tier}: ${written} muestras (${result.latencyMs.toFixed(1)} ms)`);
+      });
+    }
+
+    startInventoryLoop(instance, instanceId, pool);
+    startSecurityLoop(instance, instanceId, pool);
+    startPlanQueueLoop(instance, instanceId, pool);
+    startBloatQueueLoop(instance, instanceId, pool);
+    startActorLoop(instance, instanceId, pool, caps);
+    startSessionLoop(instance, instanceId, pool);
+
+    startLoop(`${instance.alias}/locks`, LOCKS_INTERVAL_MS, async () => {
+      const blocked = await sampleBlocking(pool);
+      if (blocked.length === 0) return;
+      await store.saveLockEpisodes(instanceId, blocked);
+      const worst = blocked[0];
+      log(
+        'info',
+        `${instance.alias}/locks: ${blocked.length} sesión(es) bloqueada(s)` +
+          `${worst ? `, la peor ${worst.waitSeconds.toFixed(1)} s en ${worst.lockObject ?? 'objeto desconocido'}` : ''}`,
+      );
+    });
+
+    // CPU, memoria y disco del host. Sólo si la instancia lo declara: leer /proc
+    // por SSH sin que nadie lo haya pedido sería una sorpresa desagradable.
+    const hostConfig = instance.hostMetrics;
+    if (hostConfig && hostConfig.source && hostConfig.source !== 'none') {
+      const host = new HostTracker();
+      startLoop(`${instance.alias}/host`, HOST_INTERVAL_MS, async () => {
+        const snapshot = await readHostSnapshot(hostConfig);
+        const samples = host.samples(snapshot);
+        if (samples.length === 0) return;
+        await store.insertSamples(instanceId, samples);
+        log('info', `${instance.alias}/host: ${samples.length} muestras (${hostConfig.source})`);
+      });
+    }
+
+    startLogLoop(instance, instanceId, pool);
+
+    startLoop(`${instance.alias}/vacuum`, VACUUM_INTERVAL_MS, async () => {
+      const snapshot = await sampleVacuum(pool, caps);
+      await store.saveVacuum(instanceId, snapshot);
+      await store.insertSamples(instanceId, vacuumSamples(snapshot));
+
+      const running = snapshot.progress.length;
+      const worst = snapshot.tables[0];
+      log(
+        'info',
+        `${instance.alias}/vacuum: ${snapshot.tables.length} tabla(s)` +
+          (running > 0 ? `, ${running} en curso` : '') +
+          (worst ? `, peor ${worst.schema}.${worst.table} con ${Math.round(worst.deadTuples)} muertas` : ''),
+      );
+    });
+
+    // El loop se registra siempre: si el DBA hace CREATE EXTENSION más tarde, el
+    // reprobe actualiza las capabilities y esto arranca solo, sin reiniciar Búho.
+    const statements = new StatementTracker();
+    startLoop(`${instance.alias}/statements`, STATEMENTS_INTERVAL_MS, async () => {
+      if (caps.statStatements !== 'active') return;
+
+      const rows = await sampleStatements(pool, caps);
+      const { deltas, discarded } = statements.deltas(rows);
+      if (discarded > 0) {
+        log('info', `${instance.alias}/statements: ${discarded} consulta(s) descartada(s) por reset de estadísticas`);
+      }
+      if (deltas.length === 0) return;
+
+      const written = await store.saveStatements(instanceId, deltas);
+      const totalMs = deltas.reduce((sum, delta) => sum + delta.execMs, 0);
+      log(
+        'info',
+        `${instance.alias}/statements: ${written} consulta(s) con actividad, ${totalMs.toFixed(0)} ms de ejecución`,
+      );
+    });
+
+    startLoop(`${instance.alias}/checks`, CHECKS_INTERVAL_MS, async () => {
+      const summary = await runChecks(pool, caps);
+      await store.saveCheckResults(instanceId, summary.results, summary.healthScore);
+      const critical = summary.results.filter((r) => r.severity === 'critical').length;
+      log(
+        'info',
+        `${instance.alias}/checks: score ${summary.healthScore}/100, ${summary.results.length} hallazgos` +
+          `${critical > 0 ? ` (${critical} críticos)` : ''}`,
+      );
+    });
+
+    startLoop(`${instance.alias}/reprobe`, REPROBE_INTERVAL_MS, async () => {
+      const fresh = await probeCapabilities(pool);
+      if (fresh.versionNum !== caps.versionNum) {
+        log('warn', `${instance.alias}: cambió la versión (${caps.versionNum} → ${fresh.versionNum})`);
+        deltas.reset(key);
+      }
+      caps = fresh;
+      await store.saveCapabilities(instanceId, fresh);
+    });
+  };
+
+  const onProbeSuccess = async (probed: Capabilities) => {
+    caps = probed;
+    await store.saveCapabilities(instanceId, caps);
+    if (!monitoringStarted) {
+      log(
+        'info',
+        `${instance.alias} (${key}): PostgreSQL ${caps.versionNum}, ${caps.inRecovery ? 'standby' : 'primary'}, ` +
+          `pg_stat_statements=${caps.statStatements}`,
+      );
+      for (const warning of capabilityWarnings(caps)) {
+        log('warn', `${instance.alias}: ${warning}`);
+        await store.logEvent(instanceId, 'warn', 'capability_probe', warning);
+      }
+    }
+    startMonitoringLoops();
+  };
 
   try {
     caps = await probeCapabilities(pool);
+    await onProbeSuccess(caps);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log('error', `${instance.alias}: no se pudo hacer el probe inicial: ${message}`);
     await store.logEvent(instanceId, 'error', 'capability_probe', message);
-    // Se reintenta el probe en el próximo ciclo en vez de abandonar la instancia.
+    // Se reintenta el probe en el próximo ciclo; al recuperarse arrancan todos los loops.
     startLoop(`${instance.alias}/reprobe`, 60_000, async () => {
-      caps = await probeCapabilities(pool);
-      await store.saveCapabilities(instanceId, caps);
-      log('info', `${instance.alias}: probe recuperado`);
-    });
-    return;
-  }
-
-  await store.saveCapabilities(instanceId, caps);
-  log(
-    'info',
-    `${instance.alias} (${key}): PostgreSQL ${caps.versionNum}, ${caps.inRecovery ? 'standby' : 'primary'}, ` +
-      `pg_stat_statements=${caps.statStatements}`,
-  );
-  for (const warning of capabilityWarnings(caps)) {
-    log('warn', `${instance.alias}: ${warning}`);
-    await store.logEvent(instanceId, 'warn', 'capability_probe', warning);
-  }
-
-  for (const tier of Object.keys(TIER_INTERVAL_MS) as Tier[]) {
-    startLoop(`${instance.alias}/${tier}`, TIER_INTERVAL_MS[tier], async () => {
-      const collectors = collectorsFor(caps, tier);
-      if (collectors.length === 0) return;
-
-      const result = await runCollectors(pool, caps, collectors);
-      const { rates, discarded } = deltas.rates(key, result.samples);
-      const written = await store.insertSamples(instanceId, [...result.samples, ...rates]);
-
-      if (result.errors.length > 0) {
-        for (const error of result.errors) {
-          log('warn', `${instance.alias}/${tier}: colector ${error.collectorId}: ${error.message}`);
-          await store.logEvent(instanceId, 'warn', `collector:${error.collectorId}`, error.message);
-        }
+      if (monitoringStarted) return;
+      try {
+        const fresh = await probeCapabilities(pool);
+        log('info', `${instance.alias}: probe recuperado`);
+        await onProbeSuccess(fresh);
+      } catch {
+        // Sigue caída; se reintenta en el próximo ciclo.
       }
-      if (discarded > 0) {
-        log('info', `${instance.alias}/${tier}: ${discarded} contadores descartados por reset de estadísticas`);
-      }
-      log('info', `${instance.alias}/${tier}: ${written} muestras (${result.latencyMs.toFixed(1)} ms)`);
     });
   }
-
-  startInventoryLoop(instance, instanceId, pool);
-  startSecurityLoop(instance, instanceId, pool);
-  startPlanQueueLoop(instance, instanceId, pool);
-  startBloatQueueLoop(instance, instanceId, pool);
-  startActorLoop(instance, instanceId, pool, caps);
-  startSessionLoop(instance, instanceId, pool);
-
-  startLoop(`${instance.alias}/locks`, LOCKS_INTERVAL_MS, async () => {
-    const blocked = await sampleBlocking(pool);
-    if (blocked.length === 0) return;
-    await store.saveLockEpisodes(instanceId, blocked);
-    const worst = blocked[0];
-    log(
-      'info',
-      `${instance.alias}/locks: ${blocked.length} sesión(es) bloqueada(s)` +
-        `${worst ? `, la peor ${worst.waitSeconds.toFixed(1)} s en ${worst.lockObject ?? 'objeto desconocido'}` : ''}`,
-    );
-  });
-
-  // CPU, memoria y disco del host. Sólo si la instancia lo declara: leer /proc
-  // por SSH sin que nadie lo haya pedido sería una sorpresa desagradable.
-  const hostConfig = instance.hostMetrics;
-  if (hostConfig && hostConfig.source && hostConfig.source !== 'none') {
-    const host = new HostTracker();
-    startLoop(`${instance.alias}/host`, HOST_INTERVAL_MS, async () => {
-      const snapshot = await readHostSnapshot(hostConfig);
-      const samples = host.samples(snapshot);
-      if (samples.length === 0) return;
-      await store.insertSamples(instanceId, samples);
-      log('info', `${instance.alias}/host: ${samples.length} muestras (${hostConfig.source})`);
-    });
-  }
-
-  startLogLoop(instance, instanceId, pool);
-
-  startLoop(`${instance.alias}/vacuum`, VACUUM_INTERVAL_MS, async () => {
-    const snapshot = await sampleVacuum(pool, caps);
-    await store.saveVacuum(instanceId, snapshot);
-    await store.insertSamples(instanceId, vacuumSamples(snapshot));
-
-    const running = snapshot.progress.length;
-    const worst = snapshot.tables[0];
-    log(
-      'info',
-      `${instance.alias}/vacuum: ${snapshot.tables.length} tabla(s)` +
-        (running > 0 ? `, ${running} en curso` : '') +
-        (worst ? `, peor ${worst.schema}.${worst.table} con ${Math.round(worst.deadTuples)} muertas` : ''),
-    );
-  });
-
-  // El loop se registra siempre: si el DBA hace CREATE EXTENSION más tarde, el
-  // reprobe actualiza las capabilities y esto arranca solo, sin reiniciar Búho.
-  const statements = new StatementTracker();
-  startLoop(`${instance.alias}/statements`, STATEMENTS_INTERVAL_MS, async () => {
-    if (caps.statStatements !== 'active') return;
-
-    const rows = await sampleStatements(pool, caps);
-    const { deltas, discarded } = statements.deltas(rows);
-    if (discarded > 0) {
-      log('info', `${instance.alias}/statements: ${discarded} consulta(s) descartada(s) por reset de estadísticas`);
-    }
-    if (deltas.length === 0) return;
-
-    const written = await store.saveStatements(instanceId, deltas);
-    const totalMs = deltas.reduce((sum, delta) => sum + delta.execMs, 0);
-    log(
-      'info',
-      `${instance.alias}/statements: ${written} consulta(s) con actividad, ${totalMs.toFixed(0)} ms de ejecución`,
-    );
-  });
-
-  startLoop(`${instance.alias}/checks`, CHECKS_INTERVAL_MS, async () => {
-    const summary = await runChecks(pool, caps);
-    await store.saveCheckResults(instanceId, summary.results, summary.healthScore);
-    const critical = summary.results.filter((r) => r.severity === 'critical').length;
-    log(
-      'info',
-      `${instance.alias}/checks: score ${summary.healthScore}/100, ${summary.results.length} hallazgos` +
-        `${critical > 0 ? ` (${critical} críticos)` : ''}`,
-    );
-  });
-
-  startLoop(`${instance.alias}/reprobe`, REPROBE_INTERVAL_MS, async () => {
-    const fresh = await probeCapabilities(pool);
-    if (fresh.versionNum !== caps.versionNum) {
-      log('warn', `${instance.alias}: cambió la versión (${caps.versionNum} → ${fresh.versionNum})`);
-      deltas.reset(key);
-    }
-    caps = fresh;
-    await store.saveCapabilities(instanceId, fresh);
-  });
 }
 
 async function shutdown(signal: string): Promise<void> {
@@ -793,6 +810,14 @@ if (released > 0) log('warn', `${released} plan request(s) were abandoned in the
 const startedKeys = new Set<string>();
 
 function targetToInstance(target: Awaited<ReturnType<typeof store.listMonitorTargets>>[number]): InstanceConfig {
+  const hostMetrics = target.hostMetrics;
+  const hasHostMetrics =
+    hostMetrics &&
+    typeof hostMetrics === 'object' &&
+    'source' in hostMetrics &&
+    hostMetrics.source &&
+    hostMetrics.source !== 'none';
+
   return {
     alias: target.alias,
     engine: target.engine as InstanceConfig['engine'],
@@ -805,6 +830,7 @@ function targetToInstance(target: Awaited<ReturnType<typeof store.listMonitorTar
     tenant: target.tenant,
     ssl: target.ssl,
     tags: target.tags,
+    hostMetrics: hasHostMetrics ? (hostMetrics as InstanceConfig['hostMetrics']) : undefined,
   };
 }
 

@@ -1,0 +1,66 @@
+# Lab PostgreSQL pair for Búho fleet testing (datalake-local + standby-prueba).
+#
+# Primary :5435 → datalake-local   Standby :5434 → standby-prueba
+# Reset: bash scripts/lab-healthy-reset.sh
+services:
+  datalake-primary:
+    image: postgres:18-alpine
+    container_name: buho-datalake-primary
+    profiles: []
+    environment:
+      POSTGRES_USER: tomy.berrios
+      POSTGRES_PASSWORD: Yucaquemada1
+      POSTGRES_DB: datalake
+    ports:
+      - "127.0.0.1:5435:5432"
+    volumes:
+      - buho_datalake_primary:/var/lib/postgresql
+      - ./docker/lab/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./docker/lab/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./docker/lab/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tomy.berrios -d datalake"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  datalake-standby:
+    image: postgres:18-alpine
+    container_name: buho-datalake-standby
+    depends_on:
+      datalake-primary:
+        condition: service_healthy
+    environment:
+      POSTGRES_USER: tomy.berrios
+      POSTGRES_PASSWORD: Yucaquemada1
+      POSTGRES_DB: datalake
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - buho_datalake_standby:/var/lib/postgresql
+      - ./docker/lab/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./docker/lab/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./docker/lab/standby-entrypoint.sh:/standby-entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/standby-entrypoint.sh"]
+    command:
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tomy.berrios -d datalake"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  buho_datalake_primary:
+  buho_datalake_standby:

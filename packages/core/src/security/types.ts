@@ -27,12 +27,12 @@ export type SecurityCategory =
   | 'acceso_publico';
 
 export const CATEGORY_LABEL: Record<SecurityCategory, string> = {
-  autenticacion: 'Autenticación',
-  privilegios: 'Privilegios',
-  cifrado: 'Cifrado',
-  superficie: 'Superficie de ataque',
-  auditoria: 'Auditoría y registro',
-  acceso_publico: 'Acceso público',
+  autenticacion: 'Authentication',
+  privilegios: 'Privileges',
+  cifrado: 'Encryption',
+  superficie: 'Attack surface',
+  auditoria: 'Audit and logging',
+  acceso_publico: 'Public access',
 };
 
 export const SEVERITY_ORDER: Record<SecuritySeverity, number> = {
@@ -57,21 +57,37 @@ export interface SecurityFinding {
   evidence?: Record<string, unknown>;
 }
 
+export interface SecurityGrant {
+  scope: 'database' | 'schema' | 'table' | 'server' | 'other';
+  name: string;
+  privileges: string[];
+}
+
+export interface SecurityPrincipalDetail {
+  /** Roles or groups this principal belongs to. */
+  memberOf?: string[];
+  /** Direct members when this principal is a role or group. */
+  members?: string[];
+  /** Privileges on databases, schemas, tables, etc. */
+  grants?: SecurityGrant[];
+}
+
 export interface SecurityPrincipal {
   name: string;
-  /** 'login', 'rol', 'usuario' — el vocabulario cambia por motor. */
+  /** 'login', 'rol', 'usuario' — the vocabulary changes by engine. */
   kind: string;
-  /** Host desde el que puede conectar. Sólo MariaDB lo modela así. */
+  /** Host from which connections are allowed. MariaDB models this explicitly. */
   host?: string | null;
   canLogin: boolean;
   isSuperuser: boolean;
   disabled: boolean;
-  /** scram, md5, mysql_native_password, SQL_LOGIN, WINDOWS_LOGIN, sin contraseña… */
+  /** scram, md5, mysql_native_password, SQL_LOGIN, WINDOWS_LOGIN, no password… */
   authMethod?: string | null;
   passwordSetAt?: Date | null;
   expiresAt?: Date | null;
-  /** Privilegios globales relevantes: SUPER, FILE, sysadmin, BYPASSRLS… */
+  /** Global privileges: SUPER, FILE, sysadmin, BYPASSRLS… */
   privileges: string[];
+  detail?: SecurityPrincipalDetail;
 }
 
 export interface SecurityAudit {
@@ -144,7 +160,7 @@ export function unverifiable(
     category,
     severity: 'no_verificable',
     title,
-    detail: `No se pudo comprobar: ${message}`,
+    detail: `Could not verify: ${message}`,
     remediation: requirement,
     evidence: { error: message },
   };

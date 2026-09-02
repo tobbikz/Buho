@@ -48,7 +48,7 @@ export default async function LicensingPage() {
           tone={wastedCores > 0 ? 'warn' : 'ok'}
         />
         <StatCard label="Instances with commercial licenses" value={String(licensed.length)} />
-        <StatCard label="Motores libres" value={String(free.length)} hint="nothing to audit" tone="ok" />
+        <StatCard label="Open-source engines" value={String(free.length)} hint="nothing to audit" tone="ok" />
       </div>
 
       <NotesPanel notes={notes} title="What each engine's license means" />
@@ -64,14 +64,14 @@ export default async function LicensingPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Instancia</th>
+                  <th>Instance</th>
                   <th>Engine</th>
                   <th>Edition</th>
-                  <th>Modelo</th>
+                  <th>Model</th>
                   <th className="text-right">Cores</th>
-                  <th className="text-right">Tope de cores</th>
-                  <th className="text-right">Memoria</th>
-                  <th className="text-right">Tope de memoria</th>
+                  <th className="text-right">Core limit</th>
+                  <th className="text-right">Memory</th>
+                  <th className="text-right">Memory limit</th>
                   <th>Production</th>
                 </tr>
               </thead>
@@ -91,7 +91,7 @@ export default async function LicensingPage() {
                     <td className="num">{formatNumber(row.cores)}</td>
                     <td className="num">
                       {row.coresLimit === null ? (
-                        row.productionOk === null ? '·' : 'sin tope'
+                        row.productionOk === null ? '·' : 'no limit'
                       ) : (
                         <span className={(row.cores ?? 0) > row.coresLimit ? 'tag tag--warn' : ''}>
                           {row.coresLimit}
@@ -99,12 +99,12 @@ export default async function LicensingPage() {
                       )}
                     </td>
                     <td className="num">{row.memoryBytes ? formatBytes(row.memoryBytes) : '·'}</td>
-                    <td className="num">{row.memoryLimitBytes ? formatBytes(row.memoryLimitBytes) : row.productionOk === null ? '·' : 'sin tope'}</td>
+                    <td className="num">{row.memoryLimitBytes ? formatBytes(row.memoryLimitBytes) : row.productionOk === null ? '·' : 'no limit'}</td>
                     <td>
                       {row.productionOk === null ? (
-                        <span className="tag tag--ok">libre</span>
+                        <span className="tag tag--ok">open source</span>
                       ) : row.productionOk ? (
-                        <span className="tag tag--ok">apta</span>
+                        <span className="tag tag--ok">eligible</span>
                       ) : (
                         <span className="tag tag--error">not eligible</span>
                       )}

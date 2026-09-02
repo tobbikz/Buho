@@ -31,7 +31,7 @@ function num(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function text(value: unknown, fallback = '(desconocido)'): string {
+function text(value: unknown, fallback = '(unknown)'): string {
   if (value === null || value === undefined || value === '') return fallback;
   return String(value);
 }
@@ -88,8 +88,8 @@ const s = (mapa: Map<string, string>, nombre: string): number => num(mapa.get(`s
  */
 const configuracion: ForeignCheckDefinition = {
   id: 'mariadb_config',
-  title: 'Configuración y durabilidad',
-  description: 'Durabilidad, buffer pool, binlog, timeouts y modo estricto',
+  title: 'Configuration and durability',
+  description: 'Durability, buffer pool, binlog, timeouts, and strict mode',
   sql: () => ESTADO_SQL,
   evaluate: (rows) => {
     const mapa = estado(rows);
@@ -102,10 +102,10 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'critical',
         object: 'innodb_flush_log_at_trx_commit',
-        message: `innodb_flush_log_at_trx_commit = ${flush}: un corte de energía pierde hasta un segundo de transacciones ya confirmadas.`,
+        message: `innodb_flush_log_at_trx_commit = ${flush}: a power loss can lose up to one second of already committed transactions.`,
         remediation:
-          'Poner innodb_flush_log_at_trx_commit=1 (se cambia en caliente con SET GLOBAL). ' +
-          'El valor 2 sólo es defendible en réplicas de lectura o en un entorno de pruebas, y conviene dejarlo escrito.',
+          'Set innodb_flush_log_at_trx_commit=1 (hot-change with SET GLOBAL). ' +
+          'Value 2 is only defensible on read replicas or in a test environment, and it should be documented.',
       });
     }
 
@@ -114,8 +114,8 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'warning',
         object: 'sync_binlog',
-        message: `sync_binlog = ${syncBinlog} con binlog encendido: tras un corte, el binlog y los datos pueden quedar desalineados y la réplica sale corrupta.`,
-        remediation: 'Poner sync_binlog=1. Con almacenamiento moderno el costo es pequeño y es el requisito para que una réplica sea confiable.',
+        message: `sync_binlog = ${syncBinlog} with binlog on: after a crash, binlog and data can be misaligned and the replica comes up corrupt.`,
+        remediation: 'Set sync_binlog=1. With modern storage the cost is small and it is required for a reliable replica.',
       });
     }
 
@@ -123,10 +123,10 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'warning',
         object: 'log_bin',
-        message: 'el binlog está apagado: no se puede recuperar a un punto en el tiempo ni agregar una réplica.',
+        message: 'binlog is off: point-in-time recovery and adding a replica are not possible.',
         remediation:
-          'Encender log_bin en my.cnf (requiere reinicio). Sin binlog el único respaldo posible es el volcado completo, ' +
-          'y se pierde todo lo ocurrido desde el último volcado.',
+          'Enable log_bin in my.cnf (requires restart). Without binlog the only backup option is a full dump, ' +
+          'and everything since the last dump is lost.',
       });
     }
 
@@ -135,8 +135,8 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'warning',
         object: 'binlog_format',
-        message: `binlog_format = ${formato}: las sentencias no deterministas se replican distinto en la réplica y la desincronizan en silencio.`,
-        remediation: 'Poner binlog_format=ROW (se cambia en caliente con SET GLOBAL binlog_format=ROW).',
+        message: `binlog_format = ${formato}: non-deterministic statements replicate differently on the replica and desync it silently.`,
+        remediation: 'Set binlog_format=ROW (hot-change with SET GLOBAL binlog_format=ROW).',
       });
     }
 
@@ -151,11 +151,11 @@ const configuracion: ForeignCheckDefinition = {
           severity: aciertos < 95 ? 'critical' : 'warning',
           object: 'innodb_buffer_pool_size',
           message:
-            `el buffer pool acierta ${formatPct(aciertos)} de las lecturas y está en ` +
-            `${formatBytes(num(v(mapa, 'INNODB_BUFFER_POOL_SIZE')))}: el motor está yendo a disco de forma sostenida.`,
+            `buffer pool hit rate is ${formatPct(aciertos)} and it is set to ` +
+            `${formatBytes(num(v(mapa, 'INNODB_BUFFER_POOL_SIZE')))}: the engine is going to disk steadily.`,
           remediation:
-            'Subir innodb_buffer_pool_size hasta que el conjunto de datos activo entre en memoria; en un servidor dedicado, ' +
-            'entre 60 % y 75 % de la RAM. Se puede cambiar en caliente en MariaDB 10.2+ y el motor redimensiona por bloques.',
+            'Raise innodb_buffer_pool_size until the active working set fits in memory; on a dedicated server, ' +
+            'between 60% and 75% of RAM. It can be changed hot in MariaDB 10.2+ and the engine resizes in chunks.',
           value: aciertos,
         });
       }
@@ -165,9 +165,9 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'warning',
         object: 'innodb_buffer_pool_wait_free',
-        message: `${s(mapa, 'INNODB_BUFFER_POOL_WAIT_FREE')} esperas por página libre en el buffer pool: las escrituras no alcanzan a vaciarse.`,
+        message: `${s(mapa, 'INNODB_BUFFER_POOL_WAIT_FREE')} waits for a free page in the buffer pool: writes cannot flush fast enough.`,
         remediation:
-          'Subir innodb_io_capacity e innodb_io_capacity_max al rango real del disco (en SSD, 2000 y 4000 son puntos de partida razonables).',
+          'Raise innodb_io_capacity and innodb_io_capacity_max to the real disk range (on SSD, 2000 and 4000 are reasonable starting points).',
       });
     }
 
@@ -178,10 +178,10 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: usadas / maxConn > 0.95 ? 'critical' : 'warning',
         object: 'max_connections',
-        message: `el pico de conexiones llegó a ${usadas} de ${maxConn} (${formatPct((usadas / maxConn) * 100)}).`,
+        message: `connection peak reached ${usadas} of ${maxConn} (${formatPct((usadas / maxConn) * 100)}).`,
         remediation:
-          'Poner un pool en la aplicación antes de subir max_connections: cada conexión reserva buffers de sesión ' +
-          '(sort_buffer_size, join_buffer_size) y mil conexiones ociosas pueden costar gigas de RAM.',
+          'Put a pool in the application before raising max_connections: each connection reserves session buffers ' +
+          '(sort_buffer_size, join_buffer_size) and a thousand idle connections can cost gigabytes of RAM.',
         value: (usadas / maxConn) * 100,
       });
     }
@@ -190,8 +190,8 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'critical',
         object: 'connection_errors_max_connections',
-        message: `${s(mapa, 'CONNECTION_ERRORS_MAX_CONNECTIONS')} conexión(es) rechazada(s) por llegar a max_connections: la aplicación ya vio errores.`,
-        remediation: 'Revisar el pool de la aplicación y subir max_connections como medida temporal (se cambia en caliente).',
+        message: `${s(mapa, 'CONNECTION_ERRORS_MAX_CONNECTIONS')} connection(s) rejected for hitting max_connections: the application already saw errors.`,
+        remediation: 'Review the application pool and raise max_connections as a temporary measure (hot-change).',
       });
     }
 
@@ -201,8 +201,8 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'info',
         object: 'thread_cache_size',
-        message: `se creó un hilo nuevo en ${formatPct((hilosCreados / conexiones) * 100)} de las conexiones: la caché de hilos no alcanza.`,
-        remediation: 'Subir thread_cache_size a por lo menos el pico de conexiones concurrentes (se cambia en caliente).',
+        message: `a new thread was created on ${formatPct((hilosCreados / conexiones) * 100)} of connections: the thread cache is too small.`,
+        remediation: 'Raise thread_cache_size to at least the peak of concurrent connections (hot-change).',
       });
     }
 
@@ -213,10 +213,10 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: tmpDisco / tmp > 0.5 ? 'warning' : 'info',
         object: 'tmp_table_size',
-        message: `${formatPct((tmpDisco / tmp) * 100)} de las tablas temporales terminan en disco (${tmpDisco} de ${tmp}).`,
+        message: `${formatPct((tmpDisco / tmp) * 100)} of temp tables end up on disk (${tmpDisco} of ${tmp}).`,
         remediation:
-          'Subir tmp_table_size y max_heap_table_size juntos (el límite efectivo es el menor de los dos). ' +
-          'Si no baja, casi siempre hay un GROUP BY sobre una columna TEXT o BLOB, que va a disco sin importar el tamaño.',
+          'Raise tmp_table_size and max_heap_table_size together (the effective limit is the lower of the two). ' +
+          'If it does not drop, there is usually a GROUP BY on a TEXT or BLOB column, which goes to disk regardless of size.',
         value: (tmpDisco / tmp) * 100,
       });
     }
@@ -226,10 +226,10 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'warning',
         object: 'deadlocks',
-        message: `${s(mapa, 'INNODB_DEADLOCKS')} deadlock(s) desde el arranque.`,
+        message: `${s(mapa, 'INNODB_DEADLOCKS')} deadlock(s) since startup.`,
         remediation:
-          'El detalle del último está en la pantalla de log: InnoDB guarda el grafo completo con las dos consultas. ' +
-          'La causa habitual es que dos transacciones toman las mismas filas en orden distinto.',
+          'Details of the last one are in the error log: InnoDB stores the full graph with both queries. ' +
+          'The usual cause is two transactions locking the same rows in different order.',
         value: s(mapa, 'INNODB_DEADLOCKS'),
       });
     }
@@ -239,10 +239,9 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: esperaMedia > 5_000 ? 'critical' : 'warning',
         object: 'innodb_row_lock_time_avg',
-        message: `cada espera por lock de fila dura ${formatDuration(esperaMedia / 1000)} en promedio.`,
+        message: `each row lock wait lasts ${formatDuration(esperaMedia / 1000)} on average.`,
         remediation:
-          'Buscar transacciones largas que tocan muchas filas. Un innodb_lock_wait_timeout más corto convierte una espera ' +
-          'infinita en un error que la aplicación puede reintentar, pero no arregla la causa.',
+          'Look for long transactions touching many rows. A shorter innodb_lock_wait_timeout turns infinite waits into errors the application can retry, but it does not fix the cause.',
         value: esperaMedia,
       });
     }
@@ -252,10 +251,10 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'warning',
         object: 'max_statement_time',
-        message: 'max_statement_time = 0: una consulta mal escrita puede correr para siempre y arrastrar al servidor.',
+        message: 'max_statement_time = 0: a badly written query can run forever and drag down the server.',
         remediation:
-          'Poner max_statement_time con un techo generoso (por ejemplo 300 segundos) en el servidor, y ajustarlo por sesión ' +
-          'para los procesos que de verdad necesitan más. Se cambia en caliente.',
+          'Set max_statement_time with a generous ceiling (for example 300 seconds) on the server, and tune per session ' +
+          'for processes that truly need more. Hot-change.',
       });
     }
 
@@ -264,8 +263,8 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'info',
         object: 'innodb_lock_wait_timeout',
-        message: `innodb_lock_wait_timeout = ${esperaLock}s: una sesión bloqueada espera cinco minutos antes de rendirse.`,
-        remediation: 'Bajarlo a 10–50 segundos para que la aplicación reciba un error accionable en vez de quedarse colgada.',
+        message: `innodb_lock_wait_timeout = ${esperaLock}s: a blocked session waits five minutes before giving up.`,
+        remediation: 'Lower it to 10–50 seconds so the application gets an actionable error instead of hanging.',
       });
     }
 
@@ -274,10 +273,10 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'warning',
         object: 'performance_schema',
-        message: 'performance_schema está apagado: no hay analítica de consultas, así que no se puede saber qué consulta consume el tiempo.',
+        message: 'performance_schema is off: there is no query analytics, so you cannot tell which query consumes the time.',
         remediation:
-          'Poner performance_schema=ON en my.cnf y reiniciar. El costo típico es de un 5 % de CPU y es lo que habilita ' +
-          'la pantalla de consultas.',
+          'Set performance_schema=ON in my.cnf and restart. Typical cost is about 5% CPU and it enables ' +
+          'the query dashboard.',
       });
     }
 
@@ -285,10 +284,10 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'info',
         object: 'slow_query_log',
-        message: 'el slow log está apagado: las consultas lentas no dejan rastro.',
+        message: 'slow query log is off: slow queries leave no trace.',
         remediation:
-          'Encender slow_query_log con long_query_time=1 y log_output=TABLE (todo en caliente); así Búho lo lee sin ' +
-          'necesitar acceso al servidor.',
+          'Enable slow_query_log with long_query_time=1 and log_output=TABLE (all hot-change); Buho reads it without ' +
+          'needing server access.',
       });
     }
 
@@ -298,10 +297,10 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'warning',
         object: 'sql_mode',
-        message: 'sql_mode no incluye STRICT_TRANS_TABLES: los datos que no caben se truncan en silencio en vez de dar error.',
+        message: 'sql_mode does not include STRICT_TRANS_TABLES: data that does not fit is silently truncated instead of raising an error.',
         remediation:
-          'Agregar STRICT_TRANS_TABLES a sql_mode (se cambia en caliente). Conviene probarlo primero: una aplicación vieja ' +
-          'puede estar dependiendo del truncado.',
+          'Add STRICT_TRANS_TABLES to sql_mode (hot-change). Test first: an old application ' +
+          'may depend on truncation.',
       });
     }
 
@@ -309,10 +308,10 @@ const configuracion: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'warning',
         object: 'innodb_file_per_table',
-        message: 'innodb_file_per_table está apagado: todo vive en ibdata1, que nunca devuelve espacio al sistema de archivos.',
+        message: 'innodb_file_per_table is off: everything lives in ibdata1, which never returns space to the filesystem.',
         remediation:
-          'Encenderlo (en caliente) y reconstruir las tablas grandes con ALTER TABLE … FORCE para sacarlas del tablespace ' +
-          'compartido. Es la única forma de recuperar disco al borrar datos.',
+          'Enable it (hot-change) and rebuild large tables with ALTER TABLE … FORCE to move them out of the shared ' +
+          'tablespace. It is the only way to reclaim disk after deleting data.',
       });
     }
 
@@ -330,8 +329,8 @@ const configuracion: ForeignCheckDefinition = {
  */
 const sinClavePrimaria: ForeignCheckDefinition = {
   id: 'mariadb_no_primary_key',
-  title: 'Tablas sin clave primaria',
-  description: 'Tablas InnoDB sin PK, que degradan la replicación por filas',
+  title: 'Tables without primary key',
+  description: 'InnoDB tables without a PK, which degrade row-based replication',
   sql: () => `
     select t.table_schema as db, t.table_name as tabla,
            t.data_length + t.index_length as bytes, t.table_rows as filas
@@ -349,10 +348,10 @@ const sinClavePrimaria: ForeignCheckDefinition = {
     rows.map((row) => ({
       severity: num(row['bytes']) > 1_073_741_824 ? 'warning' : 'info',
       object: `${text(row['db'])}.${text(row['tabla'])}`,
-      message: `sin clave primaria, ${formatBytes(num(row['bytes']))} y ~${num(row['filas'])} filas.`,
+      message: `no primary key, ${formatBytes(num(row['bytes']))} and ~${num(row['filas'])} rows.`,
       remediation:
-        'Agregar una clave primaria. Con binlog_format=ROW, cada UPDATE o DELETE en la réplica recorre la tabla completa ' +
-        'por cada fila cambiada, así que una tabla grande sin PK basta para dejar la réplica permanentemente atrasada.',
+        'Add a primary key. With binlog_format=ROW, each UPDATE or DELETE on the replica scans the full table ' +
+        'for every changed row, so one large table without a PK is enough to leave the replica permanently behind.',
       value: num(row['bytes']),
     })),
 };
@@ -367,8 +366,8 @@ const sinClavePrimaria: ForeignCheckDefinition = {
  */
 const espacioReclamable: ForeignCheckDefinition = {
   id: 'mariadb_reclaimable_space',
-  title: 'Espacio reclamable en tablas',
-  description: 'Tablas con mucho data_free, que ocupan disco sin usarlo',
+  title: 'Reclaimable table space',
+  description: 'Tables with large data_free that occupy disk without using it',
   sql: () => `
     select table_schema as db, table_name as tabla,
            data_length + index_length as bytes,
@@ -388,10 +387,10 @@ const espacioReclamable: ForeignCheckDefinition = {
       return {
         severity: libre > 10_737_418_240 ? 'warning' : 'info',
         object: `${text(row['db'])}.${text(row['tabla'])}`,
-        message: `${formatBytes(libre)} reclamables (${formatPct(pct)} del tamaño de la tabla).`,
+        message: `${formatBytes(libre)} reclaimable (${formatPct(pct)} of table size).`,
         remediation:
-          'OPTIMIZE TABLE la reconstruye y devuelve el espacio, pero bloquea escrituras en MariaDB sin ALGORITHM=INPLACE. ' +
-          'La alternativa sin bloqueo es ALTER TABLE … FORCE, ALGORITHM=INPLACE, LOCK=NONE.',
+          'OPTIMIZE TABLE rebuilds the table and returns space, but blocks writes in MariaDB without ALGORITHM=INPLACE. ' +
+          'The non-blocking alternative is ALTER TABLE … FORCE, ALGORITHM=INPLACE, LOCK=NONE.',
         value: libre,
       };
     }),
@@ -400,8 +399,8 @@ const espacioReclamable: ForeignCheckDefinition = {
 /** Transacciones abiertas hace mucho: la causa raíz de la mitad de los bloqueos. */
 const transaccionesViejas: ForeignCheckDefinition = {
   id: 'mariadb_long_transactions',
-  title: 'Transacciones abiertas hace mucho',
-  description: 'Transacciones que retienen locks y crecen el historial de undo',
+  title: 'Long-open transactions',
+  description: 'Transactions that hold locks and grow the undo history',
   appliesTo: (caps) => caps.features.lockWaits,
   sql: () => `
     select trx_id, trx_mysql_thread_id as hilo, trx_state as estado,
@@ -417,14 +416,14 @@ const transaccionesViejas: ForeignCheckDefinition = {
       const segundos = num(row['segundos']);
       return {
         severity: segundos > 3_600 ? 'critical' : 'warning',
-        object: `hilo ${text(row['hilo'])}`,
+        object: `thread ${text(row['hilo'])}`,
         message:
-          `transacción abierta hace ${formatDuration(segundos)} en estado ${text(row['estado'])}, ` +
-          `${num(row['filas_bloqueadas'])} fila(s) bloqueada(s)` +
-          (text(row['consulta'], '') ? `: ${text(row['consulta'])}` : ' sin consulta activa'),
+          `transaction open for ${formatDuration(segundos)} in state ${text(row['estado'])}, ` +
+          `${num(row['filas_bloqueadas'])} row(s) locked` +
+          (text(row['consulta'], '') ? `: ${text(row['consulta'])}` : ' with no active query'),
         remediation:
-          'Una transacción abierta impide purgar el historial de undo y bloquea a otras sesiones. Si no tiene consulta activa, ' +
-          'es la aplicación que abrió BEGIN y no cerró: revisar el manejo de transacciones del pool antes de matar el hilo con KILL.',
+          'An open transaction prevents purging undo history and blocks other sessions. If there is no active query, ' +
+          'the application opened BEGIN and never closed it: review pool transaction handling before killing the thread with KILL.',
         value: segundos,
       };
     }),
@@ -433,8 +432,8 @@ const transaccionesViejas: ForeignCheckDefinition = {
 /** Réplica caída o atrasada, visto desde la réplica. */
 const replicacion: ForeignCheckDefinition = {
   id: 'mariadb_replication',
-  title: 'Salud de la replicación',
-  description: 'Hilos de replicación y retraso frente al primario',
+  title: 'Replication health',
+  description: 'Replication threads and lag versus the primary',
   appliesTo: (caps) => caps.role === 'replica',
   sql: () => 'show replica status',
   evaluate: (rows) => {
@@ -450,13 +449,13 @@ const replicacion: ForeignCheckDefinition = {
     if (!io || !sql) {
       hallazgos.push({
         severity: 'critical',
-        object: !io ? 'hilo de IO' : 'hilo de SQL',
+        object: !io ? 'IO thread' : 'SQL thread',
         message:
-          `el hilo de ${!io ? 'IO' : 'SQL'} está detenido` +
-          (errno > 0 ? `: error ${errno} — ${text(campo('Last_Error'), 'sin detalle')}` : '.'),
+          `${!io ? 'IO' : 'SQL'} thread is stopped` +
+          (errno > 0 ? `: error ${errno} — ${text(campo('Last_Error'), 'no details')}` : '.'),
         remediation:
-          'La réplica dejó de aplicar cambios y se atrasa desde este momento. Revisar el error y reanudar con ' +
-          'START REPLICA; si el error es un conflicto de datos, saltarlo con GTID en vez de sql_slave_skip_counter.',
+          'The replica stopped applying changes and is falling behind from this point. Review the error and resume with ' +
+          'START REPLICA; if it is a data conflict, skip it with GTID instead of sql_slave_skip_counter.',
       });
     }
 
@@ -466,18 +465,18 @@ const replicacion: ForeignCheckDefinition = {
         hallazgos.push({
           severity: 'warning',
           object: 'Seconds_Behind_Master',
-          message: 'el retraso llega en NULL con los dos hilos corriendo: la réplica no sabe cuánto le falta.',
-          remediation: 'Suele pasar justo después de arrancar la réplica. Si persiste, revisar la conexión con el primario.',
+          message: 'lag reports NULL with both threads running: the replica does not know how far behind it is.',
+          remediation: 'This often happens right after starting the replica. If it persists, check the connection to the primary.',
         });
       }
     } else if (num(retraso) > 60) {
       hallazgos.push({
         severity: num(retraso) > 600 ? 'critical' : 'warning',
-        object: 'retraso',
-        message: `la réplica está ${formatDuration(num(retraso))} atrás del primario.`,
+        object: 'lag',
+        message: `replica is ${formatDuration(num(retraso))} behind the primary.`,
         remediation:
-          'La causa habitual es un solo hilo de aplicación contra un primario paralelo: subir slave_parallel_threads ' +
-          'y usar slave_parallel_mode=optimistic. La otra causa clásica es una tabla grande sin clave primaria.',
+          'The usual cause is a single apply thread against a parallel primary: raise slave_parallel_threads ' +
+          'and use slave_parallel_mode=optimistic. The other classic cause is a large table without a primary key.',
         value: num(retraso),
       });
     }

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { SecurityFindingRow } from '@/components/SecurityFindingRow';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { formatAgo } from '@/lib/format';
@@ -19,9 +20,9 @@ export const dynamic = 'force-dynamic';
 const ORDER: Severity[] = ['critica', 'alta', 'media', 'baja', 'no_verificable', 'ok'];
 
 function findingClass(severity: Severity): string {
-  if (severity === 'critica' || severity === 'alta') return 'finding finding--critical';
-  if (severity === 'media' || severity === 'baja') return 'finding finding--warning';
-  return 'finding finding--info';
+  if (severity === 'critica' || severity === 'alta') return 'finding--critical';
+  if (severity === 'media' || severity === 'baja') return 'finding--warning';
+  return 'finding--info';
 }
 
 export default async function SecurityPage() {
@@ -40,8 +41,8 @@ export default async function SecurityPage() {
           <span className="panel-title">No audits yet</span>
         </div>
         <div className="panel-body text-[12px] text-foreground-secondary">
-          El colector audita la seguridad cada 6 horas y la primera lectura ocurre al arrancar. Si esto sigue
-          empty, check the collector log: the audit needs to connect to each instance.
+          The collector runs a security audit every 6 hours; the first run happens at startup. If this
+          stays empty, check the collector log — the audit must connect to each instance.
         </div>
       </section>
     );
@@ -52,11 +53,14 @@ export default async function SecurityPage() {
   const blind = findings.filter((finding) => finding.severity === 'no_verificable');
   const exposed = new Set(critical.map((finding) => finding.instanceId));
   const worst = posture[0];
+  const verified = posture.reduce((sum, row) => sum + row.verified, 0);
+  const totalChecks = posture.reduce((sum, row) => sum + row.total, 0);
+  const coveragePct = totalChecks > 0 ? Math.round((verified / totalChecks) * 100) : 0;
 
   const grouped = ORDER.map((severity) => ({
     severity,
     items: findings.filter((finding) => finding.severity === severity),
-  })).filter((group) => group.items.length > 0);
+  })).filter((group) => group.items.length > 0 && group.severity !== 'ok');
 
   return (
     <div className="flex flex-col gap-[0.875rem]">
@@ -87,7 +91,14 @@ export default async function SecurityPage() {
           tone={scoreTone(worst.score)}
         />
         <StatCard
-          label="Puntos ciegos"
+          label="Audit coverage"
+          value={String(coveragePct)}
+          unit="%"
+          hint={`${verified} of ${totalChecks} checks verified`}
+          tone={coveragePct >= 90 ? 'ok' : coveragePct >= 70 ? 'warn' : 'error'}
+        />
+        <StatCard
+          label="Blind spots"
           value={String(blind.length)}
           hint="checks lacking permissions"
           tone={blind.length > 0 ? 'warn' : 'ok'}
@@ -98,20 +109,20 @@ export default async function SecurityPage() {
         <div className="panel-header">
           <span className="panel-title">Posture by instance</span>
           <span className="text-[11px] text-foreground-muted">
-            el puntaje se calcula only over what could be verified
+            score is calculated only over checks that could be verified
           </span>
         </div>
         <table className="data-table">
           <thead>
             <tr>
-              <th>Instancia</th>
+              <th>Instance</th>
               <th>Engine</th>
               <th className="text-right">Posture</th>
               <th className="text-right">Critical</th>
-              <th className="text-right">Altas</th>
-              <th className="text-right">Medias</th>
-              <th className="text-right">Bajas</th>
-              <th className="text-right">Verificadas</th>
+              <th className="text-right">High</th>
+              <th className="text-right">Medium</th>
+              <th className="text-right">Low</th>
+              <th className="text-right">Verified</th>
               <th>Last audit</th>
             </tr>
           </thead>
@@ -153,41 +164,31 @@ export default async function SecurityPage() {
               className={`tag ${
                 group.severity === 'critica' || group.severity === 'alta'
                   ? 'tag--error'
-                  : group.severity === 'ok'
-                    ? 'tag--ok'
-                    : group.severity === 'no_verificable'
-                      ? 'tag--muted'
-                      : 'tag--warn'
+                  : group.severity === 'no_verificable'
+                    ? 'tag--muted'
+                    : 'tag--warn'
               }`}
             >
               {group.items.length}
             </span>
             {group.severity === 'no_verificable' && (
               <span className="text-[11px] text-foreground-muted">
-                Búho no pudo mirar. No significa que esté bien
+                Búho could not run these checks — that does not mean the server is safe
               </span>
             )}
           </div>
           <div className="panel-body p-0">
             {group.items.map((finding) => (
-              <div
+              <SecurityFindingRow
                 key={`${finding.instanceId}-${finding.checkId}`}
-                className={findingClass(finding.severity)}
-              >
-                <div className="flex flex-col gap-1">
-                  <Link href={`/instances/${finding.instanceId}`} className="text-[11px]">
-                    {finding.alias}
-                  </Link>
-                  <span className="tag tag--muted">{CATEGORY_LABEL[finding.category] ?? finding.category}</span>
-                </div>
-                <div>
-                  <div className="finding__title">{finding.title}</div>
-                  <div className="finding__message">{finding.detail}</div>
-                  {finding.remediation && (
-                    <div className="finding__remediation">{finding.remediation}</div>
-                  )}
-                </div>
-              </div>
+                instanceId={finding.instanceId}
+                alias={finding.alias}
+                categoryLabel={CATEGORY_LABEL[finding.category] ?? finding.category}
+                title={finding.title}
+                detail={finding.detail}
+                remediation={finding.remediation}
+                severityClass={findingClass(finding.severity)}
+              />
             ))}
           </div>
         </section>

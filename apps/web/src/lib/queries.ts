@@ -31,10 +31,18 @@ export interface FleetInstance {
   connectionsMax: number | null;
   uptimeSeconds: number | null;
   blockedSessions: number | null;
+  maxBlockedSeconds: number | null;
   cacheHitPct: number | null;
   xidAgePct: number | null;
   commitsPerSec: number | null;
   replicationLagSeconds: number | null;
+  cpuPct: number | null;
+  memUsedPct: number | null;
+  mongoMemResidentMb: number | null;
+  queriesPerSec: number | null;
+  mongoOpsPerSec: number | null;
+  /** Sum of insert+update+delete tuple rates when commits/s is not available yet. */
+  dmlTuplesPerSec: number | null;
 }
 
 /**
@@ -58,10 +66,22 @@ metrics as (
          max(value) filter (where metric = 'connections_max')               as connections_max,
          max(value) filter (where metric = 'uptime_seconds')                as uptime_seconds,
          max(value) filter (where metric = 'blocked_sessions')              as blocked_sessions,
+         max(value) filter (where metric = 'max_blocked_seconds')           as max_blocked_seconds,
          min(value) filter (where metric = 'db_cache_hit_pct')              as cache_hit_pct,
          max(value) filter (where metric = 'xid_age_pct')                   as xid_age_pct,
          sum(value) filter (where metric = 'db_xact_commit_per_sec')        as commits_per_sec,
-         max(value) filter (where metric = 'replication_replay_lag_seconds') as replication_lag_seconds
+         sum(value) filter (where metric in (
+           'db_tup_inserted_per_sec', 'db_tup_updated_per_sec', 'db_tup_deleted_per_sec'
+         ))                                                                  as dml_tuples_per_sec,
+         max(value) filter (where metric = 'replication_replay_lag_seconds') as replication_lag_seconds,
+         max(value) filter (where metric = 'host_cpu_pct')                  as host_cpu_pct,
+         max(value) filter (where metric = 'host_mem_used_pct')               as host_mem_used_pct,
+         max(value) filter (where metric = 'mongo_mem_resident_mb')           as mongo_mem_resident_mb,
+         max(value) filter (where metric = 'queries_total_per_sec')         as queries_per_sec,
+         sum(value) filter (where metric in (
+           'mongo_op_query_per_sec', 'mongo_op_insert_per_sec', 'mongo_op_update_per_sec',
+           'mongo_op_delete_per_sec', 'mongo_op_command_per_sec'
+         ))                                                                  as mongo_ops_per_sec
     from latest
    group by instance_id
 ),
@@ -84,8 +104,10 @@ select i.instance_id, i.alias, i.host, i.port, i.database, i.environment, i.engi
        coalesce(s.warning, 0)  as warning,
        coalesce(s.info, 0)     as info,
        m.connections_used_pct, m.connections_total, m.connections_max,
-       m.uptime_seconds, m.blocked_sessions, m.cache_hit_pct, m.xid_age_pct,
-       m.commits_per_sec, m.replication_lag_seconds
+       m.uptime_seconds, m.blocked_sessions, m.max_blocked_seconds, m.cache_hit_pct, m.xid_age_pct,
+       m.commits_per_sec, m.dml_tuples_per_sec, m.replication_lag_seconds,
+       m.host_cpu_pct, m.host_mem_used_pct, m.mongo_mem_resident_mb,
+       m.queries_per_sec, m.mongo_ops_per_sec
   from buho.instances i
   left join buho.instance_capabilities c on c.instance_id = i.instance_id
   left join scores s on s.instance_id = i.instance_id
@@ -99,10 +121,23 @@ const FLEET_METRICS = [
   'connections_max',
   'uptime_seconds',
   'blocked_sessions',
+  'max_blocked_seconds',
   'db_cache_hit_pct',
   'xid_age_pct',
   'db_xact_commit_per_sec',
+  'db_tup_inserted_per_sec',
+  'db_tup_updated_per_sec',
+  'db_tup_deleted_per_sec',
   'replication_replay_lag_seconds',
+  'host_cpu_pct',
+  'host_mem_used_pct',
+  'mongo_mem_resident_mb',
+  'queries_total_per_sec',
+  'mongo_op_query_per_sec',
+  'mongo_op_insert_per_sec',
+  'mongo_op_update_per_sec',
+  'mongo_op_delete_per_sec',
+  'mongo_op_command_per_sec',
 ];
 
 function toFleetInstance(row: Record<string, unknown>): FleetInstance {
@@ -132,10 +167,17 @@ function toFleetInstance(row: Record<string, unknown>): FleetInstance {
     connectionsMax: num(row['connections_max']),
     uptimeSeconds: num(row['uptime_seconds']),
     blockedSessions: num(row['blocked_sessions']),
+    maxBlockedSeconds: num(row['max_blocked_seconds']),
     cacheHitPct: num(row['cache_hit_pct']),
     xidAgePct: num(row['xid_age_pct']),
     commitsPerSec: num(row['commits_per_sec']),
+    dmlTuplesPerSec: num(row['dml_tuples_per_sec']),
     replicationLagSeconds: num(row['replication_lag_seconds']),
+    cpuPct: num(row['host_cpu_pct']),
+    memUsedPct: num(row['host_mem_used_pct']),
+    mongoMemResidentMb: num(row['mongo_mem_resident_mb']),
+    queriesPerSec: num(row['queries_per_sec']),
+    mongoOpsPerSec: num(row['mongo_ops_per_sec']),
   };
 }
 
@@ -166,7 +208,64 @@ export interface Finding {
   ts: Date;
 }
 
+export interface FleetFinding extends Finding {
+  instanceId: number;
+  alias: string;
+}
+
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
+
+const LATEST_FINDINGS_CTE = `
+  ultima as (
+    select instance_id, max(ts) as ts
+      from buho.check_results
+     group by instance_id
+  ),
+  vigentes as (
+    select r.*
+      from buho.check_results r
+      join ultima u on u.instance_id = r.instance_id and u.ts = r.ts
+  )`;
+
+/**
+ * Findings de la última corrida, a nivel flota. Sirve para modales de critical/warning
+ * sin repetir la lógica de agrupación de la pantalla de Checks.
+ */
+export async function getFleetFindings(
+  severities: Severity[] = ['critical', 'warning'],
+): Promise<FleetFinding[]> {
+  const rows = await query<Record<string, unknown>>(
+    `with ${LATEST_FINDINGS_CTE}
+     select v.check_id, v.title, v.severity, v.object, v.message, v.remediation, v.value, v.ts,
+            v.instance_id, i.alias
+       from vigentes v
+       join buho.instances i using (instance_id)
+      where v.severity = any($1::text[])
+      order by v.severity, i.alias, v.check_id, v.object nulls first`,
+    [severities],
+  );
+
+  return rows
+    .map((row) => ({
+      instanceId: Number(row['instance_id']),
+      alias: String(row['alias']),
+      checkId: String(row['check_id']),
+      title: String(row['title']),
+      severity: row['severity'] as Severity,
+      object: (row['object'] as string | null) ?? null,
+      message: String(row['message']),
+      remediation: String(row['remediation']),
+      value: num(row['value']),
+      ts: row['ts'] as Date,
+    }))
+    .sort(
+      (a, b) =>
+        SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] ||
+        a.alias.localeCompare(b.alias) ||
+        a.checkId.localeCompare(b.checkId) ||
+        (a.object ?? '').localeCompare(b.object ?? ''),
+    );
+}
 
 /**
  * Los checks se guardan por corrida; la UI muestra únicamente la última.
@@ -793,25 +892,139 @@ export async function getLockEpisodes(
 // ------------------------------------------------------------------- eventos
 
 export interface CollectorEvent {
+  eventId: number;
   ts: Date;
   level: 'info' | 'warn' | 'error';
   component: string;
   message: string;
+  instanceId: number | null;
+  instanceAlias: string | null;
+  status: 'open' | 'acknowledged' | 'resolved';
+  ackedAt: Date | null;
+  ackedBy: string | null;
+  detail: unknown | null;
+  /** Open feed only: earliest occurrence in the collapsed group. */
+  firstTs?: Date | null;
+  /** Open feed only: how many matching rows were collapsed. */
+  occurrences?: number;
 }
 
-export async function getEvents(instanceId: number | null, limit = 25): Promise<CollectorEvent[]> {
+export type EventFeedView = 'open' | 'history';
+
+function parseEventDetail(raw: unknown): unknown | null {
+  if (raw == null) return null;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) as unknown;
+    } catch {
+      return raw;
+    }
+  }
+  return raw;
+}
+
+export async function getEvents(
+  instanceId: number | null,
+  limit = 100,
+  view: EventFeedView = 'open',
+): Promise<CollectorEvent[]> {
+  if (view === 'open') {
+    const rows = await query<Record<string, unknown>>(
+      `select max(e.event_id) as event_id,
+              max(e.ts) as ts,
+              min(e.ts) as first_ts,
+              e.level,
+              e.component,
+              e.message,
+              e.instance_id,
+              i.alias as instance_alias,
+              count(*)::int as occurrences,
+              (array_agg(e.detail order by e.ts desc))[1] as detail
+         from buho.collector_events e
+         left join buho.instances i on i.instance_id = e.instance_id
+        where e.status = 'open'
+          and ($1::bigint is null or e.instance_id = $1)
+        group by e.instance_id, i.alias, e.level, e.component, e.message
+        order by max(e.ts) desc
+        limit $2`,
+      [instanceId, limit],
+    );
+    return rows.map((row) => ({
+      eventId: Number(row['event_id']),
+      ts: row['ts'] as Date,
+      level: row['level'] as CollectorEvent['level'],
+      component: String(row['component']),
+      message: String(row['message']),
+      instanceId: row['instance_id'] === null ? null : Number(row['instance_id']),
+      instanceAlias: (row['instance_alias'] as string | null) ?? null,
+      status: 'open' as const,
+      ackedAt: null,
+      ackedBy: null,
+      detail: parseEventDetail(row['detail']),
+      firstTs: (row['first_ts'] as Date | null) ?? null,
+      occurrences: Number(row['occurrences'] ?? 1),
+    }));
+  }
+
   const rows = await query<Record<string, unknown>>(
-    `select ts, level, component, message
-       from buho.collector_events
-      where ($1::bigint is null or instance_id = $1)
-      order by ts desc
+    `select e.event_id, e.ts, e.level, e.component, e.message, e.detail, e.instance_id,
+            i.alias as instance_alias, e.status, e.acked_at, e.acked_by
+       from buho.collector_events e
+       left join buho.instances i on i.instance_id = e.instance_id
+      where ($1::bigint is null or e.instance_id = $1)
+      order by e.ts desc
       limit $2`,
     [instanceId, limit],
   );
   return rows.map((row) => ({
+    eventId: Number(row['event_id']),
     ts: row['ts'] as Date,
-    level: row['level'] as 'info' | 'warn' | 'error',
+    level: row['level'] as CollectorEvent['level'],
     component: String(row['component']),
     message: String(row['message']),
+    instanceId: row['instance_id'] === null ? null : Number(row['instance_id']),
+    instanceAlias: (row['instance_alias'] as string | null) ?? null,
+    status: String(row['status'] ?? 'open') as CollectorEvent['status'],
+    ackedAt: (row['acked_at'] as Date | null) ?? null,
+    ackedBy: (row['acked_by'] as string | null) ?? null,
+    detail: parseEventDetail(row['detail']),
   }));
+}
+
+export async function acknowledgeEvents(eventIds: number[], username: string): Promise<number> {
+  if (eventIds.length === 0) return 0;
+
+  const rows = await query<{ count: string }>(
+    `with fingerprints as (
+       select distinct instance_id, level, component, message
+         from buho.collector_events
+        where event_id = any($1::bigint[])
+     )
+     update buho.collector_events e
+        set status = 'acknowledged',
+            acked_at = now(),
+            acked_by = $2
+       from fingerprints f
+      where e.status = 'open'
+        and e.instance_id is not distinct from f.instance_id
+        and e.level = f.level
+        and e.component = f.component
+        and e.message = f.message
+     returning 1`,
+    [eventIds, username],
+  );
+  return rows.length;
+}
+
+export async function acknowledgeAllOpenEvents(username: string): Promise<number> {
+  const rows = await query<{ count: string }>(
+    `update buho.collector_events
+        set status = 'acknowledged',
+            acked_at = now(),
+            acked_by = $1
+      where status = 'open'
+      returning 1`,
+    [username],
+  );
+  return rows.length;
 }

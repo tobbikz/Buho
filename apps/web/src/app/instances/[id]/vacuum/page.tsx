@@ -1,5 +1,4 @@
 import { notFound, redirect } from 'next/navigation';
-import { AutoRefresh } from '@/components/AutoRefresh';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
@@ -263,7 +262,6 @@ export default async function VacuumPage({
               medición: sirve para ordenar de peor a mejor, no para facturar bytes.
             </p>
           </div>
-          <AutoRefresh intervalMs={30000} />
         </header>
 
         <InstanceTabs instanceId={instanceId} />

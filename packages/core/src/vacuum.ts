@@ -82,7 +82,31 @@ export interface VacuumProgress {
 export interface VacuumSnapshot {
   tables: VacuumTable[];
   progress: VacuumProgress[];
+  foreignKeys: TableForeignKey[];
 }
+
+export interface TableForeignKey {
+  fromSchema: string;
+  fromTable: string;
+  toSchema: string;
+  toTable: string;
+  constraintName: string;
+}
+
+const FK_SQL = `
+select nsf.nspname  as from_schema,
+       cf.relname   as from_table,
+       nst.nspname  as to_schema,
+       ct.relname   as to_table,
+       con.conname  as constraint_name
+  from pg_constraint con
+  join pg_class cf on cf.oid = con.conrelid
+  join pg_namespace nsf on nsf.oid = cf.relnamespace
+  join pg_class ct on ct.oid = con.confrelid
+  join pg_namespace nst on nst.oid = ct.relnamespace
+ where con.contype = 'f'
+   and nsf.nspname not in ('pg_catalog', 'information_schema', 'pg_toast')
+   and nst.nspname not in ('pg_catalog', 'information_schema', 'pg_toast')`;
 
 const VACUUM_SQL = `
 with ajustes as (
@@ -270,9 +294,10 @@ function progressSql(caps: Capabilities): string {
 }
 
 export async function sampleVacuum(pool: Pool, caps: Capabilities): Promise<VacuumSnapshot> {
-  const [tablesResult, progressResult] = await Promise.all([
+  const [tablesResult, progressResult, fkResult] = await Promise.all([
     pool.query<Record<string, unknown>>(tagged(VACUUM_SQL)),
     pool.query<Record<string, unknown>>(tagged(progressSql(caps))),
+    pool.query<Record<string, unknown>>(tagged(FK_SQL)),
   ]);
 
   const number = (value: unknown): number => {
@@ -356,7 +381,15 @@ export async function sampleVacuum(pool: Pool, caps: Capabilities): Promise<Vacu
     };
   });
 
-  return { tables, progress };
+  const foreignKeys: TableForeignKey[] = fkResult.rows.map((row) => ({
+    fromSchema: String(row['from_schema'] ?? ''),
+    fromTable: String(row['from_table'] ?? ''),
+    toSchema: String(row['to_schema'] ?? ''),
+    toTable: String(row['to_table'] ?? ''),
+    constraintName: String(row['constraint_name'] ?? ''),
+  }));
+
+  return { tables, progress, foreignKeys };
 }
 
 /**

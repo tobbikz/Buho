@@ -35,7 +35,7 @@ export { auditSecurity, securityScore, CATEGORY_LABEL, SEVERITY_ORDER } from './
 export { discover, expandRange, isPrivateAddress, DEFAULT_PORTS } from './discovery';
 export { runExplain, analyzePlan, isReadOnly, statementKind } from './explain';
 export { sampleVacuum, vacuumSamples } from './vacuum';
-export type { VacuumSnapshot, VacuumTable, VacuumProgress } from './vacuum';
+export type { VacuumSnapshot, VacuumTable, VacuumProgress, TableForeignKey } from './vacuum';
 export { sampleActors, inspectActors, ActorAccumulator } from './actors';
 export { sampleSessions, summarizeSessions } from './sessions';
 export type { SessionSample, SessionSnapshot } from './sessions';

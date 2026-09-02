@@ -384,6 +384,31 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
     });
   }
 
+  const roleMap = await tryQuery(
+    client,
+    `select user as member, host as member_host, role as role_name, role_host
+       from mysql.roles_mapping`,
+  );
+  if (!roleMap.error) {
+    const byLabel = new Map(principals.map((principal) => [`'${principal.name}'@'${principal.host ?? ''}'`, principal]));
+    for (const row of roleMap.rows) {
+      const memberLabel = `'${String(row['member'])}'@'${String(row['member_host'] ?? '')}'`;
+      const roleLabel = `'${String(row['role_name'])}'@'${String(row['role_host'] ?? '')}'`;
+      const member = byLabel.get(memberLabel);
+      if (member) {
+        member.detail ??= {};
+        member.detail.memberOf ??= [];
+        if (!member.detail.memberOf.includes(roleLabel)) member.detail.memberOf.push(roleLabel);
+      }
+      const role = byLabel.get(roleLabel);
+      if (role) {
+        role.detail ??= {};
+        role.detail.members ??= [];
+        if (!role.detail.members.includes(memberLabel)) role.detail.members.push(memberLabel);
+      }
+    }
+  }
+
   const { score, verified, total } = securityScore(findings);
   return { engine: 'mariadb', findings, principals, score, verified, total };
 }

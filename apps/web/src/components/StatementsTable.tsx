@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Fragment, useState } from 'react';
 import { Sparkline } from '@/components/Sparkline';
 import { formatBytes, formatNumber, formatPct } from '@/lib/format';
+import { statementKind } from '@buho/core/explain';
 
 export interface StatementRow {
   queryid: string;
@@ -78,6 +79,7 @@ export function StatementsTable({
           {rows.map((row) => {
             const share = totalExecMs > 0 ? (row.execMs / totalExecMs) * 100 : 0;
             const isOpen = expanded === row.queryid;
+            const canExplain = explainable && statementKind(row.query) !== 'utilitaria';
             return (
               <Fragment key={row.queryid}>
                 <tr
@@ -121,7 +123,7 @@ export function StatementsTable({
                       que la expansión funcione. stopPropagation evita que el
                       clic además despliegue la fila que se está abandonando. */}
                   <td>
-                    {explainable ? (
+                    {canExplain ? (
                       <Link
                         href={`/instances/${instanceId}/queries/${row.queryid}`}
                         className="whitespace-nowrap text-[11px] text-accent hover:underline"
@@ -129,6 +131,10 @@ export function StatementsTable({
                       >
                         plan →
                       </Link>
+                    ) : explainable ? (
+                      <span className="text-[10px] text-foreground-muted" title="No query plan (utility statement)">
+                        utility
+                      </span>
                     ) : null}
                   </td>
                 </tr>
@@ -152,7 +158,7 @@ export function StatementsTable({
                       <div className="query-block" style={{ maxHeight: '18rem' }}>
                         {row.query}
                       </div>
-                      {explainable ? (
+                      {canExplain ? (
                         <div className="pt-2">
                           <Link
                             href={`/instances/${instanceId}/queries/${row.queryid}`}

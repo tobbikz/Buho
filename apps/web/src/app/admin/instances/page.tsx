@@ -1,15 +1,14 @@
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { AddDatabaseForm } from '@/components/AddDatabaseForm';
 import { StoreError } from '@/components/StoreError';
 import {
-  defaultPort,
   listMonitorTargets,
   parseTargetForm,
   removeMonitorTarget,
   saveMonitorTarget,
   setTargetEnabled,
-  type TargetEngine,
 } from '@/lib/targets';
 import { requireAdmin } from '@/lib/session';
 
@@ -44,13 +43,6 @@ async function deleteTarget(formData: FormData) {
   revalidatePath('/admin/instances');
   revalidatePath('/');
 }
-
-const ENGINE_OPTIONS: { value: TargetEngine; label: string }[] = [
-  { value: 'postgres', label: 'PostgreSQL' },
-  { value: 'mariadb', label: 'MariaDB / MySQL' },
-  { value: 'mssql', label: 'SQL Server' },
-  { value: 'mongodb', label: 'MongoDB' },
-];
 
 export default async function AdminInstancesPage({
   searchParams,
@@ -87,74 +79,7 @@ export default async function AdminInstancesPage({
             <span className="font-mono">config.json</span> (the file wins if the same alias already exists
             there). Credentials stay on-prem in the store, same trust model as the config file.
           </p>
-          <form action={addTarget} className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-              Alias
-              <input name="alias" required className="input font-mono" placeholder="orders-prod" />
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-              Engine
-              <select name="engine" className="input" defaultValue="postgres">
-                {ENGINE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-              Environment
-              <input name="environment" className="input" defaultValue="prod" placeholder="prod" />
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-              Host
-              <input name="host" required className="input font-mono" placeholder="10.0.0.10" />
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-              Port
-              <input
-                name="port"
-                type="number"
-                className="input font-mono"
-                placeholder={String(defaultPort('postgres'))}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-              Database
-              <input name="database" className="input font-mono" placeholder="postgres / master / admin" />
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-              Username
-              <input name="username" required className="input font-mono" placeholder="buho_monitor" />
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-              Password
-              <input
-                name="password"
-                type="password"
-                required
-                className="input font-mono"
-                autoComplete="new-password"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-              Tag key (optional)
-              <input name="tagKey" className="input font-mono" placeholder="team" />
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-              Tag value
-              <input name="tagValue" className="input font-mono" placeholder="data" />
-            </label>
-            <label className="flex items-center gap-2 text-[12px] text-foreground-secondary md:col-span-2">
-              <input type="checkbox" name="ssl" className="accent-[var(--accent)]" />
-              Use TLS / SSL
-            </label>
-            <div className="flex items-end md:col-span-2 xl:col-span-3">
-              <button type="submit" className="btn btn--primary">
-                Add database
-              </button>
-            </div>
-          </form>
+          <AddDatabaseForm action={addTarget} />
         </div>
       </section>
 

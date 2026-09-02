@@ -209,6 +209,25 @@ export function backupState(row: BackupRow): BackupState {
   return 'ok';
 }
 
+/** Human label — avoids confusing WAL archive with streaming replication. */
+export function backupStateLabel(row: BackupRow): string {
+  const state = backupState(row);
+  const archiveMode = row.detail['archive_mode'] as string | undefined;
+  if (row.kind === 'wal_archive' && archiveMode === 'off') return 'Archive off';
+  if (state === 'sin_recuperacion') return row.finishedAt ? 'PITR broken' : 'No backup';
+  if (state === 'atrasado') return 'Overdue';
+  if (state === 'no_verificable') return 'Unknown';
+  return 'OK';
+}
+
+export function backupStateHint(row: BackupRow): string | null {
+  const archiveMode = row.detail['archive_mode'] as string | undefined;
+  if (row.kind === 'wal_archive' && archiveMode === 'off') {
+    return 'archive_mode is off — point-in-time recovery unavailable. Separate from streaming replication.';
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------- disco
 
 export interface DiskRow extends EstateInstance {

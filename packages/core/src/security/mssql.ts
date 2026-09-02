@@ -453,6 +453,35 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
     });
   }
 
+  const serverRoles = await tryQuery(
+    client,
+    `select r.name as role, m.name as member
+       from sys.server_role_members srm
+       join sys.server_principals r on r.principal_id = srm.role_principal_id
+       join sys.server_principals m on m.principal_id = srm.member_principal_id`,
+  );
+  if (!serverRoles.error) {
+    const byName = new Map<string, SecurityPrincipal>();
+    for (const principal of principals) byName.set(principal.name, principal);
+
+    for (const row of serverRoles.rows) {
+      const role = String(row['role']);
+      const member = String(row['member']);
+      const memberPrincipal = byName.get(member);
+      if (memberPrincipal) {
+        memberPrincipal.detail ??= {};
+        memberPrincipal.detail.memberOf ??= [];
+        if (!memberPrincipal.detail.memberOf.includes(role)) memberPrincipal.detail.memberOf.push(role);
+      }
+      const rolePrincipal = byName.get(role);
+      if (rolePrincipal) {
+        rolePrincipal.detail ??= {};
+        rolePrincipal.detail.members ??= [];
+        if (!rolePrincipal.detail.members.includes(member)) rolePrincipal.detail.members.push(member);
+      }
+    }
+  }
+
   const { score, verified, total } = securityScore(findings);
   return { engine: 'mssql', findings, principals, score, verified, total };
 }

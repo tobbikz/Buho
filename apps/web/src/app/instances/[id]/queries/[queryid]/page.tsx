@@ -276,23 +276,10 @@ export default async function QueryPlanPage({
                 <span className="font-mono">pg_stat_statements</span> en la instancia y explicarla a mano.
               </p>
             ) : kind === 'utilitaria' ? (
-              <div className="flex flex-col gap-1.5">
-                <p className="text-[12px] text-warning">
-                  PostgreSQL cannot explain this statement. It is not a Búho limitation or a
-                  permissions problem: <span className="font-mono">EXPLAIN</span> grammar only accepts statements that
-                  tienen plan —SELECT, INSERT, UPDATE, DELETE, MERGE, VALUES, EXECUTE, DECLARE y CREATE TABLE AS—.
-                  Un <span className="font-mono">EXPLAIN ALTER TABLE</span> es un error de sintaxis, y{' '}
-                  <span className="font-mono">REFRESH MATERIALIZED VIEW</span> contesta que las sentencias
-                  utilitarias no tienen estructura de plan.
-                </p>
-                <p className="text-[11.5px] text-foreground-muted">
-                  Aparece igual en el listado porque <span className="font-mono">pg_stat_statements</span> la
-                  registra como cualquier otra. Cuando una sentencia así sale entre las más costosas, el hallazgo
-                  no está en su plan sino en el número de llamadas: DDL idempotente que se repite en cada ciclo,
-                  un <span className="font-mono">SET</span> por conexión, o un{' '}
-                  <span className="font-mono">VACUUM</span> manual más seguido de lo necesario.
-                </p>
-              </div>
+              <p className="text-[12px] text-foreground-secondary">
+                Utility statement — no query plan. EXPLAIN does not apply. High cost usually means high call
+                count, not a slow plan.
+              </p>
             ) : parameterized && !generic ? (
               <p className="text-[12px] text-warning">
                 El texto viene normalizado con <span className="font-mono">$1</span> y esta instancia es anterior a

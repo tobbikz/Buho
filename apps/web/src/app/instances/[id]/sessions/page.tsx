@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { AutoRefresh } from '@/components/AutoRefresh';
 import { IncidentPanel } from '@/components/IncidentPanel';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { LabeledBars } from '@/components/LabeledBars';
@@ -116,7 +115,6 @@ export default async function SessionsPage({
               ), so it is <strong>sampling</strong>: it measures what lasts and misses the instantaneous.
             </p>
           </div>
-          <AutoRefresh intervalMs={30000} />
         </header>
 
         <InstanceTabs instanceId={instanceId} />

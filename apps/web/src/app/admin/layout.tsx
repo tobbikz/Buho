@@ -1,5 +1,4 @@
 import { Topbar } from '@/components/Topbar';
-import { AdminTabs } from '@/components/AdminTabs';
 import { currentSession } from '@/lib/session';
 
 /**
@@ -31,7 +30,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </span>
         </header>
 
-        <AdminTabs />
         {children}
       </div>
     </>

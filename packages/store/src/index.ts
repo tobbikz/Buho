@@ -629,15 +629,15 @@ export class Store {
         await client.query(
           `insert into buho.security_principals
                 (instance_id, name, host, kind, can_login, is_superuser, disabled,
-                 auth_method, password_set_at, expires_at, privileges, captured_at)
-                values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now())
+                 auth_method, password_set_at, expires_at, privileges, detail, captured_at)
+                values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now())
            on conflict (instance_id, name, host) do update
                   set kind = excluded.kind, can_login = excluded.can_login,
                       is_superuser = excluded.is_superuser, disabled = excluded.disabled,
                       auth_method = excluded.auth_method,
                       password_set_at = excluded.password_set_at,
                       expires_at = excluded.expires_at, privileges = excluded.privileges,
-                      captured_at = now()`,
+                      detail = excluded.detail, captured_at = now()`,
           [
             instanceId,
             principal.name,
@@ -650,6 +650,7 @@ export class Store {
             principal.passwordSetAt ?? null,
             principal.expiresAt ?? null,
             principal.privileges,
+            JSON.stringify(principal.detail ?? {}),
           ],
         );
       }
@@ -1102,6 +1103,32 @@ export class Store {
         [instanceId],
       );
 
+      await client.query('delete from buho.table_fks where instance_id = $1', [instanceId]);
+      if (snapshot.foreignKeys.length > 0) {
+        const fkValues: unknown[] = [];
+        const fkTuples: string[] = [];
+        snapshot.foreignKeys.forEach((fk, index) => {
+          const base = index * 6;
+          fkTuples.push(
+            `(${Array.from({ length: 6 }, (_, offset) => `$${base + offset + 1}`).join(', ')}, now())`,
+          );
+          fkValues.push(
+            instanceId,
+            fk.fromSchema,
+            fk.fromTable,
+            fk.toSchema,
+            fk.toTable,
+            fk.constraintName,
+          );
+        });
+        await client.query(
+          `insert into buho.table_fks
+             (instance_id, from_schema, from_table, to_schema, to_table, constraint_name, captured_at)
+           values ${fkTuples.join(', ')}`,
+          fkValues,
+        );
+      }
+
       // El progreso es estado vivo: lo que no está corriendo ahora no existe.
       await client.query('delete from buho.vacuum_progress where instance_id = $1', [instanceId]);
 
@@ -1353,7 +1380,7 @@ export class Store {
   async listMonitorTargets(enabledOnly = false): Promise<MonitorTargetRow[]> {
     const result = await this.pool.query<Record<string, unknown>>(
       `select target_id, tenant, alias, engine, host, port, database, username, password,
-              environment, ssl, tags, enabled, created_at, updated_at, created_by
+              environment, ssl, tags, host_metrics, enabled, created_at, updated_at, created_by
          from buho.monitor_targets
         where ($1::boolean = false or enabled)
         order by alias`,
@@ -1366,8 +1393,8 @@ export class Store {
     const result = await this.pool.query<{ target_id: string }>(
       `insert into buho.monitor_targets
          (tenant, alias, engine, host, port, database, username, password,
-          environment, ssl, tags, enabled, created_by, updated_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13, now())
+          environment, ssl, tags, host_metrics, enabled, created_by, updated_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14, now())
        on conflict (tenant, alias) do update set
          engine = excluded.engine,
          host = excluded.host,
@@ -1379,6 +1406,7 @@ export class Store {
          environment = excluded.environment,
          ssl = excluded.ssl,
          tags = excluded.tags,
+         host_metrics = excluded.host_metrics,
          enabled = excluded.enabled,
          updated_at = now()
        returning target_id`,
@@ -1394,6 +1422,7 @@ export class Store {
         input.environment ?? 'prod',
         input.ssl ?? false,
         JSON.stringify(input.tags ?? {}),
+        JSON.stringify(input.hostMetrics ?? {}),
         input.enabled ?? true,
         input.createdBy ?? null,
       ],
@@ -1425,6 +1454,7 @@ export interface MonitorTargetInput {
   environment?: string;
   ssl?: boolean;
   tags?: Record<string, string>;
+  hostMetrics?: Record<string, unknown>;
   enabled?: boolean;
   createdBy?: string | null;
 }
@@ -1442,6 +1472,7 @@ export interface MonitorTargetRow {
   environment: string;
   ssl: boolean;
   tags: Record<string, string>;
+  hostMetrics: Record<string, unknown>;
   enabled: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -1450,6 +1481,7 @@ export interface MonitorTargetRow {
 
 function mapMonitorTarget(row: Record<string, unknown>): MonitorTargetRow {
   const tags = row['tags'];
+  const hostMetrics = row['host_metrics'];
   return {
     targetId: Number(row['target_id']),
     tenant: String(row['tenant']),
@@ -1465,6 +1497,10 @@ function mapMonitorTarget(row: Record<string, unknown>): MonitorTargetRow {
     tags:
       tags && typeof tags === 'object' && !Array.isArray(tags)
         ? (tags as Record<string, string>)
+        : {},
+    hostMetrics:
+      hostMetrics && typeof hostMetrics === 'object' && !Array.isArray(hostMetrics)
+        ? (hostMetrics as Record<string, unknown>)
         : {},
     enabled: Boolean(row['enabled']),
     createdAt: row['created_at'] as Date,

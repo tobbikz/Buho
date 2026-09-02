@@ -137,19 +137,25 @@ export async function collectPostgres(client: EngineClient): Promise<InventorySn
     const [receiver] = await client.query(
       tagged(`select status, sender_host, sender_port, slot_name,
                      latest_end_lsn, latest_end_time,
-                     extract(epoch from (now() - latest_end_time)) as lag_seconds
+                     coalesce(pg_wal_lsn_diff(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn()), 0)
+                       as lag_bytes,
+                     extract(epoch from (now() - latest_end_time)) as receiver_idle_seconds
                 from pg_stat_wal_receiver`),
     );
+    const pending = num(receiver?.['lag_bytes']) ?? 0;
+    // Without recent commits, latest_end_time goes stale while the standby is
+    // fully caught up. Bytes pending is the signal that matters.
+    const lagSeconds = pending > 0 ? num(receiver?.['receiver_idle_seconds']) : null;
     replication.push({
-      // `upstream` y no `standby`: en una réplica esta fila describe el enlace
-      // con su primario, no un standby ajeno. Con el mismo nombre para las dos
-      // cosas, la pantalla de una réplica se lista a sí misma como su propio
-      // standby.
       role: 'upstream',
-      peer: receiver ? `${receiver['sender_host']}:${receiver['sender_port']}` : 'primario desconocido',
-      state: text(receiver?.['status']) ?? 'sin receptor de WAL',
-      lagSeconds: num(receiver?.['lag_seconds']),
-      detail: { slot: text(receiver?.['slot_name']) },
+      peer: receiver ? `${receiver['sender_host']}:${receiver['sender_port']}` : 'unknown primary',
+      state: text(receiver?.['status']) ?? 'no WAL receiver',
+      lagBytes: pending > 0 ? pending : 0,
+      lagSeconds,
+      detail: {
+        slot: text(receiver?.['slot_name']),
+        idle_since_last_commit: pending === 0 ? num(receiver?.['receiver_idle_seconds']) : null,
+      },
     });
   } else {
     const standbys = await client.query(
@@ -211,7 +217,7 @@ export async function collectPostgres(client: EngineClient): Promise<InventorySn
       domain: 'backups',
       level: 'info',
       message:
-        'PostgreSQL no expone un catálogo de backups: ningún dato del servidor dice cuándo corrió el último pg_dump o pg_basebackup. Búho reporta lo que sí es verificable desde dentro — el archivado de WAL — y para respaldos reales hace falta integrar pgBackRest, Barman o el propio script del cliente.',
+        'PostgreSQL does not expose a backup catalog: the server cannot report when pg_dump or pg_basebackup last ran. Búho reports what is verifiable from inside the instance — WAL archiving — and real backup tools (pgBackRest, Barman, client scripts) must be integrated separately.',
     },
   ];
 
@@ -240,7 +246,7 @@ export async function collectPostgres(client: EngineClient): Promise<InventorySn
       domain: 'backups',
       level: 'error',
       message:
-        'archive_mode está en off: no hay archivado de WAL, así que no existe recuperación a un punto en el tiempo. Ante una caída se pierde todo lo ocurrido desde el último respaldo completo.',
+        'archive_mode is off: WAL is not archived, so point-in-time recovery is impossible. After a crash, everything since the last full backup is lost.',
     });
   } else {
     const failed = num(archiver?.['failed_count']) ?? 0;
@@ -249,7 +255,7 @@ export async function collectPostgres(client: EngineClient): Promise<InventorySn
       notes.push({
         domain: 'backups',
         level: 'error',
-        message: `El archivado de WAL está configurado pero falla: ${failed} intentos fallidos y ningún archivo archivado. La cadena de recuperación está rota.`,
+        message: `WAL archiving is configured but failing: ${failed} failed attempts and no archived files. The recovery chain is broken.`,
       });
     }
   }
@@ -259,7 +265,7 @@ export async function collectPostgres(client: EngineClient): Promise<InventorySn
     notes.push({
       domain: 'backups',
       level: 'info',
-      message: `Hay ${running} pg_basebackup en curso ahora mismo.`,
+      message: `${running} pg_basebackup job(s) running right now.`,
     });
   }
 
@@ -305,23 +311,23 @@ export async function collectPostgres(client: EngineClient): Promise<InventorySn
     notes.push({
       domain: 'jobs',
       level: 'info',
-      message: 'pgAgent está instalado; la lectura de su catálogo todavía no está implementada.',
+      message: 'pgAgent is installed; reading its catalog is not implemented yet.',
     });
   } else {
     notes.push({
       domain: 'jobs',
       level: 'info',
       message:
-        'PostgreSQL no tiene planificador propio. Las tareas programadas viven fuera del motor (cron del sistema, systemd timers, Airflow) y desde la base no se pueden ver. Con pg_cron instalado, Búho lista sus tareas y el resultado de la última corrida.',
+        'PostgreSQL has no built-in job scheduler. Scheduled tasks live outside the engine (system cron, systemd timers, Airflow) and cannot be seen from the database. With pg_cron installed, Búho lists jobs and the latest run result.',
     });
   }
 
   // -------------------------------------------------------------- licencias
   snapshot.licensing = {
-    edition: 'PostgreSQL (código abierto)',
-    licenseModel: 'PostgreSQL License (permisiva, tipo BSD/MIT)',
+    edition: 'PostgreSQL (open source)',
+    licenseModel: 'PostgreSQL License (permissive, BSD/MIT-style)',
     productionOk: null,
-    note: 'Sin costo de licencia ni límite de núcleos o memoria. No hay nada que auditar.',
+    note: 'No license cost and no core or memory limits. Nothing to audit.',
   };
 
   snapshot.notes = notes;

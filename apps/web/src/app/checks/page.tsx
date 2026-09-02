@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { AutoRefresh } from '@/components/AutoRefresh';
+import { CheckGroupCard } from '@/components/CheckGroupCard';
+import { CHECK_FILTERS, ChecksFilter, type CheckFilterKey } from '@/components/ChecksFilter';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { Topbar } from '@/components/Topbar';
@@ -8,104 +9,30 @@ import {
   getFleetCheckTotals,
   getFleetChecks,
   getInstanceScores,
-  type CheckGroup,
   type InstanceScore,
   type Severity,
 } from '@/lib/checks';
 
 export const dynamic = 'force-dynamic';
 
-const FILTERS: { key: string; label: string; severities: Severity[] }[] = [
-  { key: 'accionable', label: 'Accionable', severities: ['critical', 'warning'] },
-  { key: 'critico', label: 'Critical only', severities: ['critical'] },
-  { key: 'todo', label: 'Todo', severities: ['critical', 'warning', 'info'] },
-];
-
-const SEVERITY_TAG: Record<Severity, string> = {
-  critical: 'tag--error',
-  warning: 'tag--warn',
-  info: 'tag--info',
-};
-
-const SEVERITY_LABEL: Record<Severity, string> = {
-  critical: 'critical',
-  warning: 'warning',
-  info: 'informativo',
+const FILTER_SEVERITIES: Record<CheckFilterKey, Severity[]> = {
+  actionable: ['critical', 'warning'],
+  critical: ['critical'],
+  all: ['critical', 'warning', 'info'],
 };
 
 function scoreTone(score: number | null): string {
   if (score === null) return 'text-foreground-muted';
   if (score < 60) return 'text-[var(--error)]';
   if (score < 80) return 'text-[var(--warning)]';
-  return 'text-[var(--ok)]';
-}
-
-function GroupCard({ group }: { group: CheckGroup }) {
-  // Abierto de entrada cuando afecta a una sola instancia: cerrarlo esconde la
-  // única línea que importa. Con varias, la lista sí estorba.
-  const open = group.instances === 1;
-
-  return (
-    <details className="check-group" open={open}>
-      <summary className="check-group__head">
-        <span className={`tag ${SEVERITY_TAG[group.severity]}`}>{SEVERITY_LABEL[group.severity]}</span>
-        <span className="check-group__title">{group.title}</span>
-        <span className="check-group__count font-mono">
-          {group.instances} instance{group.instances === 1 ? '' : 's'}
-          {group.findings > group.instances ? ` · ${group.findings} findings` : ''}
-        </span>
-        <span className="font-mono text-[10px] text-foreground-muted">{group.checkId}</span>
-      </summary>
-
-      <div className="check-group__body">
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Instancia</th>
-                <th>Object</th>
-                <th>What it found</th>
-                <th className="text-right">Medido</th>
-              </tr>
-            </thead>
-            <tbody>
-              {group.occurrences.map((entry, index) => (
-                <tr key={`${entry.instanceId}:${entry.object ?? ''}:${index}`}>
-                  <td>
-                    <Link href={`/instances/${entry.instanceId}`} className="font-mono text-[11.5px] underline">
-                      {entry.alias}
-                    </Link>
-                    <span className="ml-1.5 text-[10px] text-foreground-muted">
-                      {entry.group ?? entry.environment}
-                    </span>
-                  </td>
-                  <td className="font-mono text-[11px] text-foreground-secondary">{entry.object ?? '—'}</td>
-                  <td className="text-[11.5px]">{entry.message}</td>
-                  <td className="num font-mono text-[11px]">
-                    {entry.value === null ? '—' : formatNumber(Math.round(entry.value * 100) / 100)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {group.remediation && (
-          <div className="check-group__fix">
-            <span className="check-group__fix-label">How to fix</span>
-            <p>{group.remediation}</p>
-          </div>
-        )}
-      </div>
-    </details>
-  );
+  return 'text-[var(--success)]';
 }
 
 function ScoreRow({ instance }: { instance: InstanceScore }) {
   return (
     <tr>
       <td>
-        <Link href={`/instances/${instance.instanceId}`} className="font-mono text-[11.5px] underline">
+        <Link href={`/instances/${instance.instanceId}`} className="check-score__instance">
           {instance.alias}
         </Link>
       </td>
@@ -127,17 +54,25 @@ function ScoreRow({ instance }: { instance: InstanceScore }) {
 export default async function ChecksPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ver?: string }>;
+  searchParams: Promise<{ view?: string; ver?: string }>;
 }) {
-  const { ver } = await searchParams;
-  const filter = FILTERS.find((entry) => entry.key === ver) ?? FILTERS[0]!;
+  const { view, ver } = await searchParams;
+  const raw = view ?? ver;
+  const legacyMap: Record<string, CheckFilterKey> = {
+    accionable: 'actionable',
+    critico: 'critical',
+    todo: 'all',
+  };
+  const resolved = raw ? (legacyMap[raw] ?? raw) : 'actionable';
+  const filterKey: CheckFilterKey =
+    CHECK_FILTERS.find((entry) => entry.key === resolved)?.key ?? 'actionable';
 
-  let groups: CheckGroup[];
+  let groups;
   let totals: Awaited<ReturnType<typeof getFleetCheckTotals>>;
   let scores: InstanceScore[];
   try {
     [groups, totals, scores] = await Promise.all([
-      getFleetChecks(filter.severities),
+      getFleetChecks(FILTER_SEVERITIES[filterKey]),
       getFleetCheckTotals(),
       getInstanceScores(),
     ]);
@@ -162,32 +97,31 @@ export default async function ChecksPage({
           <div>
             <h1 className="page-title">Fleet checks</h1>
             <p className="page-sub">
-              All 22 checks across every instance in one list, ordered by severity then by
-              how many instances they affect. The same problem repeated across half the fleet is fixed once and drops
-              many findings: that is what this screen makes visible.
+              All checks across every instance, grouped by problem type. Fix once at the platform level
+              and clear findings on every server that shares the same misconfiguration.
             </p>
           </div>
-          <AutoRefresh intervalMs={60000} />
         </header>
 
         <div className="stat-grid">
           <StatCard
-            label="Criticals"
+            label="Critical"
             value={formatNumber(totals.critical)}
             tone={totals.critical > 0 ? 'error' : 'ok'}
-            hint="risk of loss or outage"
+            hint="data loss or outage risk"
           />
           <StatCard
-            label="Advertencias"
+            label="Warnings"
             value={formatNumber(totals.warning)}
             tone={totals.warning > 0 ? 'warn' : 'ok'}
+            hint="should fix soon"
           />
-          <StatCard label="Informativos" value={formatNumber(totals.info)} tone="neutral" />
+          <StatCard label="Info" value={formatNumber(totals.info)} tone="neutral" hint="informational only" />
           <StatCard
-            label="Instances with findings"
-            value={`${formatNumber(totals.instancesAffected)} de ${formatNumber(totals.instancesReporting)}`}
+            label="Instances affected"
+            value={`${formatNumber(totals.instancesAffected)} of ${formatNumber(totals.instancesReporting)}`}
             tone={totals.instancesAffected > 0 ? 'warn' : 'ok'}
-            hint={`${formatNumber(totals.instancesClean)} with nothing to report`}
+            hint={`${formatNumber(totals.instancesClean)} clean`}
           />
           <StatCard
             label="Worst score"
@@ -206,64 +140,48 @@ export default async function ChecksPage({
             label="Last run"
             value={totals.lastRunAt ? formatAgo(totals.lastRunAt) : '—'}
             tone="neutral"
-            hint="checks run every 5 min"
+            hint="every 5 min"
           />
         </div>
 
-        {totals.instancesSilent > 0 && (
-          <div className="notice notice--warn">
+        {totals.instancesSilent > 0 ? (
+          <div className="checks-notice checks-notice--warn">
             <strong>
-              {formatNumber(totals.instancesSilent)} PostgreSQL instance{totals.instancesSilent === 1 ? '' : 's'}
-              without checks.
+              {formatNumber(totals.instancesSilent)} instance{totals.instancesSilent === 1 ? '' : 's'} never
+              reported checks.
             </strong>{' '}
-            They never reported a run, so their absence from this list does not mean they are fine: it means
-            that is unknown. Usually a collector that does not start or credentials without{' '}
-            <span className="font-mono">pg_monitor</span>.
+            Absence from this list means unknown, not healthy. Usually a collector that is not running or
+            credentials without <span className="font-mono">pg_monitor</span>.
           </div>
-        )}
+        ) : null}
 
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] uppercase tracking-wide text-foreground-muted">Ver</span>
-          {FILTERS.map((entry) => (
-            <a
-              key={entry.key}
-              href={`/checks?ver=${entry.key}`}
-              className={`tag ${entry.key === filter.key ? 'tag--info' : 'tag--muted'}`}
-            >
-              {entry.label}
-            </a>
-          ))}
+        {repeated.length > 0 ? (
+          <div className="checks-leverage">
+            <span className="checks-leverage__label">Highest leverage</span>
+            <p className="checks-leverage__text">
+              {repeated
+                .slice(0, 3)
+                .map((group) => `${group.title} (${group.instances} instances)`)
+                .join(' · ')}
+              . Platform fixes — not a single-server patch.
+            </p>
+          </div>
+        ) : null}
+
+        <div className="checks-toolbar">
+          <ChecksFilter current={filterKey} />
+          <span className="checks-toolbar__count">
+            {groups.length} check{groups.length === 1 ? '' : 's'} · severity, then reach
+          </span>
         </div>
 
-        {repeated.length > 0 && (
-          <div className="notice">
-            <strong>Highest-leverage fixes.</strong>{' '}
-            {repeated
-              .slice(0, 3)
-              .map((group) => `${group.title} (${group.instances} instances)`)
-              .join(' · ')}
-            . These are platform problems, not one server.
-          </div>
-        )}
-
-        <section className="panel">
-          <div className="panel-header">
-            <span className="panel-title">
-              {filter.label} · {groups.length} check{groups.length === 1 ? '' : 's'} with findings
-            </span>
-            <span className="font-mono text-[10px] text-foreground-muted">
-              severity, then reach
-            </span>
-          </div>
-
+        <section className="panel checks-panel">
           {groups.length === 0 ? (
-            <div className="empty">
-              No check with findings at this severity in each instance's last run.
-            </div>
+            <div className="empty">No findings at this severity in the latest check run.</div>
           ) : (
             <div className="check-list">
               {groups.map((group) => (
-                <GroupCard key={group.checkId} group={group} />
+                <CheckGroupCard key={group.checkId} group={group} />
               ))}
             </div>
           )}
@@ -271,21 +189,21 @@ export default async function ChecksPage({
 
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Score by instance</span>
+            <span className="panel-title">Health score by instance</span>
             <span className="font-mono text-[10px] text-foreground-muted">worst first</span>
           </div>
           <div className="table-scroll">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Instancia</th>
-                  <th>Grupo</th>
-                  <th>Entorno</th>
+                  <th>Instance</th>
+                  <th>Group</th>
+                  <th>Environment</th>
                   <th className="text-right">Score</th>
                   <th className="text-right">Crit.</th>
-                  <th className="text-right">Adv.</th>
+                  <th className="text-right">Warn.</th>
                   <th className="text-right">Info</th>
-                  <th className="text-right">Run</th>
+                  <th className="text-right">Last run</th>
                 </tr>
               </thead>
               <tbody>

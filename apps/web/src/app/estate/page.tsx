@@ -6,6 +6,8 @@ import { formatBytes, formatAgo } from '@/lib/format';
 import {
   backupAgeHours,
   backupState,
+  backupStateHint,
+  backupStateLabel,
   ENGINE_LABEL,
   getBackups,
   getNotes,
@@ -38,7 +40,14 @@ export default async function BackupsPage() {
     return <StoreError message={error instanceof Error ? error.message : String(error)} />;
   }
 
-  const never = rows.filter((row) => backupState(row) === 'sin_recuperacion');
+  const archiveOff = rows.filter(
+    (row) => row.kind === 'wal_archive' && row.detail['archive_mode'] === 'off',
+  );
+  const atRisk = rows.filter(
+    (row) =>
+      backupState(row) === 'sin_recuperacion' &&
+      !(row.kind === 'wal_archive' && row.detail['archive_mode'] === 'off'),
+  );
   const stale = rows.filter((row) => backupState(row) === 'atrasado');
   const unknown = rows.filter((row) => backupState(row) === 'no_verificable');
   const protectedDbs = new Set(
@@ -50,10 +59,16 @@ export default async function BackupsPage() {
     <div className="flex flex-col gap-[0.875rem]">
       <div className="stat-grid">
         <StatCard
-          label="No verifiable backup"
-          value={String(never.length)}
-          hint="never backed up or without a recovery chain"
-          tone={never.length > 0 ? 'error' : 'ok'}
+          label="Backup at risk"
+          value={String(atRisk.length)}
+          hint="no backup, broken PITR chain, or far overdue"
+          tone={atRisk.length > 0 ? 'error' : 'ok'}
+        />
+        <StatCard
+          label="Archive off"
+          value={String(archiveOff.length)}
+          hint="archive_mode off — PITR unavailable; separate from replication"
+          tone={archiveOff.length > 0 ? 'neutral' : 'ok'}
         />
         <StatCard
           label="Overdue backup"
@@ -95,6 +110,7 @@ export default async function BackupsPage() {
                   <th>Engine</th>
                   <th>Database</th>
                   <th>Tipo</th>
+                  <th>Status</th>
                   <th>Last</th>
                   <th className="text-right">Age</th>
                   <th className="text-right">Size</th>
@@ -120,15 +136,19 @@ export default async function BackupsPage() {
                       <td className="font-mono text-[11px]">{row.database}</td>
                       <td>{KIND_LABEL[row.kind] ?? row.kind}</td>
                       <td>
-                        <span className={`tag ${STATE_TAG[state]}`}>
-                          {row.finishedAt
-                            ? formatAgo(row.finishedAt)
-                            : row.detail['archive_mode'] === 'off'
-                              ? 'no archiving'
-                              : state === 'sin_recuperacion'
-                                ? 'never'
-                                : 'not verifiable'}
+                        <span
+                          className={`tag ${backupStateLabel(row) === 'Archive off' ? 'tag--muted' : STATE_TAG[state]}`}
+                          title={backupStateHint(row) ?? undefined}
+                        >
+                          {backupStateLabel(row)}
                         </span>
+                      </td>
+                      <td>
+                        {row.finishedAt ? (
+                          <span className="text-[11px] text-foreground-secondary">{formatAgo(row.finishedAt)}</span>
+                        ) : (
+                          '·'
+                        )}
                       </td>
                       <td className="num">{age === null ? '·' : `${age.toFixed(1)} h`}</td>
                       <td className="num">{row.sizeBytes ? formatBytes(row.sizeBytes) : '·'}</td>

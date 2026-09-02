@@ -24,7 +24,7 @@ function num(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function text(value: unknown, fallback = '(desconocido)'): string {
+function text(value: unknown, fallback = '(unknown)'): string {
   if (value === null || value === undefined || value === '') return fallback;
   return String(value);
 }
@@ -35,8 +35,8 @@ function text(value: unknown, fallback = '(desconocido)'): string {
  */
 const configuracionServidor: ForeignCheckDefinition = {
   id: 'mssql_server_config',
-  title: 'Configuración del servidor',
-  description: 'MAXDOP, umbral de paralelismo, memoria máxima y opciones de riesgo',
+  title: 'Server configuration',
+  description: 'MAXDOP, parallelism threshold, max memory, and risky options',
   sql: () => `
     select c.name, cast(c.value_in_use as bigint) as valor
       from sys.configurations c
@@ -68,10 +68,10 @@ const configuracionServidor: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'warning',
         object: 'max degree of parallelism',
-        message: `MAXDOP está en 0 (sin límite) con ${nucleos} núcleos: una sola consulta puede tomarlos todos.`,
+        message: `MAXDOP is 0 (unlimited) with ${nucleos} cores: a single query can take them all.`,
         remediation:
-          `Ponerlo en ${sugerido}: la recomendación de Microsoft es el número de núcleos por nodo NUMA, con techo de 8. ` +
-          'Se cambia con sp_configure sin reiniciar.',
+          `Set it to ${sugerido}: Microsoft's recommendation is cores per NUMA node, capped at 8. ` +
+          'Change with sp_configure without restart.',
         value: nucleos,
       });
     }
@@ -83,10 +83,10 @@ const configuracionServidor: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'warning',
         object: 'cost threshold for parallelism',
-        message: `el umbral de paralelismo está en ${umbral}, el valor por omisión desde 1998.`,
+        message: `parallelism cost threshold is ${umbral}, the default since 1998.`,
         remediation:
-          'Subirlo a 50 y observar. Con 5, consultas baratas se paralelizan sin necesidad y generan esperas CXPACKET ' +
-          'que parecen un problema de CPU. Se cambia con sp_configure sin reiniciar.',
+          'Raise it to 50 and observe. At 5, cheap queries parallelize unnecessarily and create CXPACKET waits ' +
+          'that look like a CPU problem. Change with sp_configure without restart.',
       });
     }
 
@@ -99,23 +99,23 @@ const configuracionServidor: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'critical',
         object: 'max server memory',
-        message: `'max server memory' está sin tope con ${formatBytes(memoriaFisica * 1024 * 1024)} de RAM física.`,
+        message: `'max server memory' is uncapped with ${formatBytes(memoriaFisica * 1024 * 1024)} of physical RAM.`,
         remediation:
-          `Ponerlo en ${sugerido} MB para dejar memoria al sistema operativo. Sin tope, el motor crece hasta que el sistema ` +
-          'empieza a paginar; en Linux el final habitual es que el kernel mate el proceso.',
+          `Set it to ${sugerido} MB to leave memory for the OS. Uncapped, the engine grows until the system ` +
+          'starts paging; on Linux the usual end is the kernel killing the process.',
       });
     }
 
     for (const [opcion, mensaje] of [
-      ['xp_cmdshell', 'xp_cmdshell permite ejecutar comandos del sistema operativo desde SQL.'],
-      ['Ole Automation Procedures', 'los procedimientos de automatización OLE amplían la superficie de ataque.'],
+      ['xp_cmdshell', 'xp_cmdshell allows running OS commands from SQL.'],
+      ['Ole Automation Procedures', 'OLE automation procedures expand the attack surface.'],
     ] as const) {
       if ((mapa.get(opcion) ?? 0) === 1) {
         hallazgos.push({
           severity: 'critical',
           object: opcion,
-          message: `${opcion} está habilitado: ${mensaje}`,
-          remediation: `Deshabilitarlo con sp_configure '${opcion}', 0; reconfigure. Si una tarea lo necesita, ejecutarla con un proxy de Agent y no dejarlo abierto.`,
+          message: `${opcion} is enabled: ${mensaje}`,
+          remediation: `Disable with sp_configure '${opcion}', 0; reconfigure. If a job needs it, run it through an Agent proxy and do not leave it open.`,
         });
       }
     }
@@ -124,10 +124,10 @@ const configuracionServidor: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'info',
         object: 'optimize for ad hoc workloads',
-        message: 'la optimización para cargas ad hoc está apagada: los planes de consultas que se ejecutan una sola vez llenan la caché.',
+        message: 'optimize for ad hoc workloads is off: plans for one-off queries fill the cache.',
         remediation:
-          'Encenderla si la aplicación manda SQL sin parametrizar. Guarda sólo un resumen del plan la primera vez, y el plan ' +
-          'completo cuando la consulta se repite.',
+          'Enable it if the application sends unparameterized SQL. It stores only a plan stub the first time, and the full ' +
+          'plan when the query repeats.',
       });
     }
 
@@ -135,8 +135,8 @@ const configuracionServidor: ForeignCheckDefinition = {
       hallazgos.push({
         severity: 'warning',
         object: 'priority boost',
-        message: 'priority boost está encendido: Microsoft recomienda no usarlo, puede dejar al sistema operativo sin CPU.',
-        remediation: "Apagarlo con sp_configure 'priority boost', 0 y reiniciar el servicio.",
+        message: 'priority boost is on: Microsoft recommends against it; it can starve the OS of CPU.',
+        remediation: "Turn it off with sp_configure 'priority boost', 0 and restart the service.",
       });
     }
 
@@ -154,8 +154,8 @@ const configuracionServidor: ForeignCheckDefinition = {
  */
 const basesDeDatos: ForeignCheckDefinition = {
   id: 'mssql_databases',
-  title: 'Opciones y respaldos de las bases',
-  description: 'Modelo de recuperación, respaldo de log, autoshrink y verificación de página',
+  title: 'Database options and backups',
+  description: 'Recovery model, log backups, autoshrink, and page verification',
   sql: () => `
     select d.name                              as db,
            d.recovery_model_desc               as modelo,
@@ -197,11 +197,11 @@ const basesDeDatos: ForeignCheckDefinition = {
         hallazgos.push({
           severity: estado === 'RESTORING' ? 'info' : 'critical',
           object: db,
-          message: `la base está en estado ${estado}.`,
+          message: `database is in state ${estado}.`,
           remediation:
             estado === 'RESTORING'
-              ? 'Es lo normal en una réplica de log shipping o en un restore en curso. Si no es ninguno de los dos, alguien dejó un restore a medias.'
-              : 'Una base que no está ONLINE no atiende consultas. Revisar el log de errores del motor para ver por qué.',
+              ? 'Normal during log shipping or an in-progress restore. If neither applies, someone left a restore unfinished.'
+              : 'A database that is not ONLINE does not serve queries. Check the engine error log for why.',
         });
         // En una base que no está en línea, el resto de las preguntas no aplica.
         continue;
@@ -214,9 +214,9 @@ const basesDeDatos: ForeignCheckDefinition = {
         hallazgos.push({
           severity: 'critical',
           object: db,
-          message: 'nunca se le hizo un respaldo completo.',
+          message: 'no full backup has ever been taken.',
           remediation:
-            'Programar un respaldo completo. Sin respaldo, la única recuperación posible es volver a crear los datos a mano.',
+            'Schedule a full backup. Without a backup, the only recovery option is to recreate the data by hand.',
         });
       } else {
         const horas = (ahora - ultimoFull) / 3_600_000;
@@ -224,8 +224,8 @@ const basesDeDatos: ForeignCheckDefinition = {
           hallazgos.push({
             severity: 'critical',
             object: db,
-            message: `el último respaldo completo fue hace ${formatDuration((horas * 3600))}.`,
-            remediation: 'Revisar el job de respaldos: dejó de correr o está fallando en silencio.',
+            message: `last full backup was ${formatDuration((horas * 3600))} ago.`,
+            remediation: 'Review the backup job: it stopped running or is failing silently.',
             value: horas,
           });
         }
@@ -239,10 +239,10 @@ const basesDeDatos: ForeignCheckDefinition = {
             severity: 'critical',
             object: db,
             message:
-              `está en modelo ${modelo} y nunca tuvo respaldo de log: el archivo de log crece sin límite y no se puede truncar.`,
+              `recovery model is ${modelo} and it has never had a log backup: the log file grows without limit and cannot be truncated.`,
             remediation:
-              'Dos caminos honestos: si se necesita recuperar a un punto en el tiempo, programar respaldos de log cada 15 ' +
-              'minutos; si no se necesita, pasar la base a SIMPLE. Dejarla en FULL sin respaldo de log es lo peor de los dos mundos.',
+              'Two honest paths: if point-in-time recovery is needed, schedule log backups every 15 ' +
+              'minutes; if not, switch the database to SIMPLE. Leaving it in FULL without log backups is the worst of both worlds.',
           });
         } else {
           const horasLog = (ahora - ultimoLog) / 3_600_000;
@@ -250,9 +250,9 @@ const basesDeDatos: ForeignCheckDefinition = {
             hallazgos.push({
               severity: 'warning',
               object: db,
-              message: `en modelo ${modelo} con el último respaldo de log hace ${formatDuration(horasLog * 3600)}.`,
+              message: `recovery model ${modelo} with last log backup ${formatDuration(horasLog * 3600)} ago.`,
               remediation:
-                'Con esa frecuencia, la ventana de pérdida real es de un día entero, no de los 15 minutos que suele suponer el negocio.',
+                'At that frequency, the real loss window is a full day, not the 15 minutes the business usually assumes.',
               value: horasLog,
             });
           }
@@ -263,20 +263,20 @@ const basesDeDatos: ForeignCheckDefinition = {
             severity: 'warning',
             object: db,
             message:
-              `el log (${formatBytes(num(row['log_bytes']))}) es más grande que los datos ` +
-              `(${formatBytes(num(row['data_bytes']))}) y está esperando un respaldo de log.`,
+              `log (${formatBytes(num(row['log_bytes']))}) is larger than data ` +
+              `(${formatBytes(num(row['data_bytes']))}) and is waiting for a log backup.`,
             remediation:
-              'Respaldar el log para que el espacio se pueda reutilizar, y después reducir el archivo una única vez con ' +
-              'DBCC SHRINKFILE. Reducirlo sin respaldar no libera nada.',
+              'Back up the log so space can be reused, then shrink the file once with ' +
+              'DBCC SHRINKFILE. Shrinking without a backup frees nothing.',
           });
-        } else if (esperaLog !== 'NOTHING' && esperaLog !== '(desconocido)') {
+        } else if (esperaLog !== 'NOTHING' && esperaLog !== '(unknown)') {
           hallazgos.push({
             severity: 'info',
             object: db,
-            message: `el log no se puede reutilizar: está esperando ${esperaLog}.`,
+            message: `log cannot be reused: waiting for ${esperaLog}.`,
             remediation:
-              'ACTIVE_TRANSACTION es una transacción abierta; REPLICATION es la replicación atrasada; AVAILABILITY_REPLICA ' +
-              'es una réplica sin sincronizar. Mientras eso siga, el log sólo puede crecer.',
+              'ACTIVE_TRANSACTION is an open transaction; REPLICATION is lagging replication; AVAILABILITY_REPLICA ' +
+              'is an unsynchronized replica. While that persists, the log can only grow.',
           });
         }
       }
@@ -285,10 +285,10 @@ const basesDeDatos: ForeignCheckDefinition = {
         hallazgos.push({
           severity: 'critical',
           object: db,
-          message: 'autoshrink está encendido.',
+          message: 'autoshrink is on.',
           remediation:
-            'Apagarlo: ALTER DATABASE [' + db + '] SET AUTO_SHRINK OFF. Reduce el archivo, fragmenta todos los índices y ' +
-            'después el archivo vuelve a crecer; es el ciclo que más CPU y disco desperdicia sin dar nada a cambio.',
+            'Turn it off: ALTER DATABASE [' + db + '] SET AUTO_SHRINK OFF. It shrinks the file, fragments every index, ' +
+            'and then the file grows again; it is the cycle that wastes the most CPU and disk for no benefit.',
         });
       }
 
@@ -296,7 +296,7 @@ const basesDeDatos: ForeignCheckDefinition = {
         hallazgos.push({
           severity: 'warning',
           object: db,
-          message: 'auto_close está encendido: la base se cierra al quedar sin conexiones y la siguiente paga el arranque.',
+          message: 'auto_close is on: the database closes when idle and the next connection pays startup cost.',
           remediation: `ALTER DATABASE [${db}] SET AUTO_CLOSE OFF.`,
         });
       }
@@ -306,10 +306,10 @@ const basesDeDatos: ForeignCheckDefinition = {
         hallazgos.push({
           severity: 'warning',
           object: db,
-          message: `page_verify está en ${verificacion} en vez de CHECKSUM: la corrupción de una página puede pasar inadvertida.`,
+          message: `page_verify is ${verificacion} instead of CHECKSUM: page corruption can go unnoticed.`,
           remediation:
-            `ALTER DATABASE [${db}] SET PAGE_VERIFY CHECKSUM. Se aplica a las páginas que se escriban desde entonces, ` +
-            'así que conviene además correr un DBCC CHECKDB completo.',
+            `ALTER DATABASE [${db}] SET PAGE_VERIFY CHECKSUM. It applies to pages written from then on, ` +
+            'so also run a full DBCC CHECKDB.',
         });
       }
 
@@ -317,10 +317,10 @@ const basesDeDatos: ForeignCheckDefinition = {
         hallazgos.push({
           severity: 'warning',
           object: db,
-          message: `${num(row['archivos_pct'])} archivo(s) crecen por porcentaje.`,
+          message: `${num(row['archivos_pct'])} file(s) grow by percentage.`,
           remediation:
-            'Cambiar el crecimiento a un tamaño fijo (256 MB para datos, 512 MB para log). Con porcentaje, cada crecimiento ' +
-            'es más grande que el anterior y la pausa que provoca crece con la base.',
+            'Change growth to a fixed size (256 MB for data, 512 MB for log). With percentage growth, each growth ' +
+            'is larger than the previous one and the pause it causes grows with the database.',
         });
       }
 
@@ -328,10 +328,10 @@ const basesDeDatos: ForeignCheckDefinition = {
         hallazgos.push({
           severity: 'info',
           object: db,
-          message: `${num(row['archivos_crecimiento_chico'])} archivo(s) de datos crecen en bloques menores a 64 MB.`,
+          message: `${num(row['archivos_crecimiento_chico'])} data file(s) grow in blocks smaller than 64 MB.`,
           remediation:
-            'Subir el incremento a 256 MB: con bloques chicos el archivo crece cientos de veces y cada crecimiento es una ' +
-            'pausa de escritura, además de fragmentar el archivo en el sistema de archivos.',
+            'Raise the increment to 256 MB: with small blocks the file grows hundreds of times and each growth is a ' +
+            'write pause, plus filesystem fragmentation.',
         });
       }
 
@@ -343,10 +343,10 @@ const basesDeDatos: ForeignCheckDefinition = {
         hallazgos.push({
           severity: 'info',
           object: db,
-          message: `nivel de compatibilidad ${compat} en un motor ${mayor}.x: el optimizador se comporta como una versión vieja.`,
+          message: `compatibility level ${compat} on a ${mayor}.x engine: the optimizer behaves like an older version.`,
           remediation:
-            `Subirlo a ${mayor * 10} con Query Store encendido primero, para poder forzar el plan viejo si alguna consulta ` +
-            'empeora. Es la razón por la que muchas actualizaciones no rinden lo que prometían.',
+            `Raise it to ${mayor * 10} with Query Store on first, so you can force the old plan if a query ` +
+            'gets worse. That is why many upgrades do not deliver the promised gains.',
         });
       }
     }
@@ -365,8 +365,8 @@ const basesDeDatos: ForeignCheckDefinition = {
  */
 const esperas: ForeignCheckDefinition = {
   id: 'mssql_waits',
-  title: 'Esperas dominantes',
-  description: 'A qué se le va el tiempo el motor, sin contar las esperas ociosas',
+  title: 'Dominant waits',
+  description: 'Where the engine spends time, excluding idle waits',
   appliesTo: (caps) => caps.features.seesAllSessions,
   sql: () => `
     with utiles as (
@@ -414,45 +414,45 @@ const esperas: ForeignCheckDefinition = {
     // Qué significa cada espera y qué hacer, para las que de verdad aparecen.
     const guia: Record<string, { que: string; hacer: string }> = {
       PAGEIOLATCH_SH: {
-        que: 'el motor espera a que el disco traiga páginas de datos para leer',
+        que: 'the engine waits for disk to bring data pages to read',
         hacer:
-          'Es memoria o índices, no disco: con el buffer pool chico o un plan que hace scans, todo se lee de disco. ' +
-          'Revisar las consultas con más lecturas lógicas antes de comprar discos.',
+          'It is memory or indexes, not disk: with a small buffer pool or a plan that scans, everything is read from disk. ' +
+          'Review queries with the most logical reads before buying disks.',
       },
       WRITELOG: {
-        que: 'el motor espera a que se escriba el log de transacciones',
+        que: 'the engine waits for the transaction log to be written',
         hacer:
-          'El log está en un disco lento o compartido con los datos. Moverlo a su propio volumen con la mejor latencia de ' +
-          'escritura disponible; es la escritura más sensible de todo el motor.',
+          'The log is on a slow disk or shared with data. Move it to its own volume with the best available write ' +
+          'latency; it is the most sensitive write in the entire engine.',
       },
       CXPACKET: {
-        que: 'las ramas de una consulta paralela se esperan entre sí',
+        que: 'branches of a parallel query wait on each other',
         hacer:
-          'Casi siempre es el umbral de paralelismo en 5 y MAXDOP sin límite: consultas baratas se paralelizan sin ' +
-          'necesidad. Subir el umbral a 50 antes de tocar nada más.',
+          'It is usually parallelism threshold at 5 and unlimited MAXDOP: cheap queries parallelize unnecessarily. ' +
+          'Raise the threshold to 50 before changing anything else.',
       },
       RESOURCE_SEMAPHORE: {
-        que: 'las consultas esperan una concesión de memoria para ordenar o hacer hash',
+        que: 'queries wait for a memory grant to sort or hash',
         hacer:
-          'Hay consultas pidiendo memoria de más, normalmente por estimaciones malas. Es presión de memoria real: revisar ' +
-          'las estadísticas y los planes con concesiones grandes.',
+          'Queries are asking for too much memory, usually from bad estimates. This is real memory pressure: review ' +
+          'statistics and plans with large grants.',
       },
       SOS_SCHEDULER_YIELD: {
-        que: 'los hilos ceden el turno de CPU porque hay más trabajo que núcleos',
-        hacer: 'Es presión de CPU. Buscar las consultas con más tiempo de CPU en la pantalla de consultas.',
+        que: 'threads yield CPU time because there is more work than cores',
+        hacer: 'This is CPU pressure. Find the queries with the most CPU time in the query dashboard.',
       },
-      LCK_M_X: { que: 'sesiones esperando un lock exclusivo', hacer: 'Ver la pantalla de bloqueos: hay contención de escritura.' },
-      LCK_M_S: { que: 'sesiones esperando un lock compartido', hacer: 'Una escritura larga está bloqueando lecturas. Considerar READ_COMMITTED_SNAPSHOT.' },
+      LCK_M_X: { que: 'sessions waiting for an exclusive lock', hacer: 'See the blocking dashboard: there is write contention.' },
+      LCK_M_S: { que: 'sessions waiting for a shared lock', hacer: 'A long write is blocking reads. Consider READ_COMMITTED_SNAPSHOT.' },
       ASYNC_NETWORK_IO: {
-        que: 'el motor espera a que el cliente reciba los datos que ya produjo',
+        que: 'the engine waits for the client to receive the data it already produced',
         hacer:
-          'No es el servidor: es la aplicación leyendo fila por fila, o la red. Traer menos filas o consumirlas más rápido.',
+          'It is not the server: the application reads row by row, or the network. Fetch fewer rows or consume them faster.',
       },
       THREADPOOL: {
-        que: 'no hay hilos de trabajo libres para atender peticiones',
+        que: 'no worker threads are free to serve requests',
         hacer:
-          'Es grave: con esto el servidor deja de aceptar consultas nuevas. Suele venir de un bloqueo masivo que consume ' +
-          'todos los hilos, no de falta de hilos.',
+          'This is severe: the server stops accepting new queries. It usually comes from massive blocking that consumes ' +
+          'all threads, not a lack of threads.',
       },
     };
 
@@ -476,12 +476,12 @@ const esperas: ForeignCheckDefinition = {
         severity: tipo === 'THREADPOOL' ? 'critical' : pct >= 50 ? 'warning' : 'info',
         object: tipo,
         message:
-          `${formatPct(pct)} del tiempo de espera del servidor` +
+          `${formatPct(pct)} of server wait time` +
           (conocida ? `: ${conocida.que}` : '') +
-          ` (${esperas} esperas, ${mediaMs.toFixed(1)} ms de media).`,
+          ` (${esperas} waits, ${mediaMs.toFixed(1)} ms average).`,
         remediation:
           conocida?.hacer ??
-          'Buscar el tipo de espera en la documentación de Microsoft: sin saber qué significa, cualquier cambio es a ciegas.',
+          'Look up the wait type in Microsoft documentation: without knowing what it means, any change is blind.',
         value: pct,
       });
     }
@@ -500,8 +500,8 @@ const esperas: ForeignCheckDefinition = {
  */
 const indices: ForeignCheckDefinition = {
   id: 'mssql_indexes',
-  title: 'Índices sin uso y faltantes',
-  description: 'Índices que sólo cuestan escrituras, e índices que el optimizador pide',
+  title: 'Unused and missing indexes',
+  description: 'Indexes that only cost writes, and indexes the optimizer requests',
   appliesTo: (caps) => caps.features.seesAllSessions,
   sql: () => `
     select 'sin_uso' as clase,
@@ -543,10 +543,10 @@ const indices: ForeignCheckDefinition = {
           {
             severity: 'info',
             object: objeto,
-            message: `${num(row['escrituras'])} escrituras y ninguna lectura desde el último reinicio.`,
+            message: `${num(row['escrituras'])} writes and no reads since the last restart.`,
             remediation:
-              'Un índice así sólo cuesta: espacio, escrituras y tiempo de respaldo. Antes de borrarlo, confirmar que no lo ' +
-              'use un proceso de fin de mes; deshabilitarlo (ALTER INDEX … DISABLE) permite volver atrás sin recrearlo.',
+              'An index like this only costs: space, writes, and backup time. Before dropping it, confirm a month-end process ' +
+              'does not use it; disabling it (ALTER INDEX … DISABLE) lets you roll back without recreating it.',
             value: num(row['escrituras']),
           },
         ];
@@ -555,10 +555,10 @@ const indices: ForeignCheckDefinition = {
         {
           severity: 'info',
           object: objeto,
-          message: `el optimizador estima un beneficio de ${num(row['beneficio']).toLocaleString('es')} si existiera este índice.`,
+          message: `optimizer estimates a benefit of ${num(row['beneficio']).toLocaleString('en-US')} if this index existed.`,
           remediation:
-            'Es una sugerencia, no una receta: SQL Server propone un índice por consulta y sin mirar los que ya existen. ' +
-            'Revisar si un índice existente se puede extender con esas columnas antes de crear uno nuevo.',
+            'This is a suggestion, not a recipe: SQL Server proposes one index per query without looking at existing ones. ' +
+            'Check whether an existing index can be extended with those columns before creating a new one.',
           value: num(row['beneficio']),
         },
       ];
@@ -569,8 +569,8 @@ const indices: ForeignCheckDefinition = {
 /** Trabajos del Agent que fallan o que nadie mira. */
 const jobs: ForeignCheckDefinition = {
   id: 'mssql_agent_jobs',
-  title: 'Trabajos del Agent',
-  description: 'Jobs deshabilitados, fallando o sin correr',
+  title: 'Agent jobs',
+  description: 'Disabled, failing, or never-run jobs',
   sql: () => `
     select j.name                            as job,
            j.enabled                          as habilitado,
@@ -607,10 +607,9 @@ const jobs: ForeignCheckDefinition = {
           {
             severity: 'info',
             object: job,
-            message: 'el trabajo está deshabilitado.',
+            message: 'job is disabled.',
             remediation:
-              'Si ya no se necesita, borrarlo: un job deshabilitado que nadie recuerda es una tarea de mantenimiento que ' +
-              'alguien cree que corre.',
+              'If it is no longer needed, delete it: a disabled job nobody remembers is maintenance someone thinks is running.',
           },
         ];
       }
@@ -620,8 +619,8 @@ const jobs: ForeignCheckDefinition = {
           {
             severity: 'critical',
             object: job,
-            message: `la última ejecución falló: ${text(row['mensaje'], 'sin mensaje').slice(0, 300)}`,
-            remediation: 'Revisar el historial del job en el Agent. Un job de respaldo que falla deja al servidor sin red de seguridad.',
+            message: `last run failed: ${text(row['mensaje'], 'no message').slice(0, 300)}`,
+            remediation: 'Review the job history in Agent. A failing backup job leaves the server without a safety net.',
           },
         ];
       }
@@ -633,8 +632,8 @@ const jobs: ForeignCheckDefinition = {
           {
             severity: 'info',
             object: job,
-            message: 'el trabajo está habilitado pero nunca se ejecutó.',
-            remediation: 'Revisar que tenga una programación asignada: un job sin schedule sólo corre si alguien lo lanza a mano.',
+            message: 'job is enabled but has never run.',
+            remediation: 'Verify it has a schedule assigned: a job without a schedule only runs if someone starts it manually.',
           },
         ];
       }

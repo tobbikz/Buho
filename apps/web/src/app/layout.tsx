@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import { IBM_Plex_Sans, JetBrains_Mono } from 'next/font/google';
+import { Navbar } from '@/components/Navbar';
 import { Sidebar } from '@/components/Sidebar';
 import { authConfigured } from '@/lib/auth';
 import { defaultGroupKey, groupInstances } from '@/lib/grouping';
@@ -33,7 +34,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // sin consultar el store.
   if (path === '/login') {
     return (
-      <html lang="es">
+      <html lang="en">
         <body className={`${plex.variable} ${jetbrains.variable} antialiased`}>{children}</body>
       </html>
     );
@@ -50,7 +51,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const grouped = groupInstances(instances, groupKey);
 
   return (
-    <html lang="es">
+    <html lang="en">
       <body className={`${plex.variable} ${jetbrains.variable} antialiased`}>
         {!authConfigured() ? (
           <div className="auth-warning">
@@ -58,23 +59,27 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </div>
         ) : null}
         <div className="app-shell">
-          <div className="sidebar-col">
-            <Sidebar
-              authEnabled={authConfigured()}
-              isAdmin={session.role === 'admin'}
-              username={authConfigured() ? session.username : undefined}
-              instances={grouped.flatMap((group) =>
-                group.instances.map((instance) => ({
-                  instanceId: instance.instanceId,
-                  alias: instance.alias,
-                  score: instance.score,
-                  critical: instance.critical,
-                  group: group.value,
-                })),
-              )}
-            />
+          <Navbar
+            authEnabled={authConfigured()}
+            isAdmin={session.role === 'admin'}
+            username={authConfigured() ? session.username : undefined}
+          />
+          <div className="app-body">
+            <div className="sidebar-col">
+              <Sidebar
+                instances={grouped.flatMap((group) =>
+                  group.instances.map((instance) => ({
+                    instanceId: instance.instanceId,
+                    alias: instance.alias,
+                    score: instance.score,
+                    critical: instance.critical,
+                    group: group.value,
+                  })),
+                )}
+              />
+            </div>
+            <main className="min-w-0">{children}</main>
           </div>
-          <main className="min-w-0">{children}</main>
         </div>
       </body>
     </html>

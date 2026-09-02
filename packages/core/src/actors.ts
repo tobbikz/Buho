@@ -116,7 +116,7 @@ export async function inspectActors(pool: Pool, versionNum: number): Promise<Act
   if (versionNum < 140000) {
     return {
       available: false,
-      reason: 'pg_stat_activity.query_id existe desde PostgreSQL 14',
+      reason: 'pg_stat_activity.query_id requires PostgreSQL 14 or newer',
     };
   }
 
@@ -130,7 +130,7 @@ export async function inspectActors(pool: Pool, versionNum: number): Promise<Act
   if (compute === 'off' || compute === 'regress') {
     return {
       available: false,
-      reason: `compute_query_id está en '${compute}': sin identificador de consulta no se puede cruzar con pg_stat_statements`,
+      reason: `compute_query_id is '${compute}': without a query identifier, pg_stat_statements cannot be correlated`,
     };
   }
 
@@ -142,8 +142,8 @@ export async function inspectActors(pool: Pool, versionNum: number): Promise<Act
     return {
       available: false,
       reason:
-        "compute_query_id está en 'auto' pero pg_stat_statements no está precargado, " +
-        'así que nadie calcula el identificador de consulta',
+        "compute_query_id is 'auto' but pg_stat_statements is not preloaded, " +
+        'so no query identifier is computed',
     };
   }
 

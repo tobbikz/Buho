@@ -1,6 +1,5 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { AutoRefresh } from '@/components/AutoRefresh';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
@@ -78,7 +77,6 @@ export default async function IndexesPage({ params }: { params: Promise<{ id: st
               en cada vacuum.
             </p>
           </div>
-          <AutoRefresh intervalMs={60000} />
         </header>
 
         <InstanceTabs instanceId={instanceId} engine={engine} />

@@ -246,10 +246,10 @@ export async function collectMariadb(client: EngineClient): Promise<InventorySna
 
   // -------------------------------------------------------------- licencias
   snapshot.licensing = {
-    edition: 'MariaDB Community (código abierto)',
+    edition: 'MariaDB Community (open source)',
     licenseModel: 'GPL v2',
     productionOk: null,
-    note: 'Sin costo de licencia ni límite de núcleos. MariaDB Enterprise es una suscripción de soporte, no un cambio de binario con límites.',
+    note: 'No license cost and no core limits. MariaDB Enterprise is a support subscription, not a different binary with caps.',
   };
 
   snapshot.notes = notes;

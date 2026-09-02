@@ -205,7 +205,6 @@ export async function getInstanceScores(): Promise<InstanceScore[]> {
            from buho.health_scores
           order by instance_id, ts desc
        ) h using (instance_id)
-      where i.engine = 'postgres'
       order by h.score asc nulls first, i.alias`,
   );
 

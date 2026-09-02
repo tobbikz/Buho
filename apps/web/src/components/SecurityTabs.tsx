@@ -6,7 +6,6 @@ import { usePathname } from 'next/navigation';
 const TABS = [
   { href: '/security', label: 'Findings' },
   { href: '/security/accounts', label: 'Accounts' },
-  { href: '/security/coverage', label: 'Coverage' },
 ];
 
 export function SecurityTabs({ counters = {} }: { counters?: Record<string, number> }) {

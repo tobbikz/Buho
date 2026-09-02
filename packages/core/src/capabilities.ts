@@ -76,11 +76,11 @@ export async function probeCapabilities(pool: Pool): Promise<Capabilities> {
 export function capabilityWarnings(caps: Capabilities): string[] {
   const warnings: string[] = [];
   if (caps.versionNum < 130000) {
-    warnings.push(`PostgreSQL ${caps.versionText} está por debajo de la versión mínima soportada (13).`);
+    warnings.push(`PostgreSQL ${caps.versionText} is below the minimum supported version (13).`);
   }
   if (!caps.hasPgMonitor && !caps.isSuperuser) {
     warnings.push(
-      'El usuario no pertenece a pg_monitor: varias métricas vendrán vacías. Remediación: GRANT pg_monitor TO <usuario>.',
+      'User is not in pg_monitor: several metrics will be empty. Remediation: GRANT pg_monitor TO <user>.',
     );
   }
   // track_io_timing y pg_stat_statements no se avisan aquí: son hallazgos del

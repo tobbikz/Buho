@@ -15,6 +15,9 @@ import { formatBytes, formatNumber, formatPct } from './format';
 
 export type CapacityResource = 'disco' | 'xid' | 'cpu' | 'ram';
 
+/** Minimum distinct daily buckets before showing a growth projection. */
+export const MIN_FORECAST_DAYS = 30;
+
 export interface CapacityPoint {
   bucket: number;
   value: number;
@@ -79,7 +82,7 @@ function fitLinear(points: CapacityPoint[]): LinearFit | null {
   return { slopePerMs, intercept, rSquared };
 }
 
-async function dailySeries(
+export async function dailySeries(
   instanceId: number,
   metric: string,
   days: number,
@@ -104,7 +107,7 @@ async function dailySeries(
     .filter((point) => Number.isFinite(point.value));
 }
 
-function project(
+export function project(
   resource: CapacityResource,
   label: string,
   unit: 'bytes' | 'pct',
@@ -255,6 +258,14 @@ export async function getCapacityBudget(
     project('cpu', 'Host CPU', 'pct', cpu, cpuThreshold, (v) => formatPct(v, 1)),
     project('ram', 'Host RAM', 'pct', ram, ramThreshold, (v) => formatPct(v, 1)),
   ];
+}
+
+export function historyDayCount(history: CapacityPoint[]): number {
+  return history.length;
+}
+
+export function canForecast(history: CapacityPoint[]): boolean {
+  return historyDayCount(history) >= MIN_FORECAST_DAYS;
 }
 
 export function formatDays(days: number | null): string {

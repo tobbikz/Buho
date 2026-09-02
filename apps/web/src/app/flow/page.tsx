@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { AutoRefresh } from '@/components/AutoRefresh';
 import { FlowSankey, OperationBars } from '@/components/FlowSankey';
 import { LiveFlow } from '@/components/LiveFlow';
 import { StatCard } from '@/components/StatCard';
@@ -8,7 +7,6 @@ import { Topbar } from '@/components/Topbar';
 import { formatNumber, formatPct } from '@/lib/format';
 import { formatUnit, type Unit } from '@/lib/units';
 import { getFleetFlow } from '@/lib/fleet-flow';
-import type { FlowActor, FlowDirection } from '@/lib/flow';
 import type { FlowWeight } from '@buho/core';
 
 export const dynamic = 'force-dynamic';
@@ -36,19 +34,17 @@ const ENGINE_LABEL: Record<string, string> = {
 export default async function FleetFlowPage({
   searchParams,
 }: {
-  searchParams: Promise<{ peso?: string; v?: string; dir?: string; quien?: string; vista?: string }>;
+  searchParams: Promise<{ peso?: string; v?: string; vista?: string }>;
 }) {
-  const { peso, v, dir, quien, vista } = await searchParams;
+  const { peso, v, vista } = await searchParams;
 
   const weight = (WEIGHTS.find((entrada) => entrada.key === peso)?.key ?? 'rows') as FlowWeight;
   const window = WINDOWS.find((entrada) => entrada.key === v) ?? WINDOWS[2]!;
-  const direction: FlowDirection = dir === 'lectura' ? 'lectura' : 'escritura';
-  const actor: FlowActor = quien === 'aplicacion' ? 'aplicacion' : 'rol';
-  const enVivo = vista !== 'acumulado';
+  const enVivo = vista === 'vivo';
 
   let flow;
   try {
-    flow = await getFleetFlow(window.minutes, weight, direction, actor);
+    flow = await getFleetFlow(window.minutes, weight, 20);
   } catch (error) {
     return (
       <>
@@ -65,8 +61,6 @@ export default async function FleetFlowPage({
     const parametros = new URLSearchParams({
       peso: weight,
       v: window.key,
-      dir: direction,
-      quien: actor,
       vista: enVivo ? 'vivo' : 'acumulado',
       ...cambios,
     });
@@ -75,9 +69,6 @@ export default async function FleetFlowPage({
 
   const total = flow.tables.reduce((suma, tabla) => suma + tabla.weight, 0);
   const primera = flow.tables[0];
-  // La concentración es la lectura más accionable de esta pantalla: si una sola
-  // tabla del parque se lleva la mitad del tráfico, ahí empieza cualquier
-  // trabajo de rendimiento.
   const concentracion = total > 0 && primera ? (primera.weight / total) * 100 : 0;
   const cobertura = flow.weightTotal > 0 ? (flow.weightAttributed / flow.weightTotal) * 100 : 0;
 
@@ -89,85 +80,57 @@ export default async function FleetFlowPage({
           <div>
             <h1 className="page-title">Estate flow</h1>
             <p className="page-sub">
-              The same traffic diagram, but for every server at once: which estate table gets the most
-              {direction === 'escritura' ? ' write' : ' read'} traffic, and which instance it is on. Attribution comes from
-              reading each query's text, so it is <strong>approximate</strong>; per-table detail and
-              contraste con los contadores están en la pantalla de cada instancia.
+              Hot tables across the fleet. <strong>Writes</strong> and <strong>Reads</strong> are the two entry
+              points, then schema, then table. Attribution comes from reading each query&apos;s text — it is{' '}
+              <strong>approximate</strong>. Per-instance detail lives on each server&apos;s Flow screen; the full
+              catalog map is on the ORM tab (PostgreSQL).
             </p>
           </div>
-          <AutoRefresh intervalMs={60000} />
         </header>
 
         <div className="stat-grid">
           <StatCard
-            label={direction === 'escritura' ? 'Rows written' : 'Rows read'}
-            value={formatUnit(total, unidad)}
+            label="Write heat"
+            value={formatUnit(flow.writeTotal, unidad)}
             hint={`whole estate, window ${window.label}`}
             tone="accent"
           />
           <StatCard
+            label="Read heat"
+            value={formatUnit(flow.readTotal, unidad)}
+            hint={`whole estate, window ${window.label}`}
+          />
+          <StatCard
             label="Hottest table"
             value={primera ? formatPct(concentracion, 0) : '·'}
-            hint={primera ? `${primera.relation} en ${primera.alias}` : 'no attributed traffic'}
+            hint={primera ? `${primera.relation} on ${primera.alias}` : 'no attributed traffic'}
             tone={concentracion >= 50 ? 'warn' : 'neutral'}
           />
           <StatCard
             label="Instances with traffic"
             value={`${formatNumber(flow.withTraffic)} / ${formatNumber(flow.instances)}`}
-            hint="the rest attributed nothing"
-          />
-          <StatCard
-            label="Attributed weight"
-            value={formatPct(cobertura, 0)}
-            hint="of the total the engine measured"
+            hint={`${formatPct(cobertura, 0)} of measured weight attributed`}
             tone={cobertura >= 60 ? 'ok' : cobertura >= 25 ? 'warn' : 'neutral'}
           />
         </div>
 
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">
-              Instancia → esquema → tabla · {direction === 'escritura' ? 'escrituras' : 'lecturas'}
-            </span>
+            <span className="panel-title">Hot tables · writes &amp; reads</span>
             <div className="flex flex-wrap items-center gap-1">
               <Link
                 href={enlace({ vista: 'vivo' })}
                 className={`tag ${enVivo ? 'tag--ok' : 'tag--muted'}`}
                 title="what is moving now across the estate"
               >
-                en vivo
+                Live
               </Link>
               <Link
                 href={enlace({ vista: 'acumulado' })}
                 className={`tag ${enVivo ? 'tag--muted' : 'tag--info'}`}
               >
-                acumulado
+                Accumulated
               </Link>
-              <span className="mx-1 text-foreground-muted">·</span>
-              {(['rol', 'aplicacion'] as const).map((opcion) => (
-                <Link
-                  key={opcion}
-                  href={enlace({ quien: opcion })}
-                  className={`tag ${opcion === actor ? 'tag--info' : 'tag--muted'}`}
-                  title={
-                    opcion === 'rol'
-                      ? 'exact: pg_stat_statements stores the role'
-                      : 'estimated by sampling pg_stat_activity'
-                  }
-                >
-                  por {opcion}
-                </Link>
-              ))}
-              <span className="mx-1 text-foreground-muted">·</span>
-              {(['escritura', 'lectura'] as const).map((opcion) => (
-                <Link
-                  key={opcion}
-                  href={enlace({ dir: opcion })}
-                  className={`tag ${opcion === direction ? 'tag--info' : 'tag--muted'}`}
-                >
-                  {opcion}
-                </Link>
-              ))}
               <span className="mx-1 text-foreground-muted">·</span>
               {WEIGHTS.map((opcion) => (
                 <Link
@@ -194,32 +157,19 @@ export default async function FleetFlowPage({
 
           <div className="panel-body">
             {enVivo ? (
-              <LiveFlow
-                scope="flota"
-                weight={weight}
-                direction={direction}
-                actor={actor}
+              <LiveFlow scope="flota" weight={weight} unit={unidad} height={460} />
+            ) : (
+              <FlowSankey
+                nodes={flow.nodes}
+                links={flow.links}
                 unit={unidad}
                 height={460}
+                emptyMessage="No estate traffic could be attributed to a table in this window."
               />
-            ) : (
-            <FlowSankey
-              nodes={flow.nodes}
-              links={flow.links}
-              unit={unidad}
-              height={460}
-              emptyMessage={
-                direction === 'escritura'
-                  ? 'No estate writes could be attributed to a table in this window. If databases are read-only, try "lectura".'
-                  : 'No estate reads could be attributed to a table in this window.'
-              }
-            />
             )}
             <p className="mt-2 text-[11px] text-foreground-muted">
-              El esquema va calificado por instancia: dos servidores pueden tener cada uno su{' '}
-              <span className="font-mono">public</span>, and merging them would fuse traffic from machines into one ribbon
-              distintas. Cada instancia se calcula con el esquema por omisión de su motor, que no es el mismo en los
-              tres.
+              Green bands are writes, blue bands are reads. Schemas are qualified per instance — two servers can
+              each have their own <span className="font-mono">public</span>.
             </p>
           </div>
         </section>
@@ -238,11 +188,11 @@ export default async function FleetFlowPage({
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Tabla</th>
-                        <th>Instancia</th>
-                        <th className="text-right">Peso</th>
-                        <th className="text-right">From the estate</th>
-                        <th>{actor === 'rol' ? 'Roles' : 'Aplicaciones'}</th>
+                        <th>Table</th>
+                        <th>Instance</th>
+                        <th className="text-right">Write</th>
+                        <th className="text-right">Read</th>
+                        <th className="text-right">Of estate</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -257,13 +207,10 @@ export default async function FleetFlowPage({
                               {ENGINE_LABEL[tabla.engine] ?? tabla.engine}
                             </span>
                           </td>
-                          <td className="num">{formatUnit(tabla.weight, unidad)}</td>
+                          <td className="num">{formatUnit(tabla.writeWeight, unidad)}</td>
+                          <td className="num">{formatUnit(tabla.readWeight, unidad)}</td>
                           <td className="num">
                             {total > 0 ? formatPct((tabla.weight / total) * 100, 1) : '·'}
-                          </td>
-                          <td className="text-[11px] text-foreground-muted">
-                            {tabla.actors.slice(0, 3).join(', ')}
-                            {tabla.actors.length > 3 ? ` +${tabla.actors.length - 3}` : ''}
                           </td>
                         </tr>
                       ))}
@@ -276,7 +223,7 @@ export default async function FleetFlowPage({
 
           <section className="panel xl:col-span-1">
             <div className="panel-header">
-              <span className="panel-title">What kind of traffic</span>
+              <span className="panel-title">Traffic mix per table</span>
             </div>
             <div className="panel-body">
               {flow.tables.length === 0 ? (
@@ -301,13 +248,10 @@ export default async function FleetFlowPage({
               <span className="panel-title">Instances that contributed nothing</span>
             </div>
             <div className="panel-body">
-              {/* Se listan a propósito: una instancia ausente del diagrama por
-                  falta de datos y una sin tráfico se ven igual, y no son lo
-                  mismo. Decir cuántas consultas vio cada una separa los casos. */}
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Instancia</th>
+                    <th>Instance</th>
                     <th>Engine</th>
                     <th className="text-right">Queries seen</th>
                     <th>Likely read</th>
@@ -322,9 +266,7 @@ export default async function FleetFlowPage({
                       <td className="text-[11px] text-foreground-muted">
                         {instancia.statements === 0
                           ? 'no query statistics: either no application traffic, or pg_stat_statements is missing'
-                          : direction === 'escritura'
-                            ? 'there are queries but none write to an identifiable table'
-                            : 'there are queries but none read from an identifiable table'}
+                          : 'there are queries but none touch an identifiable table'}
                       </td>
                     </tr>
                   ))}

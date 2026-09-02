@@ -1,6 +1,5 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { AutoRefresh } from '@/components/AutoRefresh';
 import { FlowSankey, OperationBars } from '@/components/FlowSankey';
 import { LiveFlow } from '@/components/LiveFlow';
 import { Heatmap } from '@/components/Heatmap';
@@ -12,7 +11,7 @@ import { formatNumber, formatPct } from '@/lib/format';
 import { formatUnit, type Unit } from '@/lib/units';
 import { getInstanceEngine } from '@/lib/estate';
 import { getInstance } from '@/lib/queries';
-import { getFlow, getTableCounters, type FlowActor, type FlowDirection } from '@/lib/flow';
+import { getFlow, getTableCounters } from '@/lib/flow';
 import {
   busiestHour,
   getHeatmap,
@@ -58,8 +57,6 @@ export default async function FlowPage({
   searchParams: Promise<{
     peso?: string;
     v?: string;
-    dir?: string;
-    quien?: string;
     vista?: string;
     calor?: string;
     cv?: string;
@@ -67,7 +64,7 @@ export default async function FlowPage({
   }>;
 }) {
   const { id } = await params;
-  const { peso, v, dir, quien, vista, calor, cv, agg } = await searchParams;
+  const { peso, v, vista, calor, cv, agg } = await searchParams;
 
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
@@ -76,12 +73,7 @@ export default async function FlowPage({
 
   const weight = (WEIGHTS.find((entrada) => entrada.key === peso)?.key ?? 'rows') as FlowWeight;
   const window = WINDOWS.find((entrada) => entrada.key === v) ?? WINDOWS[2]!;
-  const direction: FlowDirection = dir === 'lectura' ? 'lectura' : 'escritura';
-  const actor: FlowActor = quien === 'aplicacion' ? 'aplicacion' : 'rol';
-  // El lienzo vivo es lo primero que se ve porque contesta la pregunta más
-  // frecuente al abrir la pantalla —"¿está pasando algo ahora?"—, y el diagrama
-  // acumulado queda a un clic para la pregunta de después: "¿qué pasó hoy?".
-  const enVivo = vista !== 'acumulado';
+  const enVivo = vista === 'vivo';
   const heatOption = HEAT_OPTIONS.find((entrada) => entrada.key === calor) ?? HEAT_OPTIONS[0]!;
   const heatWindow = HEAT_WINDOWS.find((entrada) => entrada.key === cv) ?? HEAT_WINDOWS[1]!;
   const heatAgg: HeatAgg = agg === 'max' ? 'max' : 'avg';
@@ -93,7 +85,7 @@ export default async function FlowPage({
   try {
     [instance, flow, counters, heat] = await Promise.all([
       getInstance(instanceId),
-      getFlow(instanceId, window.minutes, weight, direction, engine, actor),
+      getFlow(instanceId, window.minutes, weight, 'both', engine, 'aplicacion', 14),
       getTableCounters(instanceId, window.minutes),
       getHeatmap(instanceId, heatOption, heatWindow.days, heatAgg),
     ]);
@@ -119,8 +111,6 @@ export default async function FlowPage({
     const parametros = new URLSearchParams({
       peso: weight,
       v: window.key,
-      dir: direction,
-      quien: actor,
       vista: enVivo ? 'vivo' : 'acumulado',
       calor: heatOption.key,
       cv: heatWindow.key,
@@ -143,7 +133,8 @@ export default async function FlowPage({
     (suma, fila) => suma + fila.inserted + fila.updated + fila.deleted,
     0,
   );
-  const escriturasAtribuidas = flow.tables.reduce((suma, tabla) => suma + tabla.rows, 0);
+  const escriturasAtribuidas = flow.writeTotal;
+  const lecturasAtribuidas = flow.readTotal;
 
   const tranquila = quietestHour(heat, 2);
   const cargada = busiestHour(heat, 2);
@@ -158,30 +149,34 @@ export default async function FlowPage({
           <div>
             <h1 className="page-title">Flow and usage · {instance.alias}</h1>
             <p className="page-sub">
-              Por dónde entra el tráfico y dónde cae. El diagrama cruza el rol que ejecuta con la tabla que toca;
-              la rejilla muestra a qué horas de la semana se usa el servidor. La atribución del diagrama es{' '}
-              <strong>aproximada</strong>: sale de leer el texto de cada consulta
+              Where traffic enters and where it lands. <strong>Writes</strong> and <strong>Reads</strong> are the two
+              entry points, then schema, then table. Diagram attribution is <strong>approximate</strong> — it comes
+              from reading each query&apos;s text
               {engine === 'postgres'
-                ? ', and PostgreSQL counters are below for contrast.'
-                : ', and this engine has no per-table counters to contrast against.'}
+                ? ', and PostgreSQL counters are below for contrast. For the full catalog map, see the ORM tab.'
+                : '.'}
             </p>
           </div>
-          <AutoRefresh intervalMs={30000} />
         </header>
 
         <InstanceTabs instanceId={instanceId} engine={engine} />
 
         <div className="stat-grid">
           <StatCard
-            label={direction === 'escritura' ? 'Rows written' : 'Rows read'}
+            label="Write heat"
             value={formato(escriturasAtribuidas)}
             hint={`attributed, window ${window.label}`}
             tone="accent"
           />
           <StatCard
+            label="Read heat"
+            value={formato(lecturasAtribuidas)}
+            hint={`attributed, window ${window.label}`}
+          />
+          <StatCard
             label="Tables with traffic"
             value={formatNumber(flow.tables.length)}
-            hint={direction === 'escritura' ? 'target of some DML' : 'read by some query'}
+            hint="touched by some query"
           />
           <StatCard
             label="Attributed queries"
@@ -189,71 +184,27 @@ export default async function FlowPage({
             hint={`${formatPct(cobertura, 0)} of total weight`}
             tone={cobertura >= 60 ? 'ok' : cobertura >= 25 ? 'warn' : 'neutral'}
           />
-          {engine === 'postgres' ? (
-            <StatCard
-              label="Per the counters"
-              value={formatNumber(Math.round(escriturasContadas))}
-              hint="DML rows measured by PostgreSQL"
-            />
-          ) : (
-            <StatCard
-              label="Rol de quien ejecuta"
-              value={engine === 'mariadb' ? 'no informado' : 'per session'}
-              hint={
-                engine === 'mariadb'
-                  ? 'performance_schema does not store the user in digests'
-                  : 'SQL Server aggregates by plan, without the role'
-              }
-            />
-          )}
         </div>
 
         {/* ------------------------------------------------------------ flujo */}
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">
-              {direction === 'escritura' ? 'Who writes where' : 'Who reads from where'}
-            </span>
+            <span className="panel-title">Hot tables · writes &amp; reads</span>
             <div className="flex flex-wrap items-center gap-1">
               <Link
                 href={enlace({ vista: 'vivo' })}
                 className={`tag ${enVivo ? 'tag--ok' : 'tag--muted'}`}
                 title="what is moving now, last 5 minutes"
               >
-                en vivo
+                Live
               </Link>
               <Link
                 href={enlace({ vista: 'acumulado' })}
                 className={`tag ${enVivo ? 'tag--muted' : 'tag--info'}`}
                 title="total for the selected window"
               >
-                acumulado
+                Accumulated
               </Link>
-              <span className="mx-1 text-foreground-muted">·</span>
-              {(['rol', 'aplicacion'] as const).map((opcion) => (
-                <Link
-                  key={opcion}
-                  href={enlace({ quien: opcion })}
-                  className={`tag ${opcion === actor ? 'tag--info' : 'tag--muted'}`}
-                  title={
-                    opcion === 'rol'
-                      ? 'exact: pg_stat_statements stores the role'
-                      : 'estimated by sampling pg_stat_activity'
-                  }
-                >
-                  por {opcion}
-                </Link>
-              ))}
-              <span className="mx-1 text-foreground-muted">·</span>
-              {(['escritura', 'lectura'] as const).map((opcion) => (
-                <Link
-                  key={opcion}
-                  href={enlace({ dir: opcion })}
-                  className={`tag ${opcion === direction ? 'tag--info' : 'tag--muted'}`}
-                >
-                  {opcion}
-                </Link>
-              ))}
               <span className="mx-1 text-foreground-muted">·</span>
               {WEIGHTS.map((opcion) => (
                 <Link
@@ -280,14 +231,7 @@ export default async function FlowPage({
 
           <div className="panel-body">
             {enVivo ? (
-              <LiveFlow
-                scope="instancia"
-                instanceId={instanceId}
-                weight={weight}
-                direction={direction}
-                actor={actor}
-                unit={unidad}
-              />
+              <LiveFlow scope="instancia" instanceId={instanceId} weight={weight} unit={unidad} />
             ) : (
             <FlowSankey
               nodes={flow.nodes}
@@ -296,44 +240,21 @@ export default async function FlowPage({
               emptyMessage={
                 flow.statements === 0
                   ? escriturasContadas > 0
-                    ? // Caso real y confuso si no se explica: los contadores ven
-                      // tráfico pero no hay ninguna consulta que atribuir. Pasa
-                      // cuando quien escribe queda fuera de pg_stat_statements,
-                      // y el caso más común es esta misma base, porque Búho
-                      // marca sus consultas para no contarse a sí mismo.
-                      'Counters see writes but no query was recorded in pg_stat_statements. Often intentional exclusion: Búho tags monitor queries and does not attribute them.'
+                    ? 'Counters see writes but no query was recorded in pg_stat_statements. Often intentional exclusion: Búho tags monitor queries and does not attribute them.'
                     : "No application queries in the window. Búho's own queries do not count, so an instance that only receives monitoring looks empty here."
-                  : direction === 'escritura' && weight === 'rows' && engine === 'mssql'
-                    ? // En SQL Server el DML no aporta filas a dm_exec_query_stats,
-                      // así que pesar por filas deja el diagrama vacío aunque haya
-                      // tráfico. Vale más decirlo que dejar la pantalla en blanco.
-                      'SQL Server does not count rows modified per query, so weighting writes by rows is zero. Try "tiempo" or "llamadas".'
-                    : direction === 'escritura'
-                      ? 'No writes could be attributed to a table in this window. If the database is read-only, try "lectura".'
-                      : 'No reads could be attributed to a table in this window.'
+                  : weight === 'rows' && engine === 'mssql'
+                    ? 'SQL Server does not count rows modified per query, so weighting writes by rows is zero. Try "Time" or "Calls".'
+                    : 'No traffic could be attributed to a table in this window.'
               }
             />
             )}
-            {actor === 'aplicacion' && (
-              <p className="mt-2 text-[11px] text-foreground-muted">
-                The left column is an <strong>estimate</strong>: the application name is not in the
-                cumulative statistics, so it comes from looking every five seconds at who is running what and then
-                distributing weight in that proportion. A query shorter than the interval may never be seen, and
-                that is why unobserved ones are grouped as «not observed»
-                {flow.weightAttributed > 0
-                  ? `, which today is ${formatPct(100 - (flow.weightWithActor / flow.weightAttributed) * 100, 0)} of attributed weight.`
-                  : '.'}{' '}
-                The role, by contrast, is exact.
-              </p>
-            )}
             <p className="mt-2 text-[11px] text-foreground-muted">
-              Cuando una consulta toca varias tablas, su peso se reparte entre ellas: cargarlo entero a cada una
-              multiplicaría el tráfico y el diagrama mentiría sobre el volumen. Los esquemas del sistema quedan
-              fuera —<span className="font-mono">pg_catalog</span>,{' '}
-              <span className="font-mono">information_schema</span>,{' '}
-              <span className="font-mono">performance_schema</span>,{' '}
-              <span className="font-mono">mysql</span>— porque ese tráfico es del monitoreo y de las herramientas,
-              no de la aplicación.
+              Green bands are writes, blue bands are reads. When a query touches several tables, its weight is split
+              across them. System schemas are excluded. For the full database catalog, open the{' '}
+              <Link href={`/instances/${instanceId}/orm`} className="underline">
+                ORM
+              </Link>{' '}
+              tab.
             </p>
           </div>
         </section>
@@ -342,7 +263,7 @@ export default async function FlowPage({
           {/* ------------------------------------------------- por operación */}
           <section className="panel xl:col-span-1">
             <div className="panel-header">
-              <span className="panel-title">What kind of traffic recibe cada tabla</span>
+              <span className="panel-title">Traffic mix per table</span>
             </div>
             <div className="panel-body">
               {flow.tables.length === 0 ? (
@@ -373,25 +294,25 @@ export default async function FlowPage({
             <div className="panel-body">
               {engine !== 'postgres' ? (
                 <div className="empty">
-                  {engine === 'mariadb' ? 'MariaDB' : 'SQL Server'} no expone contadores de filas por tabla como
-                  those in <span className="font-mono">pg_stat_user_tables</span>, so there is nothing here to
-                  contrastar: en este motor el diagrama es la única fuente y su atribución es aproximada.
+                  {engine === 'mariadb' ? 'MariaDB' : 'SQL Server'} does not expose per-table row counters like{' '}
+                  <span className="font-mono">pg_stat_user_tables</span>, so there is nothing here to contrast: on
+                  this engine the diagram is the only source and its attribution is approximate.
                 </div>
               ) : counters.length === 0 ? (
                 <div className="empty">
-                  Todavía no hay dos muestras de actividad por tabla. El colector las toma cada minuto.
+                  No two activity samples per table yet. The collector takes them every minute.
                 </div>
               ) : (
                 <div className="table-scroll" style={{ maxHeight: '20rem' }}>
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Tabla</th>
-                        <th className="text-right">Insertadas</th>
-                        <th className="text-right">Actualizadas</th>
+                        <th>Table</th>
+                        <th className="text-right">Inserted</th>
+                        <th className="text-right">Updated</th>
                         <th className="text-right">HOT</th>
-                        <th className="text-right">Borradas</th>
-                        <th className="text-right">Secuenciales</th>
+                        <th className="text-right">Deleted</th>
+                        <th className="text-right">Sequential</th>
                         <th className="text-right">By index</th>
                       </tr>
                     </thead>
@@ -428,10 +349,10 @@ export default async function FlowPage({
               )}
               {engine === 'postgres' && (
                 <p className="mt-2 text-[11px] text-foreground-muted">
-                  Estos números no dependen de haber entendido ninguna consulta. Si no cuadran con el diagrama,
-                  ellos tienen razón: la atribución se pierde con triggers, cascadas de claves foráneas y consultas
-                  que se cayeron de <span className="font-mono">pg_stat_statements</span>. La columna HOT es la
-                  share of updates that touched no index.
+                  These numbers do not depend on parsing any query. If they disagree with the diagram, trust them:
+                  attribution is lost with triggers, foreign-key cascades, and queries that fell out of{' '}
+                  <span className="font-mono">pg_stat_statements</span>. The HOT column is the share of updates that
+                  touched no index.
                 </p>
               )}
             </div>
@@ -484,8 +405,8 @@ export default async function FlowPage({
           <div className="panel-body">
             {heat.cells.length === 0 ? (
               <div className="empty">
-                No hourly rollups yet for {heatOption.label.toLowerCase()}. The first appears at the hour of
-                arrancar el colector.
+                No hourly rollups yet for {heatOption.label.toLowerCase()}. The first appears in the hour you start
+                the collector.
               </div>
             ) : (
               <>
@@ -493,19 +414,19 @@ export default async function FlowPage({
                 <p className="mt-3 text-[12px]">
                   {cargada && (
                     <>
-                      La hora más cargada es el{' '}
+                      Busiest hour is{' '}
                       <strong>
-                        {WEEKDAY_LABEL[cargada.weekday]} a las {String(cargada.hour).padStart(2, '0')}:00
+                        {WEEKDAY_LABEL[cargada.weekday]} at {String(cargada.hour).padStart(2, '0')}:00
                       </strong>{' '}
-                      con {formatoCalor(cargada.value)}
+                      with {formatoCalor(cargada.value)}
                       {tranquila && (
                         <>
-                          , y la más tranquila el{' '}
+                          , and quietest is{' '}
                           <strong>
-                            {WEEKDAY_LABEL[tranquila.weekday]} a las{' '}
+                            {WEEKDAY_LABEL[tranquila.weekday]} at{' '}
                             {String(tranquila.hour).padStart(2, '0')}:00
                           </strong>{' '}
-                          con {formatoCalor(tranquila.value)}: ahí va la window de mantenimiento
+                          with {formatoCalor(tranquila.value)} — a good maintenance window
                         </>
                       )}
                       .

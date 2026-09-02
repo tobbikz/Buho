@@ -1,5 +1,5 @@
 import { query } from './db';
-import { backupState, getBackups, type BackupState } from './estate';
+import { backupState, backupStateHint, backupStateLabel, getBackups, type BackupState } from './estate';
 import { num } from './format';
 
 /**
@@ -122,6 +122,8 @@ export interface ReportBackup {
   database: string;
   kind: string;
   state: BackupState;
+  stateLabel: string;
+  stateHint: string | null;
   finishedAt: Date | null;
   source: string;
 }
@@ -564,6 +566,8 @@ async function backups(): Promise<ReportBackup[]> {
       database: row.database,
       kind: row.kind,
       state: backupState(row),
+      stateLabel: backupStateLabel(row),
+      stateHint: backupStateHint(row),
       finishedAt: row.finishedAt,
       source: row.source,
     }))
@@ -741,12 +745,14 @@ function buildPlan(
     );
   }
 
-  const atrasados = backupList.filter((b) => b.state === 'atrasado' || b.state === 'sin_recuperacion');
+  const atrasados = backupList.filter(
+    (b) =>
+      (b.state === 'atrasado' || b.state === 'sin_recuperacion') && b.stateLabel !== 'Archive off',
+  );
   if (atrasados.length > 0 && plan.length < 3) {
     plan.push(
       `Priority ${plan.length + 1}: ${atrasados.length} backup${atrasados.length === 1 ? '' : 's'} ` +
-        `in bad shape (${[...new Set(atrasados.map((b) => b.alias))].slice(0, 4).join(', ')}). ` +
-        'Without recovery, performance discussions do not matter.',
+        `need attention (${[...new Set(atrasados.map((b) => b.alias))].slice(0, 4).join(', ')}).`,
     );
   }
 

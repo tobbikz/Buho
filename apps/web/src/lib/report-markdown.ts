@@ -1,5 +1,4 @@
 import { formatBytes, formatNumber } from './format';
-import type { BackupState } from './estate';
 import type { ReportInstance, ReportMetric, WeeklyReport } from './report';
 
 /**
@@ -13,13 +12,6 @@ import type { ReportInstance, ReportMetric, WeeklyReport } from './report';
  * Se comparte con la pantalla: lo que se lee en la consola y lo que recibe el
  * cliente salen de la misma consulta, así que no pueden discrepar.
  */
-
-const BACKUP_STATE: Record<BackupState, string> = {
-  sin_recuperacion: 'no recovery',
-  atrasado: 'overdue',
-  no_verificable: 'not verifiable',
-  ok: 'current',
-};
 
 const BACKUP_KIND: Record<string, string> = {
   full: 'full',
@@ -313,15 +305,13 @@ export function reportToMarkdown(report: WeeklyReport): string {
     for (const backup of report.backups) {
       lines.push(
         `| ${backup.alias} | ${backup.database} | ${BACKUP_KIND[backup.kind] ?? backup.kind} | ` +
-          `${BACKUP_STATE[backup.state]} | ` +
+          `${backup.stateLabel} | ` +
           `${backup.finishedAt ? DATETIME.format(backup.finishedAt) : 'no record'} | ${backup.source} |`,
       );
     }
     lines.push('');
     lines.push(
-      '> Búho reports what the engine knows about its own backups. A backup taken by ' +
-        'an external tool that leaves no trail in the engine does not appear here, and that does not ' +
-        'mean it does not exist.',
+      '> WAL archive rows reflect archive_mode (PITR), not streaming replication. External backup tools with no engine trail do not appear here.',
     );
     lines.push('');
   }

@@ -197,7 +197,7 @@ export default async function InstancePage({
           window.bucketSeconds,
         ),
         getSeries(instanceId, ['wal_bytes_per_sec'], window.minutes, window.bucketSeconds),
-        getSeries(instanceId, ['blocked_sessions'], window.minutes, window.bucketSeconds),
+        getSeries(instanceId, ['blocked_sessions', 'max_blocked_seconds'], window.minutes, window.bucketSeconds),
         getSeries(
           instanceId,
           ['db_tup_inserted_per_sec', 'db_tup_updated_per_sec', 'db_tup_deleted_per_sec'],
@@ -382,7 +382,30 @@ export default async function InstancePage({
           </div>
         )}
 
-        <div className="stat-grid">
+        {data.host ? (
+          <div className="chart-panel--full">
+            <TimeseriesPanel
+              title="Host CPU and memory"
+              hint={`${formatNumber(data.host.cores ?? 0)} cores · ${formatBytes(data.host.memAvailableBytes ?? 0)} available · detail on Host tab`}
+              data={data.hostCpu}
+              unit="pct"
+              height={220}
+              series={[
+                { metric: 'host_cpu_pct', label: 'CPU', color: COLOR.accent },
+                { metric: 'host_cpu_iowait_pct', label: 'I/O wait', color: COLOR.warning },
+                { metric: 'host_mem_used_pct', label: 'Memory', color: COLOR.success },
+              ]}
+            />
+          </div>
+        ) : (
+          <section className="panel">
+            <div className="panel-body text-[12px] text-foreground-secondary">
+              Host CPU and memory require <code>hostMetrics</code> in the collector config — see the Host tab.
+            </div>
+          </section>
+        )}
+
+        <div className="stat-grid stat-grid--5">
           <StatCard
             label="Health score"
             value={instance.score === null ? '—' : formatNumber(instance.score)}
@@ -394,49 +417,28 @@ export default async function InstancePage({
                 : 'no check runs'
             }
           />
-          {data.host ? (
-            <>
-              <StatCard
-                label="CPU del host"
-                value={formatPct(data.host.cpuPct, 1)}
-                hint={
-                  data.host.iowaitPct !== null
-                    ? `${formatPct(data.host.iowaitPct, 1)} waiting on I/O`
-                    : `${formatNumber(data.host.cores ?? 0)} cores`
-                }
-                tone={toneForPct(data.host.cpuPct, 75, 90)}
-              />
-              <StatCard
-                label="Memoria del host"
-                value={formatPct(data.host.memUsedPct, 1)}
-                hint={`${formatBytes(data.host.memAvailableBytes ?? 0)} disponibles`}
-                tone={toneForPct(data.host.memUsedPct, 90, 96)}
-              />
-            </>
-          ) : (
-            <StatCard
-              label="CPU / memoria"
-              value="—"
-              hint="requires hostMetrics · see Host tab"
-              tone="neutral"
-            />
-          )}
-          <StatCard
-            label="Throughput DML"
-            value={dmlPerSec === null ? '—' : formatNumber(dmlPerSec, 0)}
-            unit={dmlPerSec === null ? undefined : '/s'}
-            hint="tuples inserted + updated + deleted"
-            tone="accent"
-          />
           <StatCard
             label="Connections"
             value={formatPct(instance.connectionsUsedPct, 0)}
             hint={
               instance.connectionsTotal === null
                 ? undefined
-                : `${formatNumber(instance.connectionsTotal)} de ${formatNumber(instance.connectionsMax)}`
+                : `${formatNumber(instance.connectionsTotal)} of ${formatNumber(instance.connectionsMax)}`
             }
             tone={toneForPct(instance.connectionsUsedPct, 70, 90)}
+          />
+          <StatCard
+            label="DML throughput"
+            value={dmlPerSec === null ? '—' : formatNumber(dmlPerSec, 0)}
+            unit={dmlPerSec === null ? undefined : '/s'}
+            hint="insert + update + delete tuples"
+            tone="accent"
+          />
+          <StatCard
+            label="Commits/s"
+            value={formatNumber(instance.commitsPerSec, 1)}
+            tone="accent"
+            hint="from transaction counters"
           />
           <StatCard
             label="Cache hit"
@@ -444,11 +446,28 @@ export default async function InstancePage({
             tone={toneForMinimum(instance.cacheHitPct, 99, 95)}
             hint="worst database"
           />
+        </div>
+
+        <div className="stat-grid stat-grid--5">
           <StatCard
-            label="Commits/s"
-            value={formatNumber(instance.commitsPerSec, 1)}
-            tone="accent"
-            hint="rate derived from counters"
+            label="Wait time"
+            value={
+              instance.maxBlockedSeconds === null
+                ? '—'
+                : instance.maxBlockedSeconds > 0
+                  ? formatDuration(instance.maxBlockedSeconds)
+                  : '0s'
+            }
+            hint="max lock wait now"
+            tone={
+              instance.maxBlockedSeconds === null
+                ? 'neutral'
+                : (instance.maxBlockedSeconds ?? 0) > 60
+                  ? 'error'
+                  : (instance.maxBlockedSeconds ?? 0) > 0
+                    ? 'warn'
+                    : 'ok'
+            }
           />
           <StatCard
             label="Blocked sessions"
@@ -456,9 +475,9 @@ export default async function InstancePage({
             tone={(instance.blockedSessions ?? 0) > 0 ? 'error' : 'ok'}
           />
           <StatCard
-            label="Edad de XID"
+            label="XID age"
             value={formatPct(instance.xidAgePct, 1)}
-            hint="de autovacuum_freeze_max_age"
+            hint="of autovacuum_freeze_max_age"
             tone={toneForPct(instance.xidAgePct, 50, 80)}
           />
           <StatCard
@@ -512,27 +531,11 @@ export default async function InstancePage({
             hint={windowHint}
             data={data.blocking}
             unit="count"
-            series={[{ metric: 'blocked_sessions', label: 'Bloqueadas', color: COLOR.error }]}
+            series={[{ metric: 'blocked_sessions', label: 'Blocked', color: COLOR.error }]}
           />
         </div>
 
         <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
-          {/* CPU y memoria reales cuando la instancia los declara. Van antes de
-              las aproximaciones: si hay dato del sistema operativo, es el que
-              manda. El detalle completo (swap, carga, disco) vive en Host. */}
-          {data.host ? (
-            <TimeseriesPanel
-              title="CPU y memoria del host"
-              hint={`${formatNumber(data.host.cores ?? 0)} cores · detalle en Host`}
-              data={data.hostCpu}
-              unit="pct"
-              series={[
-                { metric: 'host_cpu_pct', label: 'CPU', color: COLOR.accent },
-                { metric: 'host_cpu_iowait_pct', label: 'I/O wait', color: COLOR.warning },
-                { metric: 'host_mem_used_pct', label: 'Memoria', color: COLOR.success },
-              ]}
-            />
-          ) : null}
           <TimeseriesPanel
             title="DML throughput (tuples per second)"
             hint={windowHint}
