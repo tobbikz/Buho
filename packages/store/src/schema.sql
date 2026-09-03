@@ -631,6 +631,33 @@ alter table buho.vacuum_tables add column if not exists mxid_pct       double pr
 
 create index if not exists vacuum_tables_xid on buho.vacuum_tables (instance_id, xid_pct desc nulls last);
 
+-- Index inventory (refreshed with each vacuum scan on PostgreSQL).
+create table if not exists buho.index_objects (
+  instance_id      bigint      not null references buho.instances (instance_id) on delete cascade,
+  schema_name      text        not null,
+  table_name       text        not null,
+  index_name       text        not null,
+  size_bytes       bigint      not null,
+  idx_scan         bigint      not null default 0,
+  idx_tup_read     bigint      not null default 0,
+  idx_tup_fetch    bigint      not null default 0,
+  is_primary       boolean     not null default false,
+  is_unique        boolean     not null default false,
+  is_valid         boolean     not null default true,
+  is_partial       boolean     not null default false,
+  has_expression   boolean     not null default false,
+  columns          text[]      not null default '{}',
+  definition       text,
+  status           text        not null default 'ok'
+                     check (status in ('ok', 'unused', 'redundant', 'invalid')),
+  covered_by       text,
+  captured_at      timestamptz not null default now(),
+  primary key (instance_id, schema_name, table_name, index_name)
+);
+
+create index if not exists index_objects_status on buho.index_objects (instance_id, status);
+create index if not exists index_objects_size on buho.index_objects (instance_id, size_bytes desc);
+
 -- Foreign keys for the ORM graph (refreshed with each vacuum scan).
 create table if not exists buho.table_fks (
   instance_id       bigint      not null references buho.instances (instance_id) on delete cascade,
@@ -950,23 +977,32 @@ create index if not exists collector_events_open_idx
 
 -- Crea las particiones diarias que faltan de cualquier tabla particionada por
 -- rango sobre ts, desde ayer hasta days_ahead. Genérica a propósito: hay dos
--- tablas de serie (muestras y deltas por consulta) y no tiene sentido duplicar
--- la lógica por cada una.
+-- Creates daily range partitions for a parent table a few days ahead.
+--
+-- Bounds must stay consistent with partitions already attached. Casting a
+-- `date` to `timestamptz` uses the session TimeZone; if that drifts from the
+-- timezone used when older partitions were created (e.g. lab store on UTC vs
+-- earlier America/Costa_Rica midnight → 06:00 UTC), CREATE fails with
+-- "would overlap partition …" and the whole maintenance cycle aborts — which
+-- also stops rollups and empties 24h charts that read metric_rollup_5m.
 create or replace function buho.ensure_partitions(parent text, days_ahead integer default 3)
 returns integer
 language plpgsql
 as $$
 declare
-  day          date;
-  part_name    text;
-  default_name text := parent || '_default';
-  key_column   text;
-  has_rows     boolean;
-  created      integer := 0;
+  day            date;
+  part_name      text;
+  default_name   text := parent || '_default';
+  key_column     text;
+  has_rows       boolean;
+  created        integer := 0;
+  day_from       timestamptz;
+  day_to         timestamptz;
+  sample_from    timestamptz;
+  sample_name    text;
+  sample_day     date;
+  bound_offset   interval := interval '0';
 begin
-  -- La columna de partición no siempre se llama igual: las series usan `ts` y el
-  -- log usa `at`. Se pregunta al catálogo en vez de asumir un nombre, porque el
-  -- síntoma de asumirlo es un `column "ts" does not exist` al crear la partición.
   select a.attname
     into key_column
     from pg_partitioned_table p
@@ -976,11 +1012,37 @@ begin
    where n.nspname = 'buho' and c.relname = parent;
 
   if key_column is null then
-    raise exception 'buho.% no es una tabla particionada', parent;
+    raise exception 'buho.% is not a partitioned table', parent;
+  end if;
+
+  -- Learn the clock offset from the newest existing day partition, if any.
+  select c.relname,
+         (regexp_match(pg_get_expr(c.relpartbound, c.oid),
+                       E'FROM \\(''([^'']+)''\\)'))[1]::timestamptz
+    into sample_name, sample_from
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    join pg_inherits i on i.inhrelid = c.oid
+    join pg_class p on p.oid = i.inhparent
+    join pg_namespace pn on pn.oid = p.relnamespace
+   where n.nspname = 'buho'
+     and pn.nspname = 'buho'
+     and p.relname = parent
+     and c.relname ~ ('^' || parent || '_[0-9]{8}$')
+   order by c.relname desc
+   limit 1;
+
+  if sample_from is not null and sample_name is not null then
+    sample_day := to_date(right(sample_name, 8), 'YYYYMMDD');
+    bound_offset := sample_from - (sample_day::timestamp AT TIME ZONE 'UTC');
   end if;
 
   for day in
-    select generate_series(current_date - 1, current_date + days_ahead, interval '1 day')::date
+    select generate_series(
+             (timezone('utc', now()))::date - 1,
+             (timezone('utc', now()))::date + days_ahead,
+             interval '1 day'
+           )::date
   loop
     part_name := format('%s_%s', parent, to_char(day, 'YYYYMMDD'));
     continue when exists (
@@ -989,27 +1051,36 @@ begin
        where n.nspname = 'buho' and c.relname = part_name
     );
 
-    -- PostgreSQL rechaza crear una partición de rango que solape filas ya
-    -- guardadas en la partición por defecto. Pasa al migrar datos viejos y
-    -- también en producción si el colector escribió una fecha sin partición.
-    -- El camino normal (partición creada por adelantado, default vacío) no
-    -- entra acá y no toma ningún lock extra.
-    execute format('select exists (select 1 from buho.%I where %I >= %L and %I < %L)',
-                   default_name, key_column, day, key_column, day + 1)
-       into has_rows;
+    day_from := (day::timestamp AT TIME ZONE 'UTC') + bound_offset;
+    day_to   := ((day + 1)::timestamp AT TIME ZONE 'UTC') + bound_offset;
+
+    -- PostgreSQL rejects a range partition that would cover rows already in
+    -- DEFAULT. Detach → create → move → reattach when that happens.
+    execute format(
+      'select exists (select 1 from buho.%I where %I >= %L::timestamptz and %I < %L::timestamptz)',
+      default_name, key_column, day_from, key_column, day_to
+    ) into has_rows;
 
     if has_rows then
       execute format('alter table buho.%I detach partition buho.%I', parent, default_name);
-      execute format('create table buho.%I partition of buho.%I for values from (%L) to (%L)',
-                     part_name, parent, day, day + 1);
-      execute format('insert into buho.%I select * from buho.%I where %I >= %L and %I < %L',
-                     parent, default_name, key_column, day, key_column, day + 1);
-      execute format('delete from buho.%I where %I >= %L and %I < %L',
-                     default_name, key_column, day, key_column, day + 1);
+      execute format(
+        'create table buho.%I partition of buho.%I for values from (%L::timestamptz) to (%L::timestamptz)',
+        part_name, parent, day_from, day_to
+      );
+      execute format(
+        'insert into buho.%I select * from buho.%I where %I >= %L::timestamptz and %I < %L::timestamptz',
+        parent, default_name, key_column, day_from, key_column, day_to
+      );
+      execute format(
+        'delete from buho.%I where %I >= %L::timestamptz and %I < %L::timestamptz',
+        default_name, key_column, day_from, key_column, day_to
+      );
       execute format('alter table buho.%I attach partition buho.%I default', parent, default_name);
     else
-      execute format('create table buho.%I partition of buho.%I for values from (%L) to (%L)',
-                     part_name, parent, day, day + 1);
+      execute format(
+        'create table buho.%I partition of buho.%I for values from (%L::timestamptz) to (%L::timestamptz)',
+        part_name, parent, day_from, day_to
+      );
     end if;
 
     created := created + 1;

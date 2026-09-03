@@ -150,6 +150,9 @@ export async function getOrmModel(
   const links: OrmLink[] = [];
 
   for (const tabla of allTables) {
+    const writeTraffic = tabla.writeHeat;
+    const readTraffic = tabla.readHeat;
+    const traffic = writeTraffic + readTraffic;
     links.push({
       source: tableNodeId(tabla.relation),
       target: schemaNodeId(tabla.schema),
@@ -158,6 +161,19 @@ export async function getOrmModel(
       writeTraffic: 0,
       readTraffic: 0,
     });
+    // Without FKs the traffic layer would be empty even when tables have heat.
+    // Schema → table bands carry attributed write/read weight so a single-table
+    // schema (lab demo, small apps) still shows movement.
+    if (traffic > 0) {
+      links.push({
+        source: schemaNodeId(tabla.schema),
+        target: tableNodeId(tabla.relation),
+        kind: 'traffic',
+        traffic,
+        writeTraffic,
+        readTraffic,
+      });
+    }
   }
 
   for (const fk of fks) {

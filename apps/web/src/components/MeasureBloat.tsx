@@ -5,12 +5,9 @@ import { formatBytes } from '@/lib/format';
 import { BLOAT_MODE_HINT, type BloatMeasurementRow } from '@/lib/bloat-types';
 
 /**
- * Celda de bloat medido: muestra lo que ya se midió, o el botón para medir.
+ * Measured-bloat cell: shows a prior measurement, or the button to queue one.
  *
- * El botón abre una confirmación antes de encolar, y no por cortesía: la
- * medición exacta es un escaneo secuencial completo de la tabla contra la base
- * del cliente. Quien lo aprieta tiene que ver primero el tamaño de la tabla y
- * saber lo que está pidiendo.
+ * Exact mode is a full sequential scan on the watched instance — confirm first.
  */
 export function MeasureBloat({
   action,
@@ -38,7 +35,7 @@ export function MeasureBloat({
   if (measurement && (measurement.state === 'pendiente' || measurement.state === 'corriendo')) {
     return (
       <span className="text-[11px] text-foreground-muted">
-        {measurement.state === 'corriendo' ? 'midiendo…' : 'en cola'}
+        {measurement.state === 'corriendo' ? 'measuring…' : 'queued'}
       </span>
     );
   }
@@ -52,21 +49,19 @@ export function MeasureBloat({
   }
 
   if (measurement && measurement.state === 'listo') {
-    // La diferencia contra la estimate es el dato interesante: si en este
-    // servidor la estimate acierta, no hace falta volver a medir nada.
-    const desvio =
+    const delta =
       measurement.estimatedPct !== null && measurement.deadPct !== null
         ? measurement.estimatedPct - measurement.deadPct
         : null;
     return (
-      <span title={`medido por ${measurement.requestedBy} · modo ${measurement.mode}`}>
+      <span title={`measured by ${measurement.requestedBy} · mode ${measurement.mode}`}>
         {formatBytes((measurement.deadBytes ?? 0) + (measurement.freeBytes ?? 0))}
         <span className="ml-1 text-[10px] text-foreground-muted">
-          {measurement.deadPct?.toFixed(1)}% muerto, {measurement.freePct?.toFixed(1)}% libre
+          {measurement.deadPct?.toFixed(1)}% dead, {measurement.freePct?.toFixed(1)}% free
         </span>
-        {desvio !== null && Math.abs(desvio) >= 5 && (
+        {delta !== null && Math.abs(delta) >= 5 && (
           <span className="tag tag--warn ml-1.5">
-            the estimate was off by {Math.abs(desvio).toFixed(0)} pt
+            the estimate was off by {Math.abs(delta).toFixed(0)} pt
           </span>
         )}
       </span>
@@ -76,7 +71,7 @@ export function MeasureBloat({
   if (!canMeasure) {
     return (
       <span className="text-[11px] text-foreground-muted" title={blockedReason ?? ''}>
-        no disponible
+        not available
       </span>
     );
   }
@@ -84,14 +79,14 @@ export function MeasureBloat({
   if (!open) {
     return (
       <button type="button" className="text-[11px] text-accent hover:underline" onClick={() => setOpen(true)}>
-        medir →
+        measure →
       </button>
     );
   }
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <span className="text-[10px] text-foreground-muted">{formatBytes(sizeBytes)} a leer</span>
+      <span className="text-[10px] text-foreground-muted">{formatBytes(sizeBytes)} to read</span>
       <form action={action} className="flex gap-1">
         <input type="hidden" name="instanceId" value={instanceId} />
         <input type="hidden" name="schema" value={schema} />
@@ -104,7 +99,7 @@ export function MeasureBloat({
           className="text-[11px] text-accent hover:underline"
           title={BLOAT_MODE_HINT.aproximado}
         >
-          aproximado
+          approximate
         </button>
         <span className="text-[11px] text-foreground-muted">·</span>
         <button
@@ -114,7 +109,7 @@ export function MeasureBloat({
           className="text-[11px] text-[var(--warning)] hover:underline"
           title={BLOAT_MODE_HINT.exacto}
         >
-          exacto
+          exact
         </button>
       </form>
       <button
@@ -122,7 +117,7 @@ export function MeasureBloat({
         className="text-[10px] text-foreground-muted hover:underline"
         onClick={() => setOpen(false)}
       >
-        cancelar
+        cancel
       </button>
     </div>
   );

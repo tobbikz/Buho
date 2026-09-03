@@ -524,6 +524,21 @@ export interface ExplainOptions {
 }
 
 /**
+ * Repara el texto normalizado de `pg_stat_statements` para que GENERIC_PLAN
+ * (y el parser) lo acepten.
+ *
+ * `interval '1 second'` se normaliza a `interval $1`, que es sintaxis inválida.
+ * Lo mismo pasa con timestamp/date/time/timestamptz. El cast `$1::interval` sí
+ * es válido y es lo que el planificador genérico espera.
+ */
+export function rewriteNormalizedPlaceholders(sql: string): string {
+  return sql.replace(
+    /\b(interval|timestamptz|timestamp|timetz|time|date)\s+(\$\d+)\b/gi,
+    (_match, type: string, placeholder: string) => `${placeholder}::${type}`,
+  );
+}
+
+/**
  * Corre EXPLAIN y devuelve el árbol, los hallazgos y el texto.
  *
  * Con `analyze` todo pasa dentro de una transacción que se revierte siempre.
@@ -553,7 +568,10 @@ export async function runExplain(pool: Pool, sql: string, options: ExplainOption
     .filter(Boolean)
     .join(', ');
 
-  const clean = sql.replace(/;\s*$/, '');
+  // pg_stat_statements sustituye literales por $N. Eso deja sintaxis inválida
+  // en constructores tipados: `interval $2`, `timestamp $1`, etc. GENERIC_PLAN
+  // necesita SQL parseable, así que se reescribe a `$N::tipo`.
+  const clean = rewriteNormalizedPlaceholders(sql.replace(/;\s*$/, ''));
   const client = await pool.connect();
 
   try {

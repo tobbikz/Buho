@@ -332,7 +332,7 @@ export default async function QueriesPage({
               <div className="panel-header">
                 <span className="panel-title">Top queries</span>
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-[10px] text-foreground-muted">ordenar por</span>
+                  <span className="font-mono text-[10px] text-foreground-muted">sort by</span>
                   <div className="flex items-center gap-1">
                     {ORDERS.map((candidate) => (
                       <Link

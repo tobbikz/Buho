@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StoreError } from '@/components/StoreError';
+import { TopologyBubbles } from '@/components/TopologyBubbles';
 import { Topbar } from '@/components/Topbar';
 import { formatNumber } from '@/lib/format';
 import { getInstanceEngine } from '@/lib/estate';
@@ -12,24 +13,33 @@ import {
   listTopologyWeeks,
   snapshotTopologyWeek,
   weekStartOf,
+  type TopologyEdge,
 } from '@/lib/topology';
 
 export const dynamic = 'force-dynamic';
+
+function tableLabel(edge: TopologyEdge): string {
+  const short = edge.relation.includes('.')
+    ? edge.relation.split('.').slice(1).join('.')
+    : edge.relation;
+  return `${edge.schemaName}.${short}`;
+}
 
 export default async function TopologyPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ d?: string; snap?: string }>;
+  searchParams: Promise<{ d?: string; snap?: string; vista?: string }>;
 }) {
   const { id } = await params;
-  const { d, snap } = await searchParams;
+  const { d, snap, vista } = await searchParams;
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
 
   const engine = (await getInstanceEngine(instanceId)) ?? 'postgres';
   const direction = d === 'lectura' ? 'lectura' : 'escritura';
+  const view = vista === 'tabla' ? 'tabla' : 'burbujas';
 
   let instance;
   let weeks: Date[];
@@ -40,7 +50,6 @@ export default async function TopologyPage({
     instance = await getInstance(instanceId);
     if (!instance) notFound();
 
-    // Congelar la semana actual si falta (o si se pide explícitamente).
     weeks = await listTopologyWeeks(instanceId);
     const thisWeek = weekStartOf();
     const hasThis = weeks.some((w) => w.getTime() === thisWeek.getTime());
@@ -67,6 +76,22 @@ export default async function TopologyPage({
   if (!instance) notFound();
 
   const base = `/instances/${instanceId}/topology`;
+  const href = (opts: { d?: string; vista?: string; snap?: string }) => {
+    const params = new URLSearchParams();
+    params.set('d', opts.d ?? direction);
+    params.set('vista', opts.vista ?? view);
+    if (opts.snap) params.set('snap', opts.snap);
+    return `${base}?${params.toString()}`;
+  };
+
+  const bubbleEdges = current.edges.map((edge) => ({
+    actor: edge.actor,
+    relation: edge.relation,
+    label: tableLabel(edge),
+    weight: edge.weight,
+    samples: edge.samples,
+    kind: (direction === 'escritura' ? 'write' : 'read') as 'write' | 'read',
+  }));
 
   return (
     <>
@@ -82,28 +107,40 @@ export default async function TopologyPage({
           <div>
             <h1 className="page-title">Topology · {instance.alias}</h1>
             <p className="page-sub">
-              Dependencias app ↔ tabla congeladas semana a semana. El flujo vivo sigue en{' '}
+              Weekly snapshot of which apps touch which tables. Live movement is on{' '}
               <Link href={`/instances/${instanceId}/flow`} className="underline">
                 Flow
               </Link>
-              ; here you see what changed across weeks.
+              ; here you compare weeks.
             </p>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             <Link
-              href={`${base}?d=escritura`}
+              href={href({ d: 'escritura' })}
               className={`tag ${direction === 'escritura' ? 'tag--info' : 'tag--muted'}`}
             >
-              escritura
+              writes
             </Link>
             <Link
-              href={`${base}?d=lectura`}
+              href={href({ d: 'lectura' })}
               className={`tag ${direction === 'lectura' ? 'tag--info' : 'tag--muted'}`}
             >
-              lectura
+              reads
             </Link>
-            <Link href={`${base}?d=${direction}&snap=1`} className="tag tag--muted">
-              refrescar semana
+            <Link
+              href={href({ vista: 'burbujas' })}
+              className={`tag ${view === 'burbujas' ? 'tag--info' : 'tag--muted'}`}
+            >
+              bubbles
+            </Link>
+            <Link
+              href={href({ vista: 'tabla' })}
+              className={`tag ${view === 'tabla' ? 'tag--info' : 'tag--muted'}`}
+            >
+              table
+            </Link>
+            <Link href={href({ snap: '1' })} className="tag tag--muted">
+              refresh week
             </Link>
           </div>
         </header>
@@ -112,14 +149,14 @@ export default async function TopologyPage({
 
         <div className="grid grid-cols-3 gap-[0.875rem]">
           <div className="stat">
-            <div className="stat__label">Semana</div>
+            <div className="stat__label">Week</div>
             <div className="stat__value text-[1rem]">
-              {current.weekStart.toLocaleDateString('es')}
+              {current.weekStart.toLocaleDateString('en')}
             </div>
-            <div className="stat__hint">{weeks.length} semana(s) guardada(s)</div>
+            <div className="stat__hint">{weeks.length} week(s) stored</div>
           </div>
           <div className="stat">
-            <div className="stat__label">Aplicaciones</div>
+            <div className="stat__label">Applications</div>
             <div className="stat__value">{formatNumber(current.actors, 0)}</div>
           </div>
           <div className="stat">
@@ -131,15 +168,15 @@ export default async function TopologyPage({
         {diff && (
           <section className="panel" style={{ borderLeft: '3px solid var(--accent)' }}>
             <div className="panel-header">
-              <span className="panel-title">Cambio vs. semana anterior</span>
+              <span className="panel-title">Change vs previous week</span>
               <span className="font-mono text-[10px] text-foreground-muted">
-                {previous?.weekStart.toLocaleDateString('es') ?? '—'}
+                {previous?.weekStart.toLocaleDateString('en') ?? '—'}
               </span>
             </div>
             <div className="panel-body grid grid-cols-1 gap-3 text-[12px] xl:grid-cols-3">
               <div>
                 <div className="mb-1 font-semibold uppercase tracking-wide text-foreground-muted">
-                  Nuevas ({diff.added.length})
+                  New ({diff.added.length})
                 </div>
                 {diff.added.length === 0 ? (
                   <p className="text-foreground-muted">None.</p>
@@ -147,7 +184,7 @@ export default async function TopologyPage({
                   <ul className="space-y-1 font-mono">
                     {diff.added.slice(0, 8).map((e) => (
                       <li key={`${e.actor}-${e.relation}`}>
-                        {e.actor} → {e.schemaName}.{e.relation.split('.').slice(1).join('.') || e.relation}
+                        {e.actor} → {tableLabel(e)}
                       </li>
                     ))}
                   </ul>
@@ -155,7 +192,7 @@ export default async function TopologyPage({
               </div>
               <div>
                 <div className="mb-1 font-semibold uppercase tracking-wide text-foreground-muted">
-                  Desaparecidas ({diff.removed.length})
+                  Gone ({diff.removed.length})
                 </div>
                 {diff.removed.length === 0 ? (
                   <p className="text-foreground-muted">None.</p>
@@ -163,7 +200,7 @@ export default async function TopologyPage({
                   <ul className="space-y-1 font-mono">
                     {diff.removed.slice(0, 8).map((e) => (
                       <li key={`${e.actor}-${e.relation}`}>
-                        {e.actor} → {e.schemaName}.{e.relation.split('.').slice(1).join('.') || e.relation}
+                        {e.actor} → {tableLabel(e)}
                       </li>
                     ))}
                   </ul>
@@ -171,7 +208,7 @@ export default async function TopologyPage({
               </div>
               <div>
                 <div className="mb-1 font-semibold uppercase tracking-wide text-foreground-muted">
-                  Creció ≥2× ({diff.grown.length})
+                  Grew ≥2× ({diff.grown.length})
                 </div>
                 {diff.grown.length === 0 ? (
                   <p className="text-foreground-muted">None.</p>
@@ -179,8 +216,7 @@ export default async function TopologyPage({
                   <ul className="space-y-1 font-mono">
                     {diff.grown.slice(0, 8).map((g) => (
                       <li key={`${g.edge.actor}-${g.edge.relation}`}>
-                        {g.edge.actor} →{' '}
-                        {g.edge.relation.split('.').slice(1).join('.') || g.edge.relation}{' '}
+                        {g.edge.actor} → {tableLabel(g.edge)}{' '}
                         <span className="text-foreground-muted">×{g.ratio.toFixed(1)}</span>
                       </li>
                     ))}
@@ -193,32 +229,45 @@ export default async function TopologyPage({
 
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Aristas de esta semana ({direction})</span>
+            <span className="panel-title">
+              {view === 'burbujas' ? 'App ↔ table bubbles' : 'Edges this week'} (
+              {direction === 'escritura' ? 'writes' : 'reads'})
+            </span>
+            <span className="font-mono text-[10px] text-foreground-muted">
+              {view === 'burbujas' ? 'bubble size = time weight' : `${current.edges.length} edge(s)`}
+            </span>
           </div>
           {current.edges.length === 0 ? (
             <div className="empty" style={{ height: 120 }}>
               No edges yet. Need traffic in statement_stats and a refresh.
             </div>
+          ) : view === 'burbujas' ? (
+            <div className="panel-body">
+              <p className="mb-3 text-[12px] text-foreground-muted">
+                Left cluster = apps (or &quot;not observed&quot; when application name was not sampled).
+                Right = tables. Bigger bubble = more attributed time this week. Click a bubble for
+                its links; use <strong>table</strong> for the full numeric list.
+              </p>
+              <TopologyBubbles edges={bubbleEdges} height={520} />
+            </div>
           ) : (
             <div className="panel-body overflow-x-auto">
-              <table className="w-full text-left text-[12px]">
-                <thead className="font-semibold uppercase tracking-wide text-foreground-muted">
+              <table className="data-table">
+                <thead>
                   <tr>
-                    <th className="pb-2 pr-3">App</th>
-                    <th className="pb-2 pr-3">Tabla</th>
-                    <th className="pb-2 pr-3 text-right">Peso (ms)</th>
-                    <th className="pb-2 text-right">Samples</th>
+                    <th>App</th>
+                    <th>Table</th>
+                    <th className="text-right">Weight (ms)</th>
+                    <th className="text-right">Samples</th>
                   </tr>
                 </thead>
                 <tbody className="font-mono">
                   {current.edges.slice(0, 60).map((e) => (
-                    <tr key={`${e.actor}|${e.relation}`} className="border-t border-[var(--border)]">
-                      <td className="py-1.5 pr-3">{e.actor}</td>
-                      <td className="py-1.5 pr-3">
-                        {e.schemaName}.{e.relation.split('.').slice(1).join('.') || e.relation}
-                      </td>
-                      <td className="py-1.5 pr-3 text-right">{formatNumber(e.weight, 0)}</td>
-                      <td className="py-1.5 text-right">{formatNumber(e.samples, 0)}</td>
+                    <tr key={`${e.actor}|${e.relation}`}>
+                      <td>{e.actor}</td>
+                      <td>{tableLabel(e)}</td>
+                      <td className="num">{formatNumber(e.weight, 0)}</td>
+                      <td className="num">{formatNumber(e.samples, 0)}</td>
                     </tr>
                   ))}
                 </tbody>

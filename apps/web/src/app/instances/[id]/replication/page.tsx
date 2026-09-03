@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StatCard } from '@/components/StatCard';
@@ -7,7 +8,12 @@ import { Topbar } from '@/components/Topbar';
 import { formatAgo, formatBytes, formatClock, formatDuration, formatNumber } from '@/lib/format';
 import { getInstanceEngine } from '@/lib/estate';
 import { getInstance, getSeries, getSeriesByLabel } from '@/lib/queries';
-import { getInstanceReplication, type InstanceReplicationRow } from '@/lib/replication';
+import {
+  getReplicationTopology,
+  type InstanceReplicationRow,
+  type ReplicationTopology,
+  type ReplicationTopologyPeer,
+} from '@/lib/replication';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,21 +23,35 @@ const WINDOWS = [
   { key: '7d', minutes: 10080, bucket: 1800 },
 ];
 
-const ROLE_LABEL: Record<string, string> = {
-  primary: 'Primario',
-  standby: 'Standby',
-  slot: 'Slot',
-  replica: 'Replica',
-  availability_group: 'Grupo de disponibilidad',
+const SERIES_COLORS = ['#1f5f8b', '#9a4a00', '#2f6b4f', '#7b1fa2', '#b01818', '#4a6fa5'];
+
+const SYNC_MODE_HINT: Record<string, string> = {
+  async: 'asynchronous streaming — primary commits without waiting for the standby',
+  sync: 'synchronous — primary waits for this standby to flush',
+  potential: 'potential sync standby (not currently chosen)',
+  quorum: 'quorum synchronous commit',
+  mixed: 'standbys use different sync modes',
 };
 
-/**
- * Colores estables por standby.
- *
- * Con un color asignado por posición, agregar un standby nuevo recolorea todos
- * los demás y una comparación entre dos capturas de pantalla deja de servir.
- */
-const SERIES_COLORS = ['#1f5f8b', '#9a4a00', '#2f6b4f', '#7b1fa2', '#b01818', '#4a6fa5'];
+function peerDisplayName(peer: ReplicationTopologyPeer): string {
+  return peer.linked?.alias ?? peer.peer;
+}
+
+function chartLabel(key: string, topology: ReplicationTopology): string {
+  const linked = topology.streamingPeers.find(
+    (p) =>
+      p.linked?.alias === key ||
+      p.peer === key ||
+      p.application === key ||
+      p.clientAddr === key ||
+      (p.linked && (key === 'walreceiver' || key === 'postgres')),
+  );
+  if (linked?.linked) return linked.linked.alias;
+  if (topology.streamingPeers.length === 1 && topology.streamingPeers[0]?.linked) {
+    return topology.streamingPeers[0].linked.alias;
+  }
+  return key;
+}
 
 function slotRow(row: InstanceReplicationRow) {
   const safeWal = row.detail['safe_wal_size'];
@@ -43,24 +63,170 @@ function slotRow(row: InstanceReplicationRow) {
       <td>
         <span
           className={`tag ${
-            row.state === 'active' || row.state === 'streaming'
+            row.state === 'active' || row.state === 'streaming' || row.state === 'activo'
               ? 'tag--ok'
-              : row.state === 'inactive'
+              : row.state === 'inactive' || row.state === 'inactivo'
                 ? 'tag--error'
                 : 'tag--muted'
           }`}
         >
-          {row.state ?? 'no state'}
+          {row.state === 'activo' ? 'active' : row.state === 'inactivo' ? 'inactive' : (row.state ?? 'no state')}
         </span>
       </td>
       <td className="num">{row.lagBytes === null ? '—' : formatBytes(row.lagBytes)}</td>
       <td className="num">{row.lagSeconds === null ? '—' : formatDuration(row.lagSeconds)}</td>
       <td className="font-mono text-[11px] text-foreground-muted">
         {walStatus ?? '—'}
-        {typeof safeWal === 'number' && safeWal > 0 ? ` · ${formatBytes(safeWal)} de margen` : ''}
+        {typeof safeWal === 'number' && safeWal > 0 ? ` · ${formatBytes(safeWal)} headroom` : ''}
       </td>
       <td className="font-mono text-[10px] text-foreground-muted">{formatAgo(row.capturedAt)}</td>
     </tr>
+  );
+}
+
+function TopologyPanel({ topology }: { topology: ReplicationTopology }) {
+  const { self, role, syncMode, streamingPeers } = topology;
+  const primaryNode =
+    role === 'primary'
+      ? self
+      : streamingPeers[0]?.linked ?? null;
+  const standbyPeers =
+    role === 'standby'
+      ? [{ node: self, peer: streamingPeers[0] ?? null }]
+      : streamingPeers.map((peer) => ({
+          node: peer.linked,
+          peer,
+        }));
+
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <span className="panel-title">Cluster</span>
+        <span className="font-mono text-[10px] text-foreground-muted">
+          {syncMode
+            ? `${syncMode} streaming`
+            : role === 'standby'
+              ? 'streaming from primary'
+              : 'topology'}
+        </span>
+      </div>
+      <div className="panel-body">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="rounded border border-border bg-surface-muted/40 p-3">
+            <div className="mb-1 flex items-center gap-2">
+              <span className="tag tag--info">Primary</span>
+              {role === 'primary' && <span className="tag tag--muted">this instance</span>}
+            </div>
+            {primaryNode ? (
+              <>
+                <div className="text-[14px] font-semibold">
+                  {role === 'primary' ? (
+                    primaryNode.alias
+                  ) : (
+                    <Link
+                      href={`/instances/${primaryNode.instanceId}/replication`}
+                      className="underline decoration-dotted"
+                    >
+                      {primaryNode.alias}
+                    </Link>
+                  )}
+                </div>
+                <div className="font-mono text-[11px] text-foreground-secondary">
+                  {primaryNode.host}:{primaryNode.port}
+                </div>
+                {primaryNode.versionText && (
+                  <div className="mt-1 text-[11px] text-foreground-muted">{primaryNode.versionText}</div>
+                )}
+                {role === 'standby' && streamingPeers[0]?.state === 'no WAL receiver' && (
+                  <p className="mt-2 text-[11px] text-[var(--warning)]">
+                    Configured primary (from fleet / primary_conninfo). Streaming is not connected
+                    right now — no WAL receiver.
+                  </p>
+                )}
+              </>
+            ) : (
+              <div className="text-[12px] text-foreground-secondary">
+                Upstream {streamingPeers[0]?.peer ?? 'unknown'} — not in this Búho fleet.
+              </div>
+            )}
+            {syncMode && (
+              <p className="mt-2 text-[11px] text-foreground-secondary">
+                Mode: <span className="font-mono font-semibold">{syncMode}</span>
+                {SYNC_MODE_HINT[syncMode] ? ` — ${SYNC_MODE_HINT[syncMode]}` : ''}
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            {standbyPeers.length === 0 ? (
+              <div className="rounded border border-border p-3 text-[12px] text-foreground-secondary">
+                No connected standbys.
+              </div>
+            ) : (
+              standbyPeers.map(({ node, peer }, index) => (
+                <div
+                  key={node?.instanceId ?? peer?.peer ?? index}
+                  className="rounded border border-border bg-surface-muted/40 p-3"
+                >
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                    <span className="tag tag--ok">Standby</span>
+                    {role === 'standby' && <span className="tag tag--muted">this instance</span>}
+                    {peer?.syncState && (
+                      <span className="tag tag--muted" title={SYNC_MODE_HINT[peer.syncState]}>
+                        {peer.syncState}
+                      </span>
+                    )}
+                    {peer?.state && (
+                      <span className={`tag ${peer.state === 'streaming' ? 'tag--ok' : 'tag--warn'}`}>
+                        {peer.state}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[14px] font-semibold">
+                    {node ? (
+                      role === 'standby' ? (
+                        node.alias
+                      ) : (
+                        <Link
+                          href={`/instances/${node.instanceId}/replication`}
+                          className="underline decoration-dotted"
+                        >
+                          {node.alias}
+                        </Link>
+                      )
+                    ) : (
+                      <span className="font-mono">{peer?.peer ?? 'unknown'}</span>
+                    )}
+                  </div>
+                  <div className="font-mono text-[11px] text-foreground-secondary">
+                    {node
+                      ? `${node.host}:${node.port}`
+                      : peer?.clientAddr
+                        ? peer.clientAddr
+                        : peer?.peer}
+                    {node && peer?.clientAddr && peer.clientAddr !== node.host
+                      ? ` · stream ${peer.clientAddr}`
+                      : ''}
+                  </div>
+                  {peer && (
+                    <div className="mt-1 text-[11px] text-foreground-muted">
+                      {peer.lagBytes !== null ? `${formatBytes(peer.lagBytes)} behind` : '—'}
+                      {peer.lagSeconds !== null ? ` · ${formatDuration(peer.lagSeconds)}` : ''}
+                      {peer.application ? ` · app ${peer.application}` : ''}
+                    </div>
+                  )}
+                  {!node && peer && (
+                    <div className="mt-1 text-[11px] text-foreground-muted">
+                      Streaming peer is not a monitored Búho instance.
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -103,12 +269,12 @@ export default async function ReplicationPage({
     { label: 'Replication' },
   ];
 
-  let rows: InstanceReplicationRow[];
+  let topology: ReplicationTopology | null;
   let lag: Awaited<ReturnType<typeof getSeriesByLabel>>;
   let standby: Awaited<ReturnType<typeof getSeries>>;
   try {
-    [rows, lag, standby] = await Promise.all([
-      getInstanceReplication(instanceId),
+    [topology, lag, standby] = await Promise.all([
+      getReplicationTopology(instanceId),
       getSeriesByLabel(
         instanceId,
         'replication_replay_lag_seconds',
@@ -135,25 +301,26 @@ export default async function ReplicationPage({
     );
   }
 
-  const standbys = rows.filter((row) => row.role === 'standby' || row.role === 'replica');
-  const slots = rows.filter((row) => row.role === 'slot');
-  const primary = rows.find((row) => row.role === 'primary');
-  // En una réplica, la fila `upstream` es su enlace con el primario: de ahí sale
-  // de who depende esta instancia.
-  const upstream = rows.find((row) => row.role === 'upstream');
+  if (!topology) notFound();
 
-  // El último punto de la serie: la foto de inventario se toma cada hora, pero
-  // las métricas del standby cada medio minuto, y para "ahora" gana la métrica.
+  // On primary, all streaming peers are standbys; on standby, streamingPeers[0] is upstream.
+  const standbyPeers = topology.role === 'primary' ? topology.streamingPeers : [];
+  const upstreamPeer = topology.role === 'standby' ? topology.streamingPeers[0] ?? null : null;
+  const slots = topology.slots;
+  const inactiveSlots = slots.filter(
+    (row) => row.state === 'inactive' || row.state === 'inactivo',
+  );
+  const worstLag = standbyPeers.reduce((peak, row) => Math.max(peak, row.lagSeconds ?? 0), 0);
+  const isStandby = topology.role === 'standby';
+  const standalone = topology.role === 'standalone';
+
   const lastPoint = standby.at(-1);
   const ownDelay = (lastPoint?.['standby_replay_delay_seconds'] as number | null | undefined) ?? null;
   const ownPending = (lastPoint?.['standby_pending_bytes'] as number | null | undefined) ?? null;
-  const inactiveSlots = slots.filter((row) => row.state === 'inactive');
-  const worstLag = standbys.reduce((peak, row) => Math.max(peak, row.lagSeconds ?? 0), 0);
-  const isStandby = instance.inRecovery;
 
-  // Sin filas de replicación y sin recuperación, esta instancia es un servidor
-  // solo. Decirlo es más útil que seis paneles vacíos.
-  const standalone = rows.length === 0 && !isStandby;
+  const modeLabel =
+    topology.syncMode ??
+    (isStandby ? 'streaming' : standbyPeers.length > 0 ? 'streaming' : null);
 
   return (
     <>
@@ -163,9 +330,8 @@ export default async function ReplicationPage({
           <div>
             <h1 className="page-title">Replication · {instance.alias}</h1>
             <p className="page-sub">
-              Lag over time, not only right now. A standby that falls behind on every nightly load and
-              catches up by day does not show in a snapshot, and that is the difference between a healthy system and one that will fail
-              cuando haga falta promoverlo.
+              Who is primary, which standbys are connected (including other Búho-monitored nodes),
+              sync mode, and lag over time — not only a snapshot.
             </p>
           </div>
         </header>
@@ -176,98 +342,108 @@ export default async function ReplicationPage({
           <div className="notice">
             <strong>This instance has no replication configured.</strong> No connected standbys, not
             in recovery, and no slots. If it should have a replica, that is already a finding: the{' '}
-            <span className="font-mono">replication_lag</span> overview check cannot warn about a standby that
-            never existió.
+            <span className="font-mono">replication_lag</span> overview check cannot warn about a
+            standby that never existed.
           </div>
         ) : (
-          <div className="stat-grid">
-            <StatCard
-              label="Rol"
-              value={isStandby ? 'Standby' : 'Primario'}
-              tone="neutral"
-              hint={isStandby ? 'aplicando WAL' : `${standbys.length} standby(s) conectado(s)`}
-            />
-            {/* En un standby no hay standbys propios ni lag de otros: sus
-                tarjetas son el retraso propio, que sale de las métricas. */}
-            {!isStandby && (
-              <>
-                <StatCard
-                  label="Standbys"
-                  value={formatNumber(standbys.length)}
-                  tone={standbys.length === 0 ? 'warn' : 'ok'}
-                  hint="with an open streaming session"
-                />
-                <StatCard
-                  label="Max lag"
-                  value={worstLag > 0 ? formatDuration(worstLag) : '0 s'}
-                  tone={worstLag >= 60 ? 'error' : worstLag >= 10 ? 'warn' : 'ok'}
-                  hint="worst standby now"
-                />
-              </>
-            )}
-            {isStandby && (
-              <>
-                <StatCard
-                  label="Retraso propio"
-                  value={ownDelay === null ? '—' : formatDuration(ownDelay)}
-                  tone={
-                    ownDelay === null ? 'neutral' : ownDelay >= 60 ? 'error' : ownDelay >= 10 ? 'warn' : 'ok'
-                  }
-                  hint="since the last applied change"
-                />
-                <StatCard
-                  label="WAL not applied"
-                  value={ownPending === null ? '—' : formatBytes(ownPending)}
-                  tone={ownPending && ownPending > 64 * 1024 * 1024 ? 'warn' : 'ok'}
-                  hint={
-                    // Un retraso alto con cero bytes pendientes es un primario
-                    // quieto, no una réplica atrasada. Es la confusión más común.
-                    ownPending === 0 ? 'caught up: primary is idle' : 'received and pending'
-                  }
-                />
-              </>
-            )}
-            {(slots.length > 0 || !isStandby) && (
-            <StatCard
-              label="Slots"
-              value={formatNumber(slots.length)}
-              tone={inactiveSlots.length > 0 ? 'error' : 'neutral'}
-              hint={
-                inactiveSlots.length > 0
-                  ? `${inactiveSlots.length} inactivo(s): retienen WAL`
-                  : 'todos activos'
-              }
-            />
-            )}
-            {upstream ? (
+          <>
+            <div className="stat-grid">
               <StatCard
-                label="Recibe de"
-                value={upstream.peer || '—'}
-                tone={upstream.state === 'streaming' ? 'ok' : 'warn'}
-                hint={upstream.state ?? 'no state'}
+                label="Role"
+                value={isStandby ? 'Standby' : 'Primary'}
+                tone="neutral"
+                hint={
+                  isStandby
+                    ? 'replaying WAL'
+                    : `${standbyPeers.length} standby(s) connected`
+                }
               />
-            ) : (
-              primary && (
+              <StatCard
+                label="Replica type"
+                value={modeLabel ?? '—'}
+                tone={modeLabel === 'async' || modeLabel === 'streaming' ? 'ok' : 'neutral'}
+                hint={
+                  modeLabel && SYNC_MODE_HINT[modeLabel]
+                    ? SYNC_MODE_HINT[modeLabel]
+                    : 'from pg_stat_replication.sync_state'
+                }
+              />
+              {!isStandby && (
+                <>
+                  <StatCard
+                    label="Standbys"
+                    value={formatNumber(standbyPeers.length)}
+                    tone={standbyPeers.length === 0 ? 'warn' : 'ok'}
+                    hint={`${standbyPeers.filter((p) => p.linked).length} also monitored in Búho`}
+                  />
+                  <StatCard
+                    label="Max lag"
+                    value={worstLag > 0 ? formatDuration(worstLag) : '0 s'}
+                    tone={worstLag >= 60 ? 'error' : worstLag >= 10 ? 'warn' : 'ok'}
+                    hint="worst standby now"
+                  />
+                </>
+              )}
+              {isStandby && (
+                <>
+                  <StatCard
+                    label="Own delay"
+                    value={ownDelay === null ? '—' : formatDuration(ownDelay)}
+                    tone={
+                      ownDelay === null
+                        ? 'neutral'
+                        : ownDelay >= 60
+                          ? 'error'
+                          : ownDelay >= 10
+                            ? 'warn'
+                            : 'ok'
+                    }
+                    hint="since the last applied change"
+                  />
+                  <StatCard
+                    label="WAL not applied"
+                    value={ownPending === null ? '—' : formatBytes(ownPending)}
+                    tone={ownPending && ownPending > 64 * 1024 * 1024 ? 'warn' : 'ok'}
+                    hint={
+                      ownPending === 0 ? 'caught up: primary is idle' : 'received and pending'
+                    }
+                  />
+                </>
+              )}
+              {(slots.length > 0 || !isStandby) && (
                 <StatCard
-                  label="Primario"
-                  value={primary.peer || '—'}
-                  tone="neutral"
-                  hint={primary.state ?? 'no state'}
+                  label="Slots"
+                  value={formatNumber(slots.length)}
+                  tone={inactiveSlots.length > 0 ? 'error' : 'neutral'}
+                  hint={
+                    inactiveSlots.length > 0
+                      ? `${inactiveSlots.length} inactive: retaining WAL`
+                      : 'all active'
+                  }
                 />
-              )
-            )}
-          </div>
+              )}
+              {upstreamPeer && (
+                <StatCard
+                  label="Receives from"
+                  value={upstreamPeer.linked?.alias ?? upstreamPeer.peer}
+                  tone={upstreamPeer.state === 'streaming' ? 'ok' : 'warn'}
+                  hint={upstreamPeer.state ?? 'no state'}
+                />
+              )}
+            </div>
+
+            <TopologyPanel topology={topology} />
+          </>
         )}
 
         {inactiveSlots.length > 0 && (
           <div className="notice notice--warn">
             <strong>
-              {inactiveSlots.length} slot{inactiveSlots.length === 1 ? '' : 's'} inactivo
-              {inactiveSlots.length === 1 ? '' : 's'}.
+              {inactiveSlots.length} inactive slot{inactiveSlots.length === 1 ? '' : 's'}.
             </strong>{' '}
             A slot with no consumer retains WAL forever: the most common way to fill the disk of a
             healthy primary. If the consumer is not coming back,{' '}
-            <span className="font-mono">pg_drop_replication_slot()</span> libera el espacio.
+            <span className="font-mono">pg_drop_replication_slot()</span> frees the space.
           </div>
         )}
 
@@ -295,7 +471,7 @@ export default async function ReplicationPage({
               unit="seconds"
               height={170}
               series={[
-                { metric: 'standby_replay_delay_seconds', label: 'Retraso', color: '#9a4a00' },
+                { metric: 'standby_replay_delay_seconds', label: 'Delay', color: '#9a4a00' },
               ]}
             />
             <TimeseriesPanel
@@ -304,7 +480,9 @@ export default async function ReplicationPage({
               data={standby}
               unit="bytes"
               height={170}
-              series={[{ metric: 'standby_pending_bytes', label: 'Pendiente de aplicar', color: '#1f5f8b' }]}
+              series={[
+                { metric: 'standby_pending_bytes', label: 'Pending apply', color: '#1f5f8b' },
+              ]}
             />
           </div>
         ) : (
@@ -317,67 +495,83 @@ export default async function ReplicationPage({
               height={190}
               series={lag.keys.map((key, index) => ({
                 metric: key,
-                label: key,
+                label: chartLabel(key, topology),
                 color: SERIES_COLORS[index % SERIES_COLORS.length]!,
               }))}
             />
           )
         )}
 
-        {standbys.length > 0 && (
+        {standbyPeers.length > 0 && (
           <section className="panel">
             <div className="panel-header">
-              <span className="panel-title">Standbys · {standbys.length}</span>
-              <span className="font-mono text-[10px] text-foreground-muted">estado actual</span>
+              <span className="panel-title">Standbys · {standbyPeers.length}</span>
+              <span className="font-mono text-[10px] text-foreground-muted">current state</span>
             </div>
             <div className="table-scroll">
               <table className="data-table">
                 <thead>
                   <tr>
                     <th>Standby</th>
+                    <th>Monitored as</th>
                     <th>State</th>
+                    <th>Type</th>
                     <th className="text-right">Bytes behind</th>
                     <th className="text-right">Seconds behind</th>
-                    <th>Detail</th>
-                    <th className="text-right">Visto</th>
+                    <th className="text-right">Seen</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {standbys.map((row) => {
-                    const syncState = row.detail['sync_state'];
-                    const client = row.detail['client_addr'];
-                    return (
-                      <tr key={`${row.role}:${row.peer}`}>
-                        <td className="font-mono text-[11.5px]">{row.peer}</td>
-                        <td>
-                          <span className={`tag ${row.state === 'streaming' ? 'tag--ok' : 'tag--warn'}`}>
-                            {row.state ?? 'no state'}
-                          </span>
-                        </td>
-                        <td className="num">{row.lagBytes === null ? '—' : formatBytes(row.lagBytes)}</td>
-                        <td className="num">
-                          <span
-                            className={
-                              (row.lagSeconds ?? 0) >= 60
-                                ? 'text-[var(--error)]'
-                                : (row.lagSeconds ?? 0) >= 10
-                                  ? 'text-[var(--warning)]'
-                                  : ''
-                            }
+                  {standbyPeers.map((row) => (
+                    <tr key={`${row.peer}:${row.linked?.instanceId ?? ''}`}>
+                      <td className="font-mono text-[11.5px]">
+                        {peerDisplayName(row)}
+                        {row.clientAddr && row.linked && (
+                          <div className="text-[10px] text-foreground-muted">{row.clientAddr}</div>
+                        )}
+                      </td>
+                      <td>
+                        {row.linked ? (
+                          <Link
+                            href={`/instances/${row.linked.instanceId}/replication`}
+                            className="underline decoration-dotted"
                           >
-                            {row.lagSeconds === null ? '—' : formatDuration(row.lagSeconds)}
-                          </span>
-                        </td>
-                        <td className="font-mono text-[11px] text-foreground-muted">
-                          {typeof syncState === 'string' ? syncState : '—'}
-                          {typeof client === 'string' ? ` · ${client}` : ''}
-                        </td>
-                        <td className="num font-mono text-[10px] text-foreground-muted">
-                          {formatClock(row.capturedAt)}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                            {row.linked.alias}
+                          </Link>
+                        ) : (
+                          <span className="text-[11px] text-foreground-muted">not in fleet</span>
+                        )}
+                      </td>
+                      <td>
+                        <span className={`tag ${row.state === 'streaming' ? 'tag--ok' : 'tag--warn'}`}>
+                          {row.state ?? 'no state'}
+                        </span>
+                      </td>
+                      <td className="font-mono text-[11px]">
+                        {row.syncState ?? '—'}
+                        {row.application ? (
+                          <span className="text-foreground-muted"> · {row.application}</span>
+                        ) : null}
+                      </td>
+                      <td className="num">{row.lagBytes === null ? '—' : formatBytes(row.lagBytes)}</td>
+                      <td className="num">
+                        <span
+                          className={
+                            (row.lagSeconds ?? 0) >= 60
+                              ? 'text-[var(--error)]'
+                              : (row.lagSeconds ?? 0) >= 10
+                                ? 'text-[var(--warning)]'
+                                : ''
+                          }
+                        >
+                          {row.lagSeconds === null ? '—' : formatDuration(row.lagSeconds)}
+                        </span>
+                      </td>
+                      <td className="num font-mono text-[10px] text-foreground-muted">
+                        {row.capturedAt ? formatClock(row.capturedAt) : '—'}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -398,10 +592,10 @@ export default async function ReplicationPage({
                   <tr>
                     <th>Slot</th>
                     <th>State</th>
-                    <th className="text-right">WAL retenido</th>
+                    <th className="text-right">WAL retained</th>
                     <th className="text-right">Seconds behind</th>
                     <th>WAL status</th>
-                    <th className="text-right">Visto</th>
+                    <th className="text-right">Seen</th>
                   </tr>
                 </thead>
                 <tbody>{slots.map(slotRow)}</tbody>

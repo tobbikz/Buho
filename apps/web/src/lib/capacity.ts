@@ -41,7 +41,7 @@ export interface CapacityForecast {
   rSquared: number | null;
   /** Serie diaria usada (para el gráfico). */
   history: CapacityPoint[];
-  /** Una frase en español. */
+  /** One-line English summary for the panel. */
   summary: string;
   tone: 'ok' | 'warn' | 'error' | 'neutral';
 }

@@ -158,7 +158,7 @@ export async function getLogGroups(
     databases: (string | null)[];
     users: (string | null)[];
   }>(
-    `with window as (
+    `with log_window as (
        select *
          from buho.log_events
         where instance_id = $1
@@ -173,13 +173,13 @@ export async function getLogGroups(
               max(at)                         as last_at,
               array_agg(distinct database)    as databases,
               array_agg(distinct username)    as users
-         from window
+         from log_window
         group by fingerprint, kind
      ),
      ultima as (
        select distinct on (fingerprint, kind)
               fingerprint, kind, level, message, detail, hint, query, context, sqlstate
-         from window
+         from log_window
         order by fingerprint, kind, at desc
      )
      select g.fingerprint, g.kind, u.level, g.times, g.first_at, g.last_at,

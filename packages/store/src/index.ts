@@ -6,6 +6,7 @@ import type {
   BloatMeasurement,
   LogEntry,
   VacuumSnapshot,
+  IndexSnapshot,
   BlockedSession,
   Capabilities,
   InstanceConfig,
@@ -822,6 +823,20 @@ export class Store {
   async saveStatements(instanceId: number, deltas: StatementDelta[], ts = new Date()): Promise<number> {
     if (deltas.length === 0) return 0;
 
+    // Un mismo queryid puede llegar varias veces en el lote (distinto userid /
+    // toplevel). statement_texts tiene PK (instance_id, queryid), así que un
+    // unnest con duplicados hace fallar el ON CONFLICT con
+    // "cannot affect row a second time" y se pierde todo el ciclo de stats —
+    // Flow LIVE y Queries dejan de actualizarse.
+    const textsByQueryid = new Map<string, { query: string; truncated: boolean }>();
+    for (const delta of deltas) {
+      const prev = textsByQueryid.get(delta.queryid);
+      if (!prev || delta.query.length >= prev.query.length) {
+        textsByQueryid.set(delta.queryid, { query: delta.query, truncated: delta.truncated });
+      }
+    }
+    const textRows = [...textsByQueryid.entries()];
+
     await this.pool.query(
       `insert into buho.statement_texts
             (instance_id, queryid, query, truncated, first_seen_at, last_seen_at)
@@ -834,9 +849,9 @@ export class Store {
       [
         instanceId,
         ts,
-        deltas.map((d) => d.queryid),
-        deltas.map((d) => d.query),
-        deltas.map((d) => d.truncated),
+        textRows.map(([queryid]) => queryid),
+        textRows.map(([, row]) => row.query),
+        textRows.map(([, row]) => row.truncated),
       ],
     );
 
@@ -1168,6 +1183,80 @@ export class Store {
     }
   }
 
+  async saveIndexes(instanceId: number, snapshot: IndexSnapshot): Promise<void> {
+    // Empty collect is a probe miss, not "the instance has no indexes".
+    if (snapshot.indexes.length === 0) return;
+
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+
+      const values: unknown[] = [];
+      const tuples: string[] = [];
+      snapshot.indexes.forEach((index, rowIndex) => {
+          const base = rowIndex * 17;
+          tuples.push(
+            `(${Array.from({ length: 17 }, (_, offset) => `$${base + offset + 1}`).join(', ')}, now())`,
+          );
+          values.push(
+            instanceId,
+            index.schema,
+            index.table,
+            index.name,
+            Math.round(index.sizeBytes),
+            Math.round(index.idxScan),
+            Math.round(index.idxTupRead),
+            Math.round(index.idxTupFetch),
+            index.isPrimary,
+            index.isUnique,
+            index.isValid,
+            index.isPartial,
+            index.hasExpression,
+            index.columns,
+            index.definition,
+            index.status,
+            index.coveredBy,
+          );
+      });
+      await client.query(
+        `insert into buho.index_objects
+             (instance_id, schema_name, table_name, index_name, size_bytes, idx_scan,
+              idx_tup_read, idx_tup_fetch, is_primary, is_unique, is_valid, is_partial,
+              has_expression, columns, definition, status, covered_by, captured_at)
+           values ${tuples.join(', ')}
+           on conflict (instance_id, schema_name, table_name, index_name) do update
+                  set size_bytes = excluded.size_bytes,
+                      idx_scan = excluded.idx_scan,
+                      idx_tup_read = excluded.idx_tup_read,
+                      idx_tup_fetch = excluded.idx_tup_fetch,
+                      is_primary = excluded.is_primary,
+                      is_unique = excluded.is_unique,
+                      is_valid = excluded.is_valid,
+                      is_partial = excluded.is_partial,
+                      has_expression = excluded.has_expression,
+                      columns = excluded.columns,
+                      definition = excluded.definition,
+                      status = excluded.status,
+                      covered_by = excluded.covered_by,
+                      captured_at = excluded.captured_at`,
+        values,
+      );
+
+      await client.query(
+        `delete from buho.index_objects
+          where instance_id = $1 and captured_at < now() - interval '1 minute'`,
+        [instanceId],
+      );
+
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   /** Desde dónde seguir leyendo el log, si ya se leyó antes. */
   async logCursor(instanceId: number): Promise<string | null> {
     const { rows } = await this.pool.query<{ cursor: string | null }>(
@@ -1302,15 +1391,33 @@ export class Store {
   async maintenance(
     retention: RetentionConfig,
   ): Promise<{ created: number; dropped: number; rolled: number; baselines: number }> {
-    const created = await this.pool.query<{ created: number }>(
-      `select buho.ensure_partitions('metric_samples', $1)
-            + buho.ensure_partitions('statement_stats', $1)
-            + buho.ensure_partitions('query_actors', $1)
-            + buho.ensure_partitions('wait_samples', $1)
-            + buho.ensure_partitions('session_samples', $1)
-            + buho.ensure_partitions('log_events', $1) as created`,
-      [3],
-    );
+    // Partition creation per parent: one overlapping table must not abort
+    // rollups (24h charts read metric_rollup_5m and go empty when this stalls).
+    const parents = [
+      'metric_samples',
+      'statement_stats',
+      'query_actors',
+      'wait_samples',
+      'session_samples',
+      'log_events',
+    ] as const;
+    let created = 0;
+    for (const parent of parents) {
+      try {
+        const row = await this.pool.query<{ created: number }>(
+          `select buho.ensure_partitions($1, $2) as created`,
+          [parent, 3],
+        );
+        created += Number(row.rows[0]?.created ?? 0);
+      } catch (error) {
+        await this.logEvent(
+          null,
+          'error',
+          'maintenance',
+          `ensure_partitions(${parent}): ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
     const rolled = await this.pool.query<{ build_rollups: number }>('select buho.build_rollups($1::interval)', [
       '2 hours',
     ]);
@@ -1367,7 +1474,7 @@ export class Store {
     );
 
     return {
-      created: Number(created.rows[0]?.created ?? 0),
+      created,
       dropped: Number(dropped.rows[0]?.dropped ?? 0),
       rolled: Number(rolled.rows[0]?.build_rollups ?? 0),
       baselines: Number(baselines.rows[0]?.build_baselines ?? 0),

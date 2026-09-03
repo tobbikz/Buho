@@ -308,7 +308,15 @@ const replication: MetricCollector = {
   tier: 'normal',
   description: 'Lag de standbys conectados',
   sql: () => `
-    select coalesce(application_name, '(sin nombre)') as application_name,
+    select coalesce(
+             case
+               when application_name in ('walreceiver', 'postgres', '') then null
+               else nullif(application_name, '')
+             end,
+             nullif(client_hostname, ''),
+             host(client_addr)::text,
+             coalesce(nullif(application_name, ''), '(unnamed)')
+           ) as standby_name,
            state,
            coalesce(extract(epoch from write_lag), 0)  as write_lag_seconds,
            coalesce(extract(epoch from flush_lag), 0)  as flush_lag_seconds,
@@ -317,7 +325,7 @@ const replication: MetricCollector = {
   toSamples: (rows) => {
     const samples: Sample[] = [{ metric: 'replication_standbys', value: rows.length }];
     for (const row of rows) {
-      const labels = { standby: str(row['application_name']), state: str(row['state']) };
+      const labels = { standby: str(row['standby_name']), state: str(row['state']) };
       samples.push({ metric: 'replication_write_lag_seconds', value: num(row['write_lag_seconds']), labels });
       samples.push({ metric: 'replication_flush_lag_seconds', value: num(row['flush_lag_seconds']), labels });
       samples.push({ metric: 'replication_replay_lag_seconds', value: num(row['replay_lag_seconds']), labels });

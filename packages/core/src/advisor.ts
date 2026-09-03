@@ -156,14 +156,14 @@ export function suggestIndexes(root: PlanNode, queryid: string | null): IndexSug
           columns: columnas,
           ddl: ddlFor(node.relation, columnas),
           reason:
-            `El escaneo secuencial leyó ${leidas.toLocaleString('es-CR')} filas para devolver ` +
-            `${(devueltas ?? 0).toLocaleString('es-CR')}: descartó el ${(proporcion * 100).toFixed(1)} % ` +
-            `después de leerlas${loops > 1 ? `, y lo repitió ${loops.toLocaleString('es-CR')} veces` : ''}. ` +
-            'Un índice sobre la condición evita esa lectura.',
+            `The sequential scan read ${leidas.toLocaleString('en-US')} rows to return ` +
+            `${(devueltas ?? 0).toLocaleString('en-US')}: it discarded ${(proporcion * 100).toFixed(1)}% ` +
+            `after reading them${loops > 1 ? `, and repeated ${loops.toLocaleString('en-US')} times` : ''}. ` +
+            'An index on the filter condition would avoid that read.',
           caveat:
-            'Comprobar antes que no exista ya un índice equivalente que el planificador esté descartando: ' +
-            'si las estadísticas están viejas, el problema es un ANALYZE y no un índice nuevo. ' +
-            'Y si la tabla se escribe mucho, cada índice de más se paga en cada INSERT y en cada vacuum.',
+            'Confirm there is not already an equivalent index the planner is ignoring: ' +
+            'if statistics are stale, the fix is ANALYZE rather than a new index. ' +
+            'On write-heavy tables, every extra index is paid on every INSERT and every vacuum.',
           wastedRows: removidas * loops,
           observedMs: node.selfMs ?? 0,
           evidence: [
@@ -202,13 +202,13 @@ export function suggestIndexes(root: PlanNode, queryid: string | null): IndexSug
           columns: columnas,
           ddl: ddlFor(node.relation, columnas),
           reason:
-            `El índice encontró las filas pero el filtro descartó ${removidas.toLocaleString('es-CR')} ` +
-            `después de traerlas de la tabla${loops > 1 ? ` (por ${loops.toLocaleString('es-CR')} ejecuciones)` : ''}. ` +
-            'La condición que descarta no está en el índice.',
+            `The index found rows but the filter discarded ${removidas.toLocaleString('en-US')} ` +
+            `after fetching them from the table${loops > 1 ? ` (${loops.toLocaleString('en-US')} executions)` : ''}. ` +
+            'The condition that filters is not in the index.',
           caveat:
-            'Aquí casi siempre conviene ampliar el índice que ya se usa —agregarle estas columnas al final— ' +
-            'en vez de crear uno nuevo: dos índices con el mismo prefijo compiten y duplican el costo de escritura. ' +
-            `Ver qué índice eligió el plan (${node.indexCond ? 'condición: ' + node.indexCond : 'sin condición de índice'}) antes de decidir.`,
+            'Here it usually pays to extend the index already in use — append these columns — ' +
+            'instead of creating a new one: two indexes with the same prefix compete and duplicate write cost. ' +
+            `See which index the plan chose (${node.indexCond ? 'condition: ' + node.indexCond : 'no index condition'}) before deciding.`,
           wastedRows: removidas * loops,
           observedMs: node.selfMs ?? 0,
           evidence: [
@@ -235,18 +235,18 @@ export function suggestIndexes(root: PlanNode, queryid: string | null): IndexSug
       const columnas = columnsFromPredicate(node.label.replace(/^Sort Key:\s*/i, ''));
       sugerencias.push({
         kind: 'orden_sin_indice',
-        relation: node.relation ?? '(la salida del nodo anterior)',
+        relation: node.relation ?? '(output of the previous node)',
         columns: columnas,
         ddl:
           node.relation && columnas.length > 0
             ? ddlFor(node.relation, columnas)
-            : '-- sin DDL: la clave de ordenamiento no son columnas simples de una tabla',
+            : '-- no DDL: the sort key is not simple columns on one table',
         reason:
-          `El ordenamiento se fue a disco y usó ${Math.round((node.sortSpaceKb ?? 0) / 1024).toLocaleString('es-CR')} MB. ` +
-          'Un índice en el orden pedido lo elimina; subir work_mem sólo lo mueve a memoria.',
+          `The sort spilled to disk and used ${Math.round((node.sortSpaceKb ?? 0) / 1024).toLocaleString('en-US')} MB. ` +
+          'An index in the requested order removes it; raising work_mem only moves it to memory.',
         caveat:
-          'Antes del índice, medir si sube work_mem alcanza: es un cambio reversible y sin costo de escritura. ' +
-          'El índice sólo gana si esta consulta se repite y el orden es siempre el mismo.',
+          'Before adding an index, check whether raising work_mem is enough: that change is reversible and has no write cost. ' +
+          'An index only wins if this query repeats and the sort order is always the same.',
         wastedRows: 0,
         observedMs: node.selfMs ?? 0,
         evidence: [

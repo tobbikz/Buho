@@ -138,6 +138,7 @@ export function FlowSankey({
   height = 420,
   emptyMessage,
   zoomable = true,
+  columnLabels,
 }: {
   nodes: FlowNode[];
   links: FlowLink[];
@@ -145,6 +146,8 @@ export function FlowSankey({
   height?: number;
   emptyMessage: string;
   zoomable?: boolean;
+  /** Override the default Traffic / Schema / Table column headers. */
+  columnLabels?: string[];
 }) {
   const [resaltado, setResaltado] = useState<number | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ scale: 1, tx: 0, ty: 0 });
@@ -152,6 +155,7 @@ export function FlowSankey({
   const dragRef = useRef<{ ox: number; oy: number } | null>(null);
 
   const maxDepth = useMemo(() => Math.max(0, ...nodes.map((n) => n.depth)), [nodes]);
+  const headers = columnLabels ?? COLUMN_LABELS;
 
   const data = useMemo(
     () => ({
@@ -214,7 +218,7 @@ export function FlowSankey({
     <div>
       <div className="mb-2 flex items-center justify-between gap-4 px-1">
         <div className="flex gap-4 text-[10px] uppercase tracking-[0.08em] text-foreground-muted">
-          {COLUMN_LABELS.slice(0, maxDepth + 1).map((label) => (
+          {headers.slice(0, maxDepth + 1).map((label) => (
             <span key={label}>{label}</span>
           ))}
         </div>

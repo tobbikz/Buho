@@ -5,7 +5,31 @@
  *
  * La escala arranca siempre en cero. Un sparkline con eje flotante convierte
  * ruido del 2 % en una montaña, y la comparación entre filas deja de servir.
+ *
+ * La línea usa curvas cúbicas (Catmull-Rom → Bezier) para que la tendencia se
+ * lea suave: con polyline cada bucket se ve como un pico dentado.
  */
+function smoothPath(points: { x: number; y: number }[]): string {
+  if (points.length < 2) return '';
+  if (points.length === 2) {
+    return `M ${points[0]!.x.toFixed(1)} ${points[0]!.y.toFixed(1)} L ${points[1]!.x.toFixed(1)} ${points[1]!.y.toFixed(1)}`;
+  }
+
+  let d = `M ${points[0]!.x.toFixed(1)} ${points[0]!.y.toFixed(1)}`;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = points[i - 1] ?? points[i]!;
+    const p1 = points[i]!;
+    const p2 = points[i + 1]!;
+    const p3 = points[i + 2] ?? p2;
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+  }
+  return d;
+}
+
 export function Sparkline({
   values,
   width = 92,
@@ -31,15 +55,20 @@ export function Sparkline({
 
   const y = (value: number) => (max <= 0 ? height - pad : height - pad - (value / max) * usableHeight);
 
-  const points = clean.map((value, index) => `${(pad + index * step).toFixed(1)},${y(value).toFixed(1)}`);
-  const area = `${pad},${height - pad} ${points.join(' ')} ${(pad + (clean.length - 1) * step).toFixed(1)},${height - pad}`;
+  const points = clean.map((value, index) => ({
+    x: pad + index * step,
+    y: y(value),
+  }));
+  const line = smoothPath(points);
+  const last = points[points.length - 1]!;
+  const area = `${line} L ${last.x.toFixed(1)} ${(height - pad).toFixed(1)} L ${pad.toFixed(1)} ${(height - pad).toFixed(1)} Z`;
 
   return (
     <svg width={width} height={height} role="img" aria-label={title ?? 'tendencia'} style={{ display: 'block' }}>
       {title ? <title>{title}</title> : null}
-      <polygon points={area} fill={color} opacity={0.12} />
-      <polyline points={points.join(' ')} fill="none" stroke={color} strokeWidth={1.25} />
-      <circle cx={pad + (clean.length - 1) * step} cy={y(clean[clean.length - 1] ?? 0)} r={1.6} fill={color} />
+      <path d={area} fill={color} opacity={0.12} />
+      <path d={line} fill="none" stroke={color} strokeWidth={1.25} strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={last.x} cy={last.y} r={1.6} fill={color} />
     </svg>
   );
 }

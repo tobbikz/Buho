@@ -35,6 +35,7 @@ import {
   readLog,
   sampleVacuum,
   vacuumSamples,
+  sampleIndexes,
   runCollectors,
   sampleBlocking,
   sampleStatements,
@@ -691,6 +692,10 @@ async function monitorInstance(instance: InstanceConfig): Promise<void> {
       const snapshot = await sampleVacuum(pool, caps);
       await store.saveVacuum(instanceId, snapshot);
       await store.insertSamples(instanceId, vacuumSamples(snapshot));
+      if (instance.engine === 'postgres') {
+        const indexes = await sampleIndexes(pool);
+        await store.saveIndexes(instanceId, indexes);
+      }
 
       const running = snapshot.progress.length;
       const worst = snapshot.tables[0];

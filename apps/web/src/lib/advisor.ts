@@ -73,7 +73,7 @@ export async function getIndexFindings(
     `select distinct on (check_id, object) check_id, object, message
        from buho.check_results
       where instance_id = $1
-        and check_id in ('unused_indexes', 'redundant_indexes', 'missing_indexes', 'invalid_indexes')
+        and check_id in ('unused_indexes', 'redundant_index_prefix')
         and ts > now() - interval '1 day'
       order by check_id, object, ts desc`,
     [instanceId],

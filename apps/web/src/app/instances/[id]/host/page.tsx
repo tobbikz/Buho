@@ -31,7 +31,7 @@ function NotConfigured({ alias }: { alias: string }) {
     <section className="panel">
       <div className="panel-header">
         <span className="panel-title">Host resources not configured</span>
-        <span className="tag tag--muted">opcional</span>
+        <span className="tag tag--muted">optional</span>
       </div>
       <div className="panel-body">
         <p className="text-[12.5px]">
@@ -58,7 +58,7 @@ function NotConfigured({ alias }: { alias: string }) {
   "alias": "${alias}",
   "hostMetrics": {
     "source": "ssh",
-    "target": "buho@servidor-bd",
+    "target": "buho@db-host",
     "identityFile": "/etc/buho/id_ed25519",
     "dataDirectory": "/var/lib/postgresql/16/main"
   }
@@ -67,12 +67,12 @@ function NotConfigured({ alias }: { alias: string }) {
         <p className="mt-2 text-[12px] text-foreground-secondary">
           An unprivileged user with access to <span className="font-mono">/proc</span> and{' '}
           <span className="font-mono">df</span>. The connection uses{' '}
-          <span className="font-mono">BatchMode=yes</span>: si la llave no sirve, el ciclo falla y queda en los eventos
-          del colector en vez de quedarse esperando una contraseña.
+          <span className="font-mono">BatchMode=yes</span>: if the key fails, the cycle errors into
+          collector events instead of hanging on a password prompt.
         </p>
         <p className="mt-2 text-[12px] text-foreground-secondary">
-          Mientras no esté configurado, la pestaña de resumen sigue mostrando las aproximaciones que sí salen de la
-          base: active sessions por clase de espera, DB time, cache hit y derrame a temporales.
+          Until this is configured, Overview still shows the PostgreSQL-side approximations: wait
+          classes, DB time, cache hit, and temp spills.
         </p>
       </div>
     </section>
@@ -95,19 +95,19 @@ function Cards({ host }: { host: HostSummary }) {
         tone={toneForPct(host.iowaitPct, 10, 25)}
       />
       <StatCard
-        label="CPU robada"
+        label="CPU steal"
         value={formatPct(host.stealPct, 1)}
-        hint="hipervisor: vecinos ruidosos"
+        hint="hypervisor: noisy neighbors"
         tone={toneForPct(host.stealPct, 5, 10)}
       />
       <StatCard
-        label="Memoria usada"
+        label="Memory used"
         value={formatPct(host.memUsedPct, 1)}
-        hint={`${formatBytes(host.memAvailableBytes ?? 0)} disponibles`}
+        hint={`${formatBytes(host.memAvailableBytes ?? 0)} available`}
         tone={toneForPct(host.memUsedPct, 90, 96)}
       />
       <StatCard
-        label="Swap usado"
+        label="Swap used"
         value={formatPct(host.swapUsedPct, 1)}
         hint="a database that is swapping is in trouble"
         tone={toneForPct(host.swapUsedPct, 5, 20)}
@@ -115,7 +115,7 @@ function Cards({ host }: { host: HostSummary }) {
       <StatCard
         label="Load per core"
         value={formatNumber(host.loadPerCore, 2)}
-        hint="1.00 = saturado"
+        hint="1.00 = saturated"
         tone={toneForPct((host.loadPerCore ?? 0) * 100, 100, 200)}
       />
       <StatCard
@@ -127,7 +127,7 @@ function Cards({ host }: { host: HostSummary }) {
       <StatCard
         label="Disk free"
         value={formatBytes(host.diskFreeBytes ?? 0)}
-        hint={`medido hace ${formatAgo(host.at)}`}
+        hint={`measured ${formatAgo(host.at)}`}
         tone="neutral"
       />
     </div>
@@ -199,8 +199,8 @@ export default async function HostPage({
           <div>
             <h1 className="page-title">Host · {instance.alias}</h1>
             <p className="page-sub">
-              Server CPU, memory, and disk, read from <span className="font-mono">/proc</span>. It is the only
-              esta consola que no sale de PostgreSQL.
+              Server CPU, memory, and disk from <span className="font-mono">/proc</span> — the only
+              host view in this console that does not come from PostgreSQL.
             </p>
           </div>
           {host && (
@@ -235,16 +235,16 @@ export default async function HostPage({
                 series={[
                   { metric: 'host_cpu_pct', label: 'Total usage', color: COLOR.accent },
                   { metric: 'host_cpu_iowait_pct', label: 'I/O wait', color: COLOR.warning },
-                  { metric: 'host_cpu_steal_pct', label: 'Robada', color: COLOR.error },
+                  { metric: 'host_cpu_steal_pct', label: 'Steal', color: COLOR.error },
                 ]}
               />
               <TimeseriesPanel
-                title="Memoria"
-                hint="usada = total menos disponible, no 'menos libre'"
+                title="Memory"
+                hint="used = total − available (not 'total − free')"
                 data={memory}
                 unit="pct"
                 series={[
-                  { metric: 'host_mem_used_pct', label: 'Memoria', color: COLOR.accent },
+                  { metric: 'host_mem_used_pct', label: 'Memory', color: COLOR.accent },
                   { metric: 'host_swap_used_pct', label: 'Swap', color: COLOR.error },
                 ]}
               />
@@ -257,7 +257,7 @@ export default async function HostPage({
               />
               <TimeseriesPanel
                 title="Disk used"
-                hint={host.mount ? `filesystem de ${host.mount}` : windowHint}
+                hint={host.mount ? `filesystem ${host.mount}` : windowHint}
                 data={disk}
                 unit="pct"
                 series={[{ metric: 'host_disk_used_pct', label: 'Disk', color: COLOR.warning }]}

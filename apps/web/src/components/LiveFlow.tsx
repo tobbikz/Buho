@@ -49,11 +49,11 @@ function hexAlpha(hex: string, alpha: number): string {
 const MIN_NODE_HEIGHT = 26;
 
 /** Visible particles per unit of measured rate (rows/s, calls/s, ms/s). */
-const PARTICLES_PER_RATE = 1.25;
+const PARTICLES_PER_RATE = 0.35;
 /** Hard cap so the canvas stays readable on hot instances. */
-const MAX_PARTICLES_PER_SECOND = 48;
+const MAX_PARTICLES_PER_SECOND = 18;
 /** Max particles on screen at once. */
-const MAX_PARTICLES = 36;
+const MAX_PARTICLES = 28;
 
 const THEME = {
   bg: '#f2f4f6',
@@ -285,23 +285,35 @@ export function LiveFlow({
         ctx.globalAlpha = 1;
       }
 
-      // Emit in proportion to the measured per-second rate — not normalized to
-      // fill the canvas. At 0.03/s you should see a particle every ~30s, not a stream.
-      const rawEmission = Math.min(MAX_PARTICLES_PER_SECOND, total * PARTICLES_PER_RATE);
+      // Emission uses log-scale of the measured rate so 12k/s does not flood the
+      // canvas. Particles hop through schema→table when a first-hop finishes,
+      // otherwise they visually pile up on the schema node.
+      const rawEmission = Math.min(
+        MAX_PARTICLES_PER_SECOND,
+        Math.log10(1 + total) * 4.2 * PARTICLES_PER_RATE + Math.min(total, 2) * 0.15,
+      );
 
-      for (let i = 0; i < enlaces.length; i += 1) {
-        const enlace = enlaces[i]!;
-        if (enlace.value <= 0) continue;
-        const cuota = total > 0 ? enlace.value / total : 0;
+      // Prefer spawning on depth-0 links (Writes/Reads → schema). Continuations
+      // cover schema → table so the stream reaches the table.
+      const roots = enlaces
+        .map((enlace, i) => ({ enlace, i }))
+        .filter(({ enlace }) => {
+          if (enlace.value <= 0) return false;
+          const depth = snap.nodes[enlace.source]?.depth ?? 0;
+          return depth === 0;
+        });
+      const rootTotal = roots.reduce((suma, item) => suma + item.enlace.value, 0) || 1;
+
+      for (const { enlace, i } of roots) {
+        const cuota = enlace.value / rootTotal;
         acumulado[i] = (acumulado[i] ?? Math.random()) + delta * rawEmission * cuota;
         while ((acumulado[i] ?? 0) >= 1 && particulas.length < MAX_PARTICLES) {
           acumulado[i] = (acumulado[i] ?? 0) - 1;
-          const linkRate = enlace.value;
           particulas.push({
             link: i,
             t: 0,
-            speed: 0.05 + Math.min(0.22, linkRate * 0.025 + 0.04),
-            size: 1.2 + Math.min(1.8, Math.sqrt(cuota) * 1.4),
+            speed: 0.35 + Math.min(0.55, Math.log10(1 + enlace.value) * 0.12),
+            size: 1.35 + Math.min(1.4, Math.sqrt(cuota) * 1.2),
           });
         }
       }
@@ -310,6 +322,37 @@ export function LiveFlow({
         const particula = particulas[i]!;
         particula.t += particula.speed * delta;
         if (particula.t >= 1) {
+          const enlaceHecho = enlaces[particula.link];
+          if (enlaceHecho && particulas.length < MAX_PARTICLES) {
+            const siguientes = enlaces
+              .map((enlace, indice) => ({ enlace, indice }))
+              .filter(
+                ({ enlace }) =>
+                  enlace.source === enlaceHecho.target &&
+                  enlace.value > 0 &&
+                  (enlace.kind === undefined ||
+                    enlaceHecho.kind === undefined ||
+                    enlace.kind === enlaceHecho.kind),
+              );
+            if (siguientes.length > 0) {
+              const peso = siguientes.reduce((suma, item) => suma + item.enlace.value, 0);
+              let pick = Math.random() * peso;
+              let elegido = siguientes[0]!;
+              for (const candidato of siguientes) {
+                pick -= candidato.enlace.value;
+                if (pick <= 0) {
+                  elegido = candidato;
+                  break;
+                }
+              }
+              particulas.push({
+                link: elegido.indice,
+                t: 0,
+                speed: particula.speed * 1.05,
+                size: particula.size,
+              });
+            }
+          }
           particulas.splice(i, 1);
           continue;
         }
@@ -504,8 +547,8 @@ export function LiveFlow({
       </div>
 
       <p className="mt-2 text-[11px] text-foreground-muted">
-        Particle <strong>density matches the measured rate</strong>. Green = writes, blue = reads. Writes and reads
-        flow through schema into table.
+        Particle density is <strong>log-scaled</strong> to the measured rate so hot instances stay
+        readable. Particles hop Writes/Reads → schema → table. Green = writes, blue = reads.
       </p>
     </div>
   );

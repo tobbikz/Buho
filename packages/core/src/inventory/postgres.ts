@@ -142,41 +142,89 @@ export async function collectPostgres(client: EngineClient): Promise<InventorySn
                      extract(epoch from (now() - latest_end_time)) as receiver_idle_seconds
                 from pg_stat_wal_receiver`),
     );
+    // When the receiver is down, primary_conninfo still names the configured
+    // upstream — enough to link a monitored primary in the UI without storing
+    // the password (conninfo is redacted to host/port only).
+    const [conninfoRow] = await client.query(
+      tagged(`select current_setting('primary_conninfo', true) as primary_conninfo`),
+    );
+    const conninfo = String(conninfoRow?.['primary_conninfo'] ?? '');
+    const configuredHost =
+      conninfo.match(/\bhost\s*=\s*'([^']+)'/i)?.[1] ??
+      conninfo.match(/\bhost\s*=\s*([^\s']+)/i)?.[1] ??
+      null;
+    const configuredPort =
+      conninfo.match(/\bport\s*=\s*'?(\d+)'?/i)?.[1] ?? null;
+
     const pending = num(receiver?.['lag_bytes']) ?? 0;
     // Without recent commits, latest_end_time goes stale while the standby is
     // fully caught up. Bytes pending is the signal that matters.
     const lagSeconds = pending > 0 ? num(receiver?.['receiver_idle_seconds']) : null;
+    const livePeer =
+      receiver && receiver['sender_host']
+        ? `${receiver['sender_host']}:${receiver['sender_port'] ?? configuredPort ?? '5432'}`
+        : null;
+    const configuredPeer =
+      configuredHost != null
+        ? `${configuredHost}:${configuredPort ?? '5432'}`
+        : null;
     replication.push({
       role: 'upstream',
-      peer: receiver ? `${receiver['sender_host']}:${receiver['sender_port']}` : 'unknown primary',
+      peer: livePeer ?? configuredPeer ?? 'unknown primary',
       state: text(receiver?.['status']) ?? 'no WAL receiver',
       lagBytes: pending > 0 ? pending : 0,
       lagSeconds,
       detail: {
         slot: text(receiver?.['slot_name']),
         idle_since_last_commit: pending === 0 ? num(receiver?.['receiver_idle_seconds']) : null,
+        configured_host: configuredHost,
+        configured_port: configuredPort !== null ? Number(configuredPort) : null,
+        live: Boolean(receiver),
       },
     });
   } else {
     const standbys = await client.query(
-      tagged(`select client_addr::text as peer, application_name, state, sync_state,
+      tagged(`select host(client_addr) as client_addr,
+                     client_hostname,
+                     application_name,
+                     state,
+                     sync_state,
+                     sync_priority,
                      pg_wal_lsn_diff(sent_lsn, replay_lsn) as lag_bytes,
                      extract(epoch from replay_lag) as lag_seconds
                 from pg_stat_replication`),
     );
     for (const row of standbys) {
+      const application = text(row['application_name']);
+      const clientAddr = text(row['client_addr']);
+      const clientHostname = text(row['client_hostname']);
+      // Prefer a stable human name over the generic walreceiver label.
+      const peer =
+        (application && !['walreceiver', 'postgres', '(sin nombre)'].includes(application)
+          ? application
+          : null) ??
+        clientHostname ??
+        clientAddr ??
+        application ??
+        'unknown';
       replication.push({
         role: 'standby',
-        peer: text(row['peer']) ?? String(row['application_name'] ?? 'desconocido'),
+        peer,
         state: text(row['state']),
         lagBytes: num(row['lag_bytes']),
         lagSeconds: num(row['lag_seconds']),
-        detail: { sync_state: text(row['sync_state']), application: text(row['application_name']) },
+        detail: {
+          sync_state: text(row['sync_state']),
+          sync_priority: num(row['sync_priority']),
+          application,
+          client_addr: clientAddr,
+          client_hostname: clientHostname,
+        },
       });
     }
 
     const slots = await client.query(
-      tagged(`select slot_name, slot_type, active, coalesce(wal_status, 'desconocido') as wal_status,
+      tagged(`select slot_name, slot_type, active, coalesce(wal_status, 'unknown') as wal_status,
                      pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) as retained_bytes
                 from pg_replication_slots`),
     );
@@ -184,14 +232,14 @@ export async function collectPostgres(client: EngineClient): Promise<InventorySn
       replication.push({
         role: 'slot',
         peer: String(row['slot_name']),
-        state: row['active'] === true ? 'activo' : 'inactivo',
+        state: row['active'] === true ? 'active' : 'inactive',
         lagBytes: num(row['retained_bytes']),
         detail: { type: text(row['slot_type']), wal_status: text(row['wal_status']) },
       });
     }
 
     if (replication.length === 0) {
-      replication.push({ role: 'primary', peer: '', state: 'sin réplicas ni slots' });
+      replication.push({ role: 'primary', peer: '', state: 'no replicas or slots' });
     }
   }
   snapshot.replication = replication;

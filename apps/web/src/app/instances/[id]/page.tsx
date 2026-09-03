@@ -59,9 +59,9 @@ const COLOR = {
 const WAIT_COLORS = ['#0a6e42', '#005eb8', '#9a4a00', '#b01818', '#7a828c'];
 
 const STAT_STATEMENTS_LABEL: Record<string, string> = {
-  active: 'pg_stat_statements activo',
+  active: 'pg_stat_statements active',
   preloaded_not_created: 'pg_stat_statements preloaded, not created',
-  not_preloaded: 'pg_stat_statements no precargado',
+  not_preloaded: 'pg_stat_statements not preloaded',
 };
 
 export default async function InstancePage({
@@ -119,7 +119,7 @@ export default async function InstancePage({
                 <span className="tag tag--muted">{instance.environment}</span>
                 <span className="tag tag--info">{ENGINE_LABEL[engine] ?? engine}</span>
                 <span className="font-mono text-[10px] text-foreground-muted">
-                  visto {formatAgo(instance.lastSeenAt)}
+                  seen {formatAgo(instance.lastSeenAt)}
                 </span>
               </div>
             </div>
@@ -351,7 +351,7 @@ export default async function InstancePage({
                 {instance.trackIoTiming ? 'track_io_timing' : 'io_timing off'}
               </span>
               <span className="font-mono text-[10px] text-foreground-muted">
-                visto {formatAgo(instance.lastSeenAt)}
+                seen {formatAgo(instance.lastSeenAt)}
               </span>
             </div>
           </div>
@@ -373,8 +373,8 @@ export default async function InstancePage({
         {instance.statStatements !== 'active' && (
           <div className="panel" style={{ borderLeft: '3px solid var(--warning)' }}>
             <div className="panel-body text-[12px]">
-              <strong>{STAT_STATEMENTS_LABEL[instance.statStatements ?? 'not_preloaded']}.</strong> Sin esta
-              extensión no hay análisis por consulta.{' '}
+              <strong>{STAT_STATEMENTS_LABEL[instance.statStatements ?? 'not_preloaded']}.</strong> Without this
+              extension there is no per-query analysis.{' '}
               {instance.statStatements === 'preloaded_not_created'
                 ? 'The library is already loaded: CREATE EXTENSION pg_stat_statements is enough, no restart.'
                 : 'Adding pg_stat_statements to shared_preload_libraries requires a server restart.'}
@@ -505,7 +505,7 @@ export default async function InstancePage({
             unit="count"
             series={[
               { metric: 'connections_total', label: 'Total', color: COLOR.accent },
-              { metric: 'connections_active', label: 'Activas', color: COLOR.success },
+              { metric: 'connections_active', label: 'Active', color: COLOR.success },
               { metric: 'connections_idle_in_transaction', label: 'Idle in tx', color: COLOR.warning },
             ]}
           />
@@ -519,6 +519,24 @@ export default async function InstancePage({
               { metric: 'db_xact_rollback_per_sec', label: 'Rollbacks', color: COLOR.error },
             ]}
           />
+        </div>
+
+        <div className="chart-panel--full">
+          <TimeseriesPanel
+            title="DML throughput (tuples per second)"
+            hint={windowHint}
+            data={data.dml}
+            unit="rate"
+            height={220}
+            series={[
+              { metric: 'db_tup_inserted_per_sec', label: 'Insert', color: COLOR.success },
+              { metric: 'db_tup_updated_per_sec', label: 'Update', color: COLOR.accent },
+              { metric: 'db_tup_deleted_per_sec', label: 'Delete', color: COLOR.error },
+            ]}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
           <TimeseriesPanel
             title="WAL generated per second"
             hint={windowHint}
@@ -533,22 +551,6 @@ export default async function InstancePage({
             unit="count"
             series={[{ metric: 'blocked_sessions', label: 'Blocked', color: COLOR.error }]}
           />
-        </div>
-
-        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
-          <TimeseriesPanel
-            title="DML throughput (tuples per second)"
-            hint={windowHint}
-            data={data.dml}
-            unit="rate"
-            series={[
-              { metric: 'db_tup_inserted_per_sec', label: 'Insert', color: COLOR.success },
-              { metric: 'db_tup_updated_per_sec', label: 'Update', color: COLOR.accent },
-              { metric: 'db_tup_deleted_per_sec', label: 'Delete', color: COLOR.error },
-            ]}
-          />
-          {/* Lo más cerca de "CPU" que da PostgreSQL sin agente: sessions
-              activas repartidas por clase de espera. CPU = trabajando. */}
           <TimeseriesPanel
             title="Active sessions by wait class"
             hint="CPU = running, not waiting"
@@ -562,7 +564,7 @@ export default async function InstancePage({
           />
           <TimeseriesPanel
             title="Cache hit"
-            hint="memoria efectiva: shared_buffers + cache del sistema"
+            hint="effective memory: shared_buffers + OS cache"
             data={data.cache}
             unit="pct"
             series={[{ metric: 'db_cache_hit_pct', label: 'Cache hit', color: COLOR.accent }]}
@@ -577,7 +579,6 @@ export default async function InstancePage({
               { metric: 'io_writes_per_sec', label: 'Writes', color: COLOR.accent },
             ]}
           />
-          {/* Bytes y bloques no comparten eje, así que el derrame va aparte. */}
           <TimeseriesPanel
             title="Spill to temporary files"
             hint="symptom of short work_mem"
@@ -615,7 +616,7 @@ export default async function InstancePage({
           <LabeledBars
             title="Dead tuples"
             rows={deadRows}
-            footer="top por conteo"
+            footer="top by count"
             emptyMessage="No tables with dead tuples."
           />
         </div>
@@ -641,7 +642,7 @@ export default async function InstancePage({
                 <thead>
                   <tr>
                     <th>Slot</th>
-                    <th>Tipo</th>
+                    <th>Type</th>
                     <th>WAL</th>
                     <th className="text-right">State</th>
                   </tr>
@@ -654,7 +655,7 @@ export default async function InstancePage({
                       <td className="font-mono text-[11px] text-foreground-secondary">{slot.labels['wal_status']}</td>
                       <td className="text-right">
                         <span className={`tag ${slot.value === 1 ? 'tag--ok' : 'tag--error'}`}>
-                          {slot.value === 1 ? 'activo' : 'inactivo'}
+                          {slot.value === 1 ? 'active' : 'inactive'}
                         </span>
                       </td>
                     </tr>
@@ -664,7 +665,7 @@ export default async function InstancePage({
             )}
             {inactiveSlots.length > 0 && (
               <div className="panel-body border-t border-border text-[11.5px] text-foreground-secondary">
-                Un slot inactivo retiene WAL indefinidamente y puede llenar el disco del primario.
+                An inactive slot retains WAL indefinitely and can fill the primary disk.
               </div>
             )}
           </section>
@@ -672,7 +673,7 @@ export default async function InstancePage({
           <section className="panel">
             <div className="panel-header">
               <span className="panel-title">Collector events</span>
-              <span className="font-mono text-[10px] text-foreground-muted">esta instancia</span>
+              <span className="font-mono text-[10px] text-foreground-muted">this instance</span>
             </div>
             {data.events.length === 0 ? (
               <div className="empty">No events recorded.</div>

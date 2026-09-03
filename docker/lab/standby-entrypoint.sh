@@ -18,7 +18,7 @@ done
 gosu postgres sh -eu -c "
   export PGPASSWORD='$POSTGRES_PASSWORD'
   rm -rf '$PGDATA'/*
-  pg_basebackup -h datalake-primary -p 5432 -U '$POSTGRES_USER' -D '$PGDATA' -Fp -Xs -P -R
+  pg_basebackup -h datalake-primary -p 5432 -U '$POSTGRES_USER' -D '$PGDATA' -Fp -Xs -P -R -C -S buho_standby
 "
 
 exec /usr/local/bin/docker-entrypoint.sh postgres \

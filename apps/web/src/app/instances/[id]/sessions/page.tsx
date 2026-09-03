@@ -282,7 +282,7 @@ export default async function SessionsPage({
                       <th>State</th>
                       <th>Waiting</th>
                       <th>Application</th>
-                      <th>Rol</th>
+                      <th>Role</th>
                       <th className="text-right">Query</th>
                       <th className="text-right">Transaction</th>
                       <th>Query</th>

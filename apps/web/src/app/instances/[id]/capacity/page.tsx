@@ -54,7 +54,7 @@ export default async function CapacityPage({ params }: { params: Promise<{ id: s
   }
   if (!instance) notFound();
 
-  // XID sólo aplica a PostgreSQL; en otros motores se oculta para no mentir.
+  // XID is Postgres-only; hide on other engines so we don't invent a signal.
   const visible =
     engine === 'postgres' ? forecasts : forecasts.filter((f) => f.resource !== 'xid');
 
@@ -72,12 +72,12 @@ export default async function CapacityPage({ params }: { params: Promise<{ id: s
           <div>
             <h1 className="page-title">Capacity · {instance.alias}</h1>
             <p className="page-sub">
-              Proyección lineal sobre el rollup diario de las últimas 4 semanas: disco, XID, CPU y
-              RAM. No es un modelo de colas — si la carga no es estable, la fecha se mueve.
+              Early warning for when disk, XID age, CPU, or RAM would hit a limit if today&apos;s
+              trend continues.
             </p>
           </div>
           <Link href={`/instances/${instanceId}/analysis`} className="tag tag--muted">
-            ver series en Análisis
+            open series in Analysis
           </Link>
         </header>
 
@@ -103,7 +103,7 @@ export default async function CapacityPage({ params }: { params: Promise<{ id: s
               <div className="panel-header">
                 <span className="panel-title">{f.label}</span>
                 <span className="font-mono text-[10px] text-foreground-muted">
-                  R²={f.rSquared === null ? '—' : f.rSquared.toFixed(2)} · umbral{' '}
+                  R²={f.rSquared === null ? '—' : f.rSquared.toFixed(2)} · threshold{' '}
                   {f.unit === 'bytes' ? formatBytes(f.threshold) : formatPct(f.threshold, 0)}
                 </span>
               </div>

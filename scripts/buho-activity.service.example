@@ -1,0 +1,22 @@
+[Unit]
+Description=Búho lab continuous activity generator
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+# Assumes you are running in the same host where the lab containers exist.
+ExecStart=/home/iks/Projects/buho/scripts/lab-buho-activity-service.sh
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+
+# If you want to override defaults, uncomment:
+# Environment="SIM_SECONDS=60"
+# Environment="ENQUEUE_PLANS=1"
+# Environment="PAUSE_SECONDS=2"
+# Environment="TRUNCATE_EVERY_SECONDS=600"
+
+[Install]
+WantedBy=multi-user.target
+
