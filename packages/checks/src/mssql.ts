@@ -1,6 +1,9 @@
 import { formatBytes, formatDuration, formatPct } from '@buho/core';
 import type { Finding } from './types';
 import type { ForeignCheckDefinition } from './mariadb';
+import { MSSQL_PARITY_CHECKS } from './mssql-parity';
+
+export { MSSQL_PARITY_CHECKS, MSSQL_PARITY_MAP, assertMssqlParity } from './mssql-parity';
 
 /**
  * Chequeos de SQL Server.
@@ -741,75 +744,13 @@ const coberturaBackupsSemana: ForeignCheckDefinition = {
     }),
 };
 
-/** Blocking sessions right now — same story as PostgreSQL's blocking_chain. */
-const bloqueos: ForeignCheckDefinition = {
-  id: 'mssql_blocking',
-  title: 'Blocking sessions',
-  description: 'Sessions waiting on locks held by others',
-  sql: () => `
-    select count(*) as blocked,
-           max(r.wait_time) / 1000.0 as max_wait_s,
-           max(r.session_id) as sample_session
-      from sys.dm_exec_requests r
-     where r.blocking_session_id <> 0`,
-  evaluate: (rows) => {
-    const row = rows[0];
-    if (!row) return [];
-    const blocked = num(row['blocked']);
-    if (blocked <= 0) return [];
-    const maxWait = num(row['max_wait_s']);
-    return [
-      {
-        severity: maxWait >= 30 || blocked >= 5 ? ('critical' as const) : ('warning' as const),
-        object: text(row['sample_session'], 'sessions'),
-        message: `${blocked} session(s) blocked; longest wait ≈ ${formatDuration(maxWait)}.`,
-        remediation:
-          'Inspect sys.dm_exec_requests / WhoIsActive for the head blocker. Kill only after confirming it is stuck; prefer fixing the long transaction or missing index that caused the lock chain.',
-        value: blocked,
-      },
-    ];
-  },
-};
-
-/** Long-running requests (agentless proxy for "long running queries"). */
-const consultasLargas: ForeignCheckDefinition = {
-  id: 'mssql_long_queries',
-  title: 'Long-running requests',
-  description: 'Active requests older than 5 minutes',
-  sql: () => `
-    select r.session_id,
-           r.total_elapsed_time / 1000.0 as elapsed_s,
-           r.status,
-           db_name(r.database_id) as database_name,
-           left(isnull(t.text, ''), 200) as query_text
-      from sys.dm_exec_requests r
-      outer apply sys.dm_exec_sql_text(r.sql_handle) t
-     where r.session_id <> @@spid
-       and r.total_elapsed_time >= 300000
-     order by r.total_elapsed_time desc`,
-  evaluate: (rows) =>
-    rows.slice(0, 10).map((row) => {
-      const elapsed = num(row['elapsed_s']);
-      return {
-        severity: elapsed >= 900 ? ('critical' as const) : ('warning' as const),
-        object: `session ${text(row['session_id'])}`,
-        message:
-          `request running for ${formatDuration(elapsed)} on ${text(row['database_name'])}` +
-          ` (${text(row['status'])}): ${text(row['query_text'], '(no text)')}`,
-        remediation:
-          'Check for missing indexes, blocking, or a stuck Agent job. Capture the plan with SET STATISTICS XML or Query Store before killing the session.',
-        value: elapsed,
-      };
-    }),
-};
-
 export const MSSQL_CHECKS: ForeignCheckDefinition[] = [
+  ...MSSQL_PARITY_CHECKS,
+  // MSSQL-specific extras beyond the PG 1:1 set (unique value; do not replace parity ids).
   configuracionServidor,
   basesDeDatos,
   coberturaBackupsSemana,
   esperas,
   indices,
   jobs,
-  bloqueos,
-  consultasLargas,
 ];

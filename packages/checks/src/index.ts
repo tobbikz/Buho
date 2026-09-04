@@ -109,7 +109,12 @@ import { MSSQL_CHECKS } from './mssql';
 import type { ForeignCheckDefinition } from './mariadb';
 
 export { MARIADB_CHECKS } from './mariadb';
-export { MSSQL_CHECKS } from './mssql';
+export { MSSQL_CHECKS, MSSQL_PARITY_CHECKS, MSSQL_PARITY_MAP, assertMssqlParity } from './mssql';
+export {
+  MARIADB_PARITY_CHECKS,
+  MARIADB_PARITY_MAP,
+  assertMariadbParity,
+} from './mariadb';
 export type { ForeignCheckDefinition } from './mariadb';
 
 /**
