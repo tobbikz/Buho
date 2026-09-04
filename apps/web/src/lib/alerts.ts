@@ -653,3 +653,30 @@ export async function saveAlertPack(pack: AlertPackConfig, updatedBy: string): P
 export async function deleteAlertChannel(channelId: number): Promise<void> {
   await query(`delete from buho.alert_channels where channel_id = $1`, [channelId]);
 }
+
+/** One-shot channel probe (Admin → Alerts / Get started). */
+export async function sendChannelTest(channelId: number): Promise<void> {
+  const { Store } = await import('@buho/store');
+  const url = process.env['BUHO_STORE_URL'];
+  if (!url) {
+    // Dev fallback mirrors db.ts without importing its private helper.
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const configPath = resolve(process.env['BUHO_CONFIG'] ?? '../../config.json');
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as { store?: { url?: string } };
+    if (!parsed.store?.url) throw new Error('BUHO_STORE_URL missing');
+    const store = new Store(parsed.store.url);
+    try {
+      await store.sendChannelTest(channelId);
+    } finally {
+      await store.close();
+    }
+    return;
+  }
+  const store = new Store(url);
+  try {
+    await store.sendChannelTest(channelId);
+  } finally {
+    await store.close();
+  }
+}

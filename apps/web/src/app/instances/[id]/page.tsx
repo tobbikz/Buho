@@ -23,6 +23,7 @@ import {
 import { getAnomalies, getBaselineCoverage } from '@/lib/baselines';
 import { ENGINE_LABEL, getInstanceEngine } from '@/lib/estate';
 import { explainIncident } from '@/lib/incident';
+import { postureHint } from '@/lib/health-posture';
 import {
   getEvents,
   getFindings,
@@ -276,6 +277,7 @@ export default async function InstancePage({
   }
 
   const { findings } = data;
+  const healthPosture = postureHint(findings);
   const worstDeadPct = data.deadTuples.reduce((peak, row) => Math.max(peak, row.valueB ?? 0), 0);
 
   // Throughput como número, no sólo como chart: el último bucket con dato de
@@ -412,9 +414,11 @@ export default async function InstancePage({
             unit={instance.score === null ? undefined : '/100'}
             tone={toneForScore(instance.score)}
             hint={
-              instance.scoreTs
-                ? `${instance.critical} crit · ${instance.warning} warn · ${formatAgo(instance.scoreTs)}`
-                : 'no check runs'
+              healthPosture
+                ? 'mostly backups/HA posture, not a live outage'
+                : instance.scoreTs
+                  ? `${instance.critical} crit · ${instance.warning} warn · ${formatAgo(instance.scoreTs)}`
+                  : 'no check runs'
             }
           />
           <StatCard
@@ -587,6 +591,8 @@ export default async function InstancePage({
             series={[{ metric: 'db_temp_bytes_per_sec', label: 'Temp bytes/s', color: COLOR.error }]}
           />
         </div>
+
+        {healthPosture ? <div className="notice">{healthPosture}</div> : null}
 
         <FindingsPanel
           findings={findings.map((finding) => ({

@@ -7,6 +7,7 @@ import { logout } from '@/app/logout/actions';
 
 const FLEET_LINKS = [
   { href: '/', label: 'Overview', match: (path: string) => path === '/' },
+  { href: '/get-started', label: 'Get started', match: (path: string) => path.startsWith('/get-started') },
   { href: '/checks', label: 'Checks', match: (path: string) => path.startsWith('/checks') },
   { href: '/alerts', label: 'Alerts', match: (path: string) => path.startsWith('/alerts') },
   { href: '/events', label: 'Events', match: (path: string) => path.startsWith('/events') },

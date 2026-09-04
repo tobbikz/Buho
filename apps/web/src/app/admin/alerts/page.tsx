@@ -1,5 +1,6 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { ChannelTestButton } from '@/components/ChannelTestButton';
 import { AlertChannelForm } from '@/components/AlertChannelForm';
 import { StoreError } from '@/components/StoreError';
 import { formatAgo } from '@/lib/format';
@@ -542,12 +543,15 @@ export default async function AdminAlertsPage({
                     </td>
                     <td>{channel.enabled ? 'yes' : 'no'}</td>
                     <td>
-                      <form action={removeChannel}>
-                        <input type="hidden" name="channelId" value={channel.channelId} />
-                        <button type="submit" className="btn">
-                          Delete
-                        </button>
-                      </form>
+                      <div className="flex items-center gap-2 justify-end">
+                        {channel.enabled ? <ChannelTestButton channelId={channel.channelId} /> : null}
+                        <form action={removeChannel}>
+                          <input type="hidden" name="channelId" value={channel.channelId} />
+                          <button type="submit" className="btn">
+                            Delete
+                          </button>
+                        </form>
+                      </div>
                     </td>
                   </tr>
                 ))

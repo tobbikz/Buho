@@ -39,6 +39,7 @@ import {
   type AlertChannelKind,
   type AlertChannelRow,
   type AlertDeliveryJob,
+  type AlertNotifyPayload,
   type AlertReconcileSummary,
   type AlertRow,
   type AlertRuleRow,
@@ -2075,6 +2076,55 @@ export class Store {
 
   async deleteAlertChannel(channelId: number): Promise<void> {
     await this.pool.query(`delete from buho.alert_channels where channel_id = $1`, [channelId]);
+  }
+
+  /**
+   * Fire a one-shot test notification on a channel (does not open an alert row).
+   * Used by Admin → Alerts and the Get started wizard.
+   */
+  async sendChannelTest(channelId: number): Promise<void> {
+    const result = await this.pool.query<Record<string, unknown>>(
+      `select channel_id, name, kind, config, enabled
+         from buho.alert_channels
+        where channel_id = $1`,
+      [channelId],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error(`channel ${channelId} not found`);
+    if (!Boolean(row['enabled'])) throw new Error('channel is disabled');
+
+    const kind = String(row['kind']) as AlertChannelKind;
+    const config = (row['config'] ?? {}) as AlertChannelRow['config'];
+    const alert: AlertNotifyPayload = {
+      alertId: 0,
+      instanceId: 0,
+      alias: 'buho-test',
+      engine: 'postgres',
+      checkId: 'buho.channel_test',
+      title: 'Búho channel test',
+      severity: 'info',
+      object: String(row['name'] ?? 'channel'),
+      message: `Test notification from Búho at ${new Date().toISOString()}. If you see this, the channel works.`,
+      remediation: 'No action required — delete this message.',
+      firedAt: new Date(),
+      resolvedAt: null,
+    };
+
+    if (kind === 'smtp') {
+      await deliverSmtp(config, 'fired', alert);
+      return;
+    }
+
+    const delivery = resolveChannelDelivery(kind, config, 'fired', alert);
+    const response = await fetch(delivery.url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...delivery.headers },
+      body: JSON.stringify(delivery.body),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`channel test HTTP ${response.status}: ${body.slice(0, 200)}`);
+    }
   }
 
   async listAlertDefinitions(): Promise<CustomAlertDefinition[]> {

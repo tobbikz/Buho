@@ -100,7 +100,11 @@ export default async function BackupsPage() {
           </span>
         </div>
         {rows.length === 0 ? (
-          <div className="empty">No instance has reported backups yet.</div>
+          <div className="empty">
+            No backup inventory yet. Labs without FULL/DIFF/LOG backups will show empty here and tank the
+            health score via configuration checks — that is intentional. After the first collector pass,
+            Estate lists each database with an honest state (No backup / Archive off / OK).
+          </div>
         ) : (
           <div className="table-scroll" style={{ maxHeight: 'none' }}>
             <table className="data-table">

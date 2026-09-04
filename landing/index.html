@@ -94,6 +94,29 @@
         margin: 0;
         font-size: 0.95rem;
       }
+      table.pricing {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.9rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+      }
+      table.pricing th,
+      table.pricing td {
+        text-align: left;
+        padding: 0.55rem 0.65rem;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      table.pricing th {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+      }
+      table.pricing tr:last-child td {
+        border-bottom: none;
+      }
       code {
         font-family: 'JetBrains Mono', ui-monospace, monospace;
         font-size: 0.85em;
@@ -138,6 +161,44 @@
         <li>Parque (backups, disco, jobs, HA), seguridad, análisis de series</li>
       </ul>
 
+      <h2>Precios (ancla Redgate)</h2>
+      <p style="color: var(--muted); font-size: 0.9rem; margin: 0 0 0.75rem">
+        Redgate Monitor ~USD 1,150 / servidor / año. Búho Pro queda ~22% debajo — mismo tipo de
+        producto, sticker más bajo. Detalle: <code>PRICING.md</code> · piloto:
+        <code>PILOT_AGREEMENT.md</code>.
+      </p>
+      <table class="pricing">
+        <thead>
+          <tr>
+            <th>Plan</th>
+            <th>Precio</th>
+            <th>Incluye</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Free</strong></td>
+            <td>$0</td>
+            <td>1 instancia · retención 7 días · CLI <code>buho-check</code></td>
+          </tr>
+          <tr>
+            <td><strong>Pro</strong></td>
+            <td>$899 / servidor / año<br /><span style="color: var(--muted)">(~$89 / mes)</span></td>
+            <td>Multi-instancia · alertas · Estate · retención 13 meses · soporte ES/EN</td>
+          </tr>
+          <tr>
+            <td><strong>Fleet</strong></td>
+            <td>$799 / servidor / año</td>
+            <td>Igual que Pro con 5+ servidores en un contrato</td>
+          </tr>
+          <tr>
+            <td><strong>Pilot</strong></td>
+            <td>$0 · 30 días · hasta 3 servidores</td>
+            <td>Features Pro; convierte a Pro/Fleet o baja a Free</td>
+          </tr>
+        </tbody>
+      </table>
+
       <h2>Lead gen gratis</h2>
       <ul>
         <li>
@@ -149,8 +210,8 @@
 
       <h2>Primer piloto</h2>
       <ul>
-        <li><code>./install.sh --pull</code> desde tag <code>v1.1.1+</code></li>
-        <li>Checklist: <code>GO_LIVE.md</code> en el repo</li>
+        <li><code>./install.sh --pull</code> desde tag <code>v1.3.0+</code></li>
+        <li>Checklist: <code>GO_LIVE.md</code> · install externo: <code>EXTERNAL_INSTALL.md</code></li>
       </ul>
 
       <footer>IKZ Technologies · suite: Quetzal · Tucán · Colibrí · Búho</footer>

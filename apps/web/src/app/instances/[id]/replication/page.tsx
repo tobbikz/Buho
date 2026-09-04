@@ -716,7 +716,11 @@ async function ForeignReplicationPage({
             <span className="panel-title">Topology from the engine</span>
           </div>
           {rows.length === 0 ? (
-            <div className="empty">No replication inventory yet — wait for the hourly collector pass.</div>
+            <div className="empty">
+              No replication inventory yet — wait for the hourly collector pass. On MariaDB/SQL Server the
+              next pass always writes an HA posture row (e.g. binlog OFF / Always On disabled) so this
+              panel does not stay blank forever.
+            </div>
           ) : (
             <div className="table-scroll">
               <table className="data-table">

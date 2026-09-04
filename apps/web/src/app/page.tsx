@@ -83,7 +83,10 @@ export default async function FleetPage({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/admin/instances" className="btn btn--primary">
+            <Link href="/get-started" className="btn btn--primary">
+              Get started
+            </Link>
+            <Link href="/admin/instances" className="btn">
               Add database
             </Link>
             {filter ? (
@@ -105,8 +108,12 @@ export default async function FleetPage({
         {instances.length === 0 ? (
           <div className="panel">
             <div className="empty">
-              No instances registered yet. Start the collector with <code>npm run collector</code> or add a
-              database from the admin console.
+              No instances yet. Use{' '}
+              <Link href="/get-started" className="link">
+                Get started
+              </Link>{' '}
+              (add database → first check → test alert), or start the collector with{' '}
+              <code>npm run collector</code>.
             </div>
           </div>
         ) : (

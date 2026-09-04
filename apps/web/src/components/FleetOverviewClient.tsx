@@ -7,6 +7,7 @@ import { FindingsModalList } from '@/components/FindingsModal';
 import { Modal } from '@/components/Modal';
 import { StatCard, toneForScore, type StatTone } from '@/components/StatCard';
 import { formatNumber, formatDuration } from '@/lib/format';
+import { postureHint } from '@/lib/health-posture';
 import type { Group } from '@/lib/grouping';
 import type { FleetFinding, FleetInstance, Severity } from '@/lib/queries';
 
@@ -94,6 +95,7 @@ export function FleetOverviewClient({
 
   const criticalCount = findings.filter((finding) => finding.severity === 'critical').length;
   const warningCount = findings.filter((finding) => finding.severity === 'warning').length;
+  const posture = postureHint(findings);
 
   const modalTitle =
     modal?.instanceAlias !== undefined
@@ -132,7 +134,13 @@ export function FleetOverviewClient({
           value={stats.worstScore === null ? '—' : formatNumber(stats.worstScore)}
           unit={stats.worstScore === null ? undefined : '/100'}
           tone={toneForScore(stats.worstScore)}
-          hint={stats.scoredCount === 0 ? 'no check runs' : undefined}
+          hint={
+            posture
+              ? 'mostly config posture (backups/HA) — click criticals'
+              : stats.scoredCount === 0
+                ? 'no check runs'
+                : undefined
+          }
         />
         <StatCard
           label="Wait time"
@@ -159,6 +167,8 @@ export function FleetOverviewClient({
           }
         />
       </div>
+
+      {posture ? <div className="notice">{posture}</div> : null}
 
       <div className="fleet-toolbar">
         <FleetCardDensity value={density} onChange={changeDensity} />

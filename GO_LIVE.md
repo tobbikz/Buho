@@ -1,16 +1,34 @@
-# Go-live checklist (first production customer)
+# Go-live checklist (first production customer / pilot)
 
-Use this before the first paid / pilot install. Interviews are out of scope here.
+Use before the first paid or pilot install. Pin **`v1.3.0+`**. Pricing: `PRICING.md`. Contract template: `PILOT_AGREEMENT.md`.
+
+## 0. Ship the bits
+
+- [ ] `git push origin main` and `git push origin v1.3.0` (GHCR publish runs on the tag)
+- [ ] Confirm images: `ghcr.io/tobbikz/buho-monitor/collector:1.3.0` and `…/web:1.3.0`
+- [ ] Customer host can `docker pull` those tags (or use `./install.sh --pull`)
 
 ## 1. Access & secrets
 
-- [ ] `BUHO_AUTH_PASSWORD` set (strong, unique); consola refuses to serve without it in production
+- [ ] `BUHO_AUTH_PASSWORD` set (strong, unique); console refuses to serve without it in production
 - [ ] `BUHO_AUTH_SECRET` set (or derived); rotate if anyone shared `.env`
 - [ ] `BUHO_STORE_URL` / store password not default `buho` on a reachable network
-- [ ] Consola bound to `127.0.0.1` + reverse proxy TLS, or VPN only
+- [ ] Console bound to `127.0.0.1` + reverse proxy TLS, or VPN only
 - [ ] At least one **admin** console user; viewers as needed (Admin → Users)
 
-## 2. Monitor logins on each DB (least privilege)
+## 2. First 5 minutes (in-product)
+
+On the console (admin session):
+
+1. Open **Get started** (`/get-started`)
+2. **Add database** → Test connections → save
+3. Wait until a **health score** appears (collector ~30s)
+4. Add a notification **channel** → press **Test**
+5. Confirm the message arrived
+
+Optional: Admin → Databases / Admin → Alerts for advanced config.
+
+## 3. Monitor logins on each DB (least privilege)
 
 | Engine | Script |
 |--------|--------|
@@ -19,45 +37,47 @@ Use this before the first paid / pilot install. Interviews are out of scope here
 | SQL Server | `sql/monitor-user-mssql.sql` |
 
 - [ ] Credentials only in `config.json` or Admin → Databases (never in git)
-- [ ] `application_name` / session visible as Búho on the target
+- [ ] Session visible as Búho on the target
 - [ ] Probe / first collector cycle green in Instance → Events
 
-## 3. Alert channels (real destinations)
-
-Admin → Alerts:
+## 4. Alert channels (real destinations)
 
 - [ ] Global defaults + system pack thresholds reviewed
-- [ ] ≥1 channel enabled (Slack / Teams / Discord / Google Chat / Mattermost / Telegram / Rocket.Chat / PagerDuty / SMTP / webhook)
-- [ ] Test fire (or `npm run ensayo:alerts` in lab) and **resolve** notification confirmed
+- [ ] ≥1 channel enabled and **Test** succeeded
 - [ ] Silences procedure known for maintenance windows
 
-## 4. Store durability
+## 5. Store durability
 
 - [ ] `BUHO_BACKUP_DIR` on the **host** (not only a Docker volume)
 - [ ] Backup service running; last dump age visible / events clean
 - [ ] Restore drill once: `pg_restore` into empty store
-- [ ] Retention reviewed (Admin → Retention); defaults OK for most pilots
+- [ ] Retention reviewed (Admin → Retention)
 
-## 5. Update path
+## 6. Update path
 
-- [ ] Pin tag (`v1.1.1`+) and `./install.sh --pull`
-- [ ] Document who may `git checkout` / recreate containers
+- [ ] Pin tag (`v1.3.0+`) and `./install.sh --pull`
+- [ ] Document who may update / recreate containers
 - [ ] Optional: `npm run alerts:import` once for SQL catalog templates
 
-## 6. Smoke after cutover
+## 7. Smoke after cutover
 
 ```bash
 npm run verify:v1          # UI routes (lab)
-# or manually:
-# Fleet → instance Overview → Alerts → Estate backups → Admin Alerts channel
+# Console: Fleet → Get started done → Instance Overview → Estate backups → Alerts
 ```
 
-- [ ] Health score and findings present for each prod instance
-- [ ] Host metrics on if promised (local `/proc` or SSH)
+- [ ] Health score present; if near 0 from missing backups/HA, treat as **posture** (UI explains this) until backups exist
+- [ ] Host metrics on if promised
 - [ ] Customer knows: Búho is read-only monitor + alerts; not a backup product
+
+## 8. Commercial
+
+- [ ] Pilot signed (`PILOT_AGREEMENT.md`) or Pro/Fleet order per `PRICING.md`
+- [ ] Server count agreed (host+port = one server)
 
 ## Out of scope (human / later)
 
 - DBA interviews (F3 agenda)
 - Marketing posts
-- Multi-source suite product (**Centinela** — separate repo scaffold)
+- Mobile/tablet console polish
+- Multi-source suite (**Centinela**)
