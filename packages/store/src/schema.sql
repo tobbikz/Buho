@@ -1254,7 +1254,10 @@ $$;
 create table if not exists buho.alert_channels (
   channel_id  bigint      generated always as identity primary key,
   name        text        not null,
-  kind        text        not null   check (kind in ('webhook', 'slack', 'teams', 'telegram', 'rocketchat', 'smtp')),
+  kind        text        not null   check (kind in (
+    'webhook', 'slack', 'teams', 'discord', 'googlechat', 'mattermost',
+    'telegram', 'rocketchat', 'pagerduty', 'smtp'
+  )),
   config      jsonb       not null default '{}',
   enabled     boolean     not null default true,
   created_at  timestamptz not null default now(),
@@ -1262,11 +1265,17 @@ create table if not exists buho.alert_channels (
 );
 
 -- Drop rocketchat-only experiment rows used a different shape; widen kind check.
-delete from buho.alert_channels where kind not in ('webhook', 'slack', 'teams', 'telegram', 'rocketchat', 'smtp');
+delete from buho.alert_channels where kind not in (
+  'webhook', 'slack', 'teams', 'discord', 'googlechat', 'mattermost',
+  'telegram', 'rocketchat', 'pagerduty', 'smtp'
+);
 alter table buho.alert_channels drop constraint if exists alert_channels_kind_check;
 alter table buho.alert_channels
   add constraint alert_channels_kind_check
-  check (kind in ('webhook', 'slack', 'teams', 'telegram', 'rocketchat', 'smtp'));
+  check (kind in (
+    'webhook', 'slack', 'teams', 'discord', 'googlechat', 'mattermost',
+    'telegram', 'rocketchat', 'pagerduty', 'smtp'
+  ));
 
 create table if not exists buho.alerts (
   alert_id       bigint      generated always as identity primary key,

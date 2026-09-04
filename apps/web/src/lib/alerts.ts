@@ -36,7 +36,17 @@ export interface FleetAlert {
 export interface AlertChannel {
   channelId: number;
   name: string;
-  kind: 'webhook' | 'slack' | 'teams' | 'telegram' | 'rocketchat' | 'smtp';
+  kind:
+    | 'webhook'
+    | 'slack'
+    | 'teams'
+    | 'discord'
+    | 'googlechat'
+    | 'mattermost'
+    | 'telegram'
+    | 'rocketchat'
+    | 'pagerduty'
+    | 'smtp';
   url: string;
   chatId: string;
   enabled: boolean;
@@ -137,16 +147,45 @@ export async function listAlertChannels(): Promise<AlertChannel[]> {
       order by channel_id`,
   );
   return rows.map((row) => {
-    const config = (row['config'] ?? {}) as { url?: string; chatId?: string; botToken?: string };
+    const config = (row['config'] ?? {}) as {
+      url?: string;
+      chatId?: string;
+      botToken?: string;
+      routingKey?: string;
+      host?: string;
+      from?: string;
+      to?: string;
+    };
     const raw = String(row['kind'] ?? 'webhook');
     const kind = (
-      ['webhook', 'slack', 'teams', 'telegram', 'rocketchat', 'smtp'].includes(raw) ? raw : 'webhook'
+      [
+        'webhook',
+        'slack',
+        'teams',
+        'discord',
+        'googlechat',
+        'mattermost',
+        'telegram',
+        'rocketchat',
+        'pagerduty',
+        'smtp',
+      ].includes(raw)
+        ? raw
+        : 'webhook'
     ) as AlertChannel['kind'];
+    let url = config.url ?? '';
+    if (!url && config.botToken) url = '(telegram bot)';
+    if (kind === 'pagerduty') url = config.routingKey ? '(pagerduty routing key)' : '—';
+    if (kind === 'smtp') {
+      url = [config.host, config.from && `from ${config.from}`, config.to && `→ ${config.to}`]
+        .filter(Boolean)
+        .join(' · ');
+    }
     return {
       channelId: Number(row['channel_id']),
       name: String(row['name']),
       kind,
-      url: config.url ?? (config.botToken ? '(telegram bot)' : ''),
+      url,
       chatId: config.chatId ?? '',
       enabled: Boolean(row['enabled']),
       updatedAt: row['updated_at'] as Date,

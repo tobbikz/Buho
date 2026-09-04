@@ -1,5 +1,6 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { AlertChannelForm } from '@/components/AlertChannelForm';
 import { StoreError } from '@/components/StoreError';
 import { formatAgo } from '@/lib/format';
 import { requireAdmin } from '@/lib/session';
@@ -40,18 +41,43 @@ async function saveChannel(formData: FormData) {
   const session = await requireAdmin();
   const kindRaw = String(formData.get('kind') ?? 'webhook').trim();
   const kind = (
-    ['webhook', 'slack', 'teams', 'telegram', 'rocketchat', 'smtp'].includes(kindRaw)
+    [
+      'webhook',
+      'slack',
+      'teams',
+      'discord',
+      'googlechat',
+      'mattermost',
+      'telegram',
+      'rocketchat',
+      'pagerduty',
+      'smtp',
+    ].includes(kindRaw)
       ? kindRaw
       : 'webhook'
-  ) as 'webhook' | 'slack' | 'teams' | 'telegram' | 'rocketchat' | 'smtp';
+  ) as
+    | 'webhook'
+    | 'slack'
+    | 'teams'
+    | 'discord'
+    | 'googlechat'
+    | 'mattermost'
+    | 'telegram'
+    | 'rocketchat'
+    | 'pagerduty'
+    | 'smtp';
   const name =
     String(formData.get('name') ?? kind).trim() ||
     ({
       webhook: 'Webhook',
       slack: 'Slack',
       teams: 'Teams',
+      discord: 'Discord',
+      googlechat: 'Google Chat',
+      mattermost: 'Mattermost',
       telegram: 'Telegram',
       rocketchat: 'Rocket.Chat',
+      pagerduty: 'PagerDuty',
       smtp: 'Email SMTP',
     }[kind] ?? 'Channel');
   const enabled = formData.get('enabled') === 'on';
@@ -81,7 +107,6 @@ async function saveChannel(formData: FormData) {
       enabled,
     });
   } else if (kind === 'telegram') {
-
     const botToken = String(formData.get('botToken') ?? '').trim();
     const chatId = String(formData.get('chatId') ?? '').trim();
     if (!botToken || !chatId) {
@@ -94,6 +119,19 @@ async function saveChannel(formData: FormData) {
       name,
       kind: 'telegram',
       config: { botToken, chatId },
+      enabled,
+    });
+  } else if (kind === 'pagerduty') {
+    const routingKey = String(formData.get('routingKey') ?? '').trim();
+    if (!routingKey) {
+      redirect(
+        '/admin/alerts?error=' + encodeURIComponent('PagerDuty needs routing key'),
+      );
+    }
+    await upsertAlertChannel({
+      name,
+      kind: 'pagerduty',
+      config: { routingKey },
       enabled,
     });
   } else {
@@ -347,19 +385,14 @@ export default async function AdminAlertsPage({
 
   return (
     <div className="flex flex-col gap-[0.875rem]">
-      <header className="page-header">
-        <div>
-          <h1 className="page-title">Alerts</h1>
-          <p className="page-sub">
-            Default system pack (CPU, memory, disk, connections…) with editable thresholds,
-            then custom SQL alerts, then routing rules. Channels: webhook, Slack, Teams, Telegram,
-            Rocket.Chat.
-          </p>
-        </div>
-      </header>
+      <p className="text-[12px] text-foreground-secondary max-w-3xl">
+        Default system pack (CPU, memory, disk, connections…) with editable thresholds, then custom
+        SQL alerts, then routing rules. Channels: Slack, Teams, Discord, Google Chat, Mattermost,
+        Telegram, Rocket.Chat, PagerDuty, SMTP, generic webhook.
+      </p>
 
-      {ok ? <p className="text-[12px] text-[var(--success)]">Saved.</p> : null}
-      {error ? <p className="text-[12px] text-[var(--error)]">{error}</p> : null}
+      {ok ? <p className="notice notice--ok">Saved.</p> : null}
+      {error ? <p className="notice notice--error">{error}</p> : null}
 
       <section className="panel">
         <div className="panel-header">
@@ -370,9 +403,9 @@ export default async function AdminAlertsPage({
             <input type="checkbox" name="enabled" defaultChecked={settings.enabled} />
             Enable alerting
           </label>
-          <label className="text-[12px] text-foreground-muted">
+          <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted max-w-xs">
             Minimum severity (when no rule matches)
-            <select name="minSeverity" className="mt-1 block w-full max-w-xs" defaultValue={settings.minSeverity}>
+            <select name="minSeverity" className="input" defaultValue={settings.minSeverity}>
               <option value="critical">critical</option>
               <option value="warning">warning</option>
               <option value="info">info</option>
@@ -380,10 +413,13 @@ export default async function AdminAlertsPage({
           </label>
           <div className="flex flex-wrap gap-4">
             {(['critical', 'warning', 'info'] as const).map((key) => (
-              <label key={key} className="text-[12px] text-foreground-muted">
+              <label
+                key={key}
+                className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted"
+              >
                 Hysteresis · {key}
                 <input
-                  className="mt-1 block w-24"
+                  className="input w-24"
                   type="number"
                   min={1}
                   max={20}
@@ -411,8 +447,8 @@ export default async function AdminAlertsPage({
           metrics are skipped (no false alarms). Everything else goes under Custom SQL alerts.
         </p>
         <form action={savePack} className="p-4">
-          <div className="table-wrap">
-            <table className="data">
+          <div className="table-scroll" style={{ maxHeight: 'none' }}>
+            <table className="data-table">
               <thead>
                 <tr>
                   <th>On</th>
@@ -440,9 +476,9 @@ export default async function AdminAlertsPage({
                           {item.requiresHost ? ' · needs host metrics' : ''}
                         </div>
                       </td>
-                      <td>
+                      <td className="whitespace-nowrap">
                         <input
-                          className="w-24"
+                          className="input w-24 inline-block"
                           type="number"
                           step="any"
                           name={`pack_${item.id}_warning`}
@@ -450,9 +486,9 @@ export default async function AdminAlertsPage({
                         />
                         <span className="ml-1 text-[10px] text-foreground-muted">{item.unit}</span>
                       </td>
-                      <td>
+                      <td className="whitespace-nowrap">
                         <input
-                          className="w-24"
+                          className="input w-24 inline-block"
                           type="number"
                           step="any"
                           name={`pack_${item.id}_critical`}
@@ -477,8 +513,8 @@ export default async function AdminAlertsPage({
           <span className="panel-title">Notification channels</span>
           <span className="text-[11px] text-foreground-muted">{channels.length} configured</span>
         </div>
-        <div className="table-wrap">
-          <table className="data">
+        <div className="table-scroll" style={{ maxHeight: 'none' }}>
+          <table className="data-table">
             <thead>
               <tr>
                 <th>Name</th>
@@ -489,72 +525,37 @@ export default async function AdminAlertsPage({
               </tr>
             </thead>
             <tbody>
-              {channels.map((channel) => (
-                <tr key={channel.channelId}>
-                  <td className="text-[12px]">{channel.name}</td>
-                  <td className="font-mono text-[10px]">{channel.kind}</td>
-                  <td className="font-mono text-[10px] text-foreground-muted max-w-[24rem] truncate">
-                    {channel.kind === 'telegram'
-                      ? channel.chatId || '—'
-                      : channel.url || '—'}
-                  </td>
-                  <td>{channel.enabled ? 'yes' : 'no'}</td>
-                  <td>
-                    <form action={removeChannel}>
-                      <input type="hidden" name="channelId" value={channel.channelId} />
-                      <button type="submit" className="btn">
-                        Delete
-                      </button>
-                    </form>
+              {channels.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="text-[12px] text-foreground-muted">
+                    No channels yet — add Slack, Teams, Discord, Google Chat, Mattermost, Telegram,
+                    Rocket.Chat, PagerDuty, SMTP, or a generic webhook below.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                channels.map((channel) => (
+                  <tr key={channel.channelId}>
+                    <td className="text-[12px]">{channel.name}</td>
+                    <td className="font-mono text-[10px]">{channel.kind}</td>
+                    <td className="font-mono text-[10px] text-foreground-muted max-w-[24rem] truncate">
+                      {channel.kind === 'telegram' ? channel.chatId || '—' : channel.url || '—'}
+                    </td>
+                    <td>{channel.enabled ? 'yes' : 'no'}</td>
+                    <td>
+                      <form action={removeChannel}>
+                        <input type="hidden" name="channelId" value={channel.channelId} />
+                        <button type="submit" className="btn">
+                          Delete
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
-        <form action={saveChannel} className="flex flex-col gap-3 border-t border-[var(--border)] p-4">
-          <div className="text-[12px] font-medium">Add channel</div>
-          <label className="text-[12px] text-foreground-muted">
-            Kind
-            <select className="mt-1 block w-full max-w-md" name="kind" defaultValue="slack">
-              <option value="slack">Slack (incoming webhook)</option>
-              <option value="teams">Microsoft Teams (incoming webhook)</option>
-              <option value="telegram">Telegram (bot token + chat id)</option>
-              <option value="rocketchat">Rocket.Chat (incoming webhook)</option>
-              <option value="smtp">Email (SMTP)</option>
-              <option value="webhook">Generic webhook (JSON)</option>
-            </select>
-          </label>
-          <label className="text-[12px] text-foreground-muted">
-            Name
-            <input className="mt-1 block w-full max-w-md" name="name" placeholder="Ops Slack" />
-          </label>
-          <label className="text-[12px] text-foreground-muted">
-            Webhook URL (Slack / Teams / Rocket.Chat / generic)
-            <input
-              className="mt-1 block w-full max-w-xl"
-              name="url"
-              placeholder="https://hooks.slack.com/services/… or Teams/RC webhook"
-            />
-          </label>
-          <div className="grid gap-3 sm:grid-cols-2 max-w-xl">
-            <label className="text-[12px] text-foreground-muted">
-              Telegram bot token
-              <input className="mt-1 block w-full" name="botToken" type="password" autoComplete="off" />
-            </label>
-            <label className="text-[12px] text-foreground-muted">
-              Telegram chat id
-              <input className="mt-1 block w-full" name="chatId" placeholder="@channel or -100…" />
-            </label>
-          </div>
-          <label className="flex items-center gap-2 text-[13px]">
-            <input type="checkbox" name="enabled" defaultChecked />
-            Enabled
-          </label>
-          <button type="submit" className="btn btn--primary self-start">
-            Add channel
-          </button>
-        </form>
+        <AlertChannelForm action={saveChannel} />
       </section>
 
       <section className="panel">
@@ -565,8 +566,8 @@ export default async function AdminAlertsPage({
           </span>
         </div>
         {rules.length > 0 ? (
-          <div className="table-wrap">
-            <table className="data">
+          <div className="table-scroll" style={{ maxHeight: 'none' }}>
+            <table className="data-table">
               <thead>
                 <tr>
                   <th>Pri</th>
@@ -727,8 +728,8 @@ export default async function AdminAlertsPage({
           checks still run; this is for the alerts only you can write.
         </p>
         {definitions.length > 0 ? (
-          <div className="table-wrap">
-            <table className="data">
+          <div className="table-scroll" style={{ maxHeight: 'none' }}>
+            <table className="data-table">
               <thead>
                 <tr>
                   <th>Name</th>
@@ -933,8 +934,8 @@ export default async function AdminAlertsPage({
           </button>
         </form>
         {silences.length > 0 ? (
-          <div className="table-wrap">
-            <table className="data">
+          <div className="table-scroll" style={{ maxHeight: 'none' }}>
+            <table className="data-table">
               <thead>
                 <tr>
                   <th>Scope</th>

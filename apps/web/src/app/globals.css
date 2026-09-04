@@ -99,6 +99,34 @@ body {
   padding: 0.875rem;
 }
 
+.notice {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.625rem 0.875rem;
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--surface);
+  color: var(--foreground-secondary);
+}
+
+.notice--ok {
+  border-color: var(--success);
+  background: var(--success-subtle);
+  color: var(--success);
+}
+
+.notice--warn {
+  border-color: var(--warning);
+  background: var(--warning-subtle);
+  color: var(--warning);
+}
+
+.notice--error {
+  border-color: var(--error);
+  background: var(--error-subtle);
+  color: var(--error);
+}
+
 /* Buttons — square, flat */
 .btn-secondary {
   display: inline-flex;
@@ -228,7 +256,98 @@ body {
 .data-table td {
   padding: 0.4375rem 0.75rem;
   border-bottom: 1px solid var(--border);
-  vertical-align: middle;
+  vertical-align: top;
+}
+
+/* Forms — design system input-field; `.input` is the short alias used in JSX */
+.input,
+.input-field {
+  width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 0.4375rem 0.625rem;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--foreground);
+  outline: none;
+}
+
+.input:focus,
+.input-field:focus {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
+}
+
+.input:disabled,
+.input-field:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: var(--surface-muted);
+}
+
+textarea.input,
+textarea.input-field {
+  resize: vertical;
+  min-height: 4.5rem;
+}
+
+select.input,
+select.input-field {
+  cursor: pointer;
+}
+
+/* Fleet alerts: fixed columns so Instance / Check never collide */
+.data-table--alerts {
+  table-layout: fixed;
+}
+
+.data-table--alerts th,
+.data-table--alerts td {
+  overflow: hidden;
+}
+
+.data-table--alerts .alerts-col--sev {
+  width: 6.5rem;
+}
+
+.data-table--alerts .alerts-col--status {
+  width: 6rem;
+}
+
+.data-table--alerts .alerts-col--instance {
+  width: 9.5rem;
+}
+
+.data-table--alerts .alerts-col--check {
+  width: 16rem;
+}
+
+.data-table--alerts .alerts-col--seen {
+  width: 5.5rem;
+}
+
+.data-table--alerts td:nth-child(1),
+.data-table--alerts td:nth-child(2) {
+  white-space: nowrap;
+}
+
+.data-table--alerts td:nth-child(3) {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.data-table--alerts td:nth-child(4) {
+  word-break: break-word;
+}
+
+.data-table--alerts .alerts-table__detail {
+  font-size: 12px;
+  color: var(--foreground-secondary);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .data-table tbody tr:last-child td {

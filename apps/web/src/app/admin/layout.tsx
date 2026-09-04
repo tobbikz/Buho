@@ -1,3 +1,4 @@
+import { AdminTabs } from '@/components/AdminTabs';
 import { Topbar } from '@/components/Topbar';
 import { currentSession } from '@/lib/session';
 
@@ -21,8 +22,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <div>
             <h1 className="page-title">Admin</h1>
             <p className="page-sub">
-              Network database discovery, console accounts, data retention, and databases added from
-              the UI. Everything here is written to the audit log with the user who did it.
+              Network database discovery, console accounts, data retention, alerting, and databases
+              added from the UI. Everything here is written to the audit log with the user who did
+              it.
             </p>
           </div>
           <span className="tag tag--info">
@@ -30,6 +32,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </span>
         </header>
 
+        <AdminTabs />
         {children}
       </div>
     </>

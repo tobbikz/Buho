@@ -26,7 +26,7 @@ function AlertRow({ alert }: { alert: FleetAlert }) {
       <td>
         <span className="tag">{alert.status}</span>
         {alert.status === 'pending' ? (
-          <span className="ml-2 text-[10px] text-foreground-muted">×{alert.pendingCount}</span>
+          <span className="ml-1 text-[10px] text-foreground-muted">×{alert.pendingCount}</span>
         ) : null}
       </td>
       <td>
@@ -36,14 +36,14 @@ function AlertRow({ alert }: { alert: FleetAlert }) {
         <div className="text-[10px] text-foreground-muted">{alert.engine}</div>
       </td>
       <td>
-        <div className="text-[12px] font-medium">{alert.title}</div>
-        <div className="text-[11px] text-foreground-muted">
+        <div className="text-[12px] font-medium leading-snug">{alert.title}</div>
+        <div className="font-mono text-[10px] text-foreground-muted break-all">
           {alert.checkId}
           {alert.object ? ` · ${alert.object}` : ''}
         </div>
       </td>
-      <td className="text-[12px] text-foreground-secondary max-w-[28rem]">{alert.message}</td>
-      <td className="num font-mono text-[10px] text-foreground-muted">
+      <td className="alerts-table__detail">{alert.message}</td>
+      <td className="num font-mono text-[10px] text-foreground-muted whitespace-nowrap">
         {formatAgo(alert.lastSeenAt)}
       </td>
     </tr>
@@ -116,8 +116,16 @@ export default async function AlertsPage({
                 : 'No open alerts. Critical findings fire on the first check cycle; warnings need two.'}
             </p>
           ) : (
-            <div className="table-wrap">
-              <table className="data">
+            <div className="table-scroll" style={{ maxHeight: 'none' }}>
+              <table className="data-table data-table--alerts">
+                <colgroup>
+                  <col className="alerts-col--sev" />
+                  <col className="alerts-col--status" />
+                  <col className="alerts-col--instance" />
+                  <col className="alerts-col--check" />
+                  <col className="alerts-col--detail" />
+                  <col className="alerts-col--seen" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Severity</th>

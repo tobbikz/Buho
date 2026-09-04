@@ -2,7 +2,28 @@ import type { CheckResult } from '@buho/checks';
 
 export type AlertSeverity = 'critical' | 'warning' | 'info';
 export type AlertStatus = 'pending' | 'firing' | 'resolved';
-export type AlertChannelKind = 'webhook' | 'slack' | 'teams' | 'telegram' | 'rocketchat' | 'smtp';
+
+/** Supported delivery kinds (HTTP webhooks + Telegram bot + SMTP + PagerDuty). */
+export const ALERT_CHANNEL_KINDS = [
+  'webhook',
+  'slack',
+  'teams',
+  'discord',
+  'googlechat',
+  'mattermost',
+  'telegram',
+  'rocketchat',
+  'pagerduty',
+  'smtp',
+] as const;
+
+export type AlertChannelKind = (typeof ALERT_CHANNEL_KINDS)[number];
+
+export const ALERT_CHANNEL_KINDS_SQL = ALERT_CHANNEL_KINDS.map((kind) => `'${kind}'`).join(', ');
+
+export function isAlertChannelKind(value: string): value is AlertChannelKind {
+  return (ALERT_CHANNEL_KINDS as readonly string[]).includes(value);
+}
 
 export interface AlertSettings {
   enabled: boolean;
@@ -59,6 +80,8 @@ export interface AlertChannelConfig {
   botToken?: string;
   /** Telegram chat id (@channel or numeric). */
   chatId?: string;
+  /** PagerDuty Events API v2 routing key (integration key). */
+  routingKey?: string;
   /** SMTP relay */
   host?: string;
   port?: number;
@@ -241,6 +264,97 @@ export function rocketchatPayload(
   };
 }
 
+/** Discord incoming webhook. */
+export function discordPayload(
+  event: 'fired' | 'resolved',
+  alert: AlertNotifyPayload,
+): Record<string, unknown> {
+  const color =
+    event === 'resolved' ? 0x2eb886 : alert.severity === 'critical' ? 0xe01e5a : 0xecb22e;
+  return {
+    username: 'Búho',
+    content: `**${statusLabel(event)}** · ${alert.severity.toUpperCase()} · ${alert.alias}`,
+    embeds: [
+      {
+        title: alert.title.slice(0, 256),
+        description: `${alert.message}${alert.remediation ? `\n\n**Remediation:** ${alert.remediation}` : ''}`.slice(
+          0,
+          4000,
+        ),
+        color,
+        footer: { text: `${alert.checkId}${alert.object ? ` · ${alert.object}` : ''}` },
+      },
+    ],
+  };
+}
+
+/** Google Chat incoming webhook. */
+export function googleChatPayload(
+  event: 'fired' | 'resolved',
+  alert: AlertNotifyPayload,
+): Record<string, unknown> {
+  return { text: plainText(event, alert) };
+}
+
+/** Mattermost incoming webhook (Slack-compatible attachments). */
+export function mattermostPayload(
+  event: 'fired' | 'resolved',
+  alert: AlertNotifyPayload,
+): Record<string, unknown> {
+  const color =
+    event === 'resolved' ? '#2eb886' : alert.severity === 'critical' ? '#e01e5a' : '#ecb22e';
+  return {
+    username: 'Búho',
+    text: `Búho ${statusLabel(event)}: ${alert.title}`,
+    attachments: [
+      {
+        color,
+        title: alert.title,
+        text: plainText(event, alert),
+        footer: 'Búho',
+      },
+    ],
+  };
+}
+
+/** PagerDuty Events API v2. */
+export function pagerdutyPayload(
+  event: 'fired' | 'resolved',
+  alert: AlertNotifyPayload,
+  routingKey: string,
+): Record<string, unknown> {
+  const dedupKey = `buho:${alert.instanceId}:${alert.checkId}:${alert.object ?? ''}`;
+  if (event === 'resolved') {
+    return {
+      routing_key: routingKey,
+      event_action: 'resolve',
+      dedup_key: dedupKey.slice(0, 255),
+    };
+  }
+  const severity =
+    alert.severity === 'critical' ? 'critical' : alert.severity === 'warning' ? 'warning' : 'info';
+  return {
+    routing_key: routingKey,
+    event_action: 'trigger',
+    dedup_key: dedupKey.slice(0, 255),
+    payload: {
+      summary: `${alert.alias}: ${alert.title}`.slice(0, 1024),
+      severity,
+      source: alert.alias,
+      component: alert.checkId,
+      group: alert.engine,
+      class: alert.object ?? alert.checkId,
+      custom_details: {
+        message: alert.message,
+        remediation: alert.remediation,
+        engine: alert.engine,
+        check_id: alert.checkId,
+        object: alert.object,
+      },
+    },
+  };
+}
+
 export function resolveChannelDelivery(
   kind: AlertChannelKind,
   config: AlertChannelConfig,
@@ -264,6 +378,16 @@ export function resolveChannelDelivery(
     };
   }
 
+  if (kind === 'pagerduty') {
+    const routingKey = (config.routingKey ?? '').trim();
+    if (!routingKey) throw new Error('pagerduty needs routingKey');
+    return {
+      url: (config.url ?? 'https://events.pagerduty.com/v2/enqueue').trim(),
+      headers: { 'content-type': 'application/json', ...headers },
+      body: pagerdutyPayload(event, alert, routingKey),
+    };
+  }
+
   const url = (config.url ?? '').trim();
   if (!url) throw new Error(`${kind} url missing`);
 
@@ -279,6 +403,24 @@ export function resolveChannelDelivery(
         url,
         headers: { 'content-type': 'application/json', ...headers },
         body: teamsPayload(event, alert),
+      };
+    case 'discord':
+      return {
+        url,
+        headers: { 'content-type': 'application/json', ...headers },
+        body: discordPayload(event, alert),
+      };
+    case 'googlechat':
+      return {
+        url,
+        headers: { 'content-type': 'application/json', ...headers },
+        body: googleChatPayload(event, alert),
+      };
+    case 'mattermost':
+      return {
+        url,
+        headers: { 'content-type': 'application/json', ...headers },
+        body: mattermostPayload(event, alert),
       };
     case 'rocketchat':
       return {

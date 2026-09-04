@@ -27,9 +27,12 @@ import {
   mergeAlertPack,
 } from '@buho/checks';
 import {
+  ALERT_CHANNEL_KINDS,
+  ALERT_CHANNEL_KINDS_SQL,
   ALERT_SETTINGS_DEFAULTS,
   actionableFindings,
   alertDedupeKey,
+  isAlertChannelKind,
   pickAlertRule,
   resolveChannelDelivery,
   smtpMailContent,
@@ -1798,27 +1801,54 @@ export class Store {
       alert_id: string;
       dedupe_key: string;
       status: AlertStatus;
+      check_id: string;
+      object: string | null;
+      severity: AlertSeverity;
+      title: string;
+      message: string;
     }>(
-      `select alert_id::text, dedupe_key, status
+      `select alert_id::text, dedupe_key, status, check_id, object, severity, title, message
          from buho.alerts
         where instance_id = $1 and status in ('pending', 'firing')`,
       [instanceId],
     );
     for (const row of open.rows) {
       if (seen.has(row.dedupe_key)) continue;
+
+      const finding: CheckResult = {
+        checkId: row.check_id,
+        title: row.title,
+        severity: row.severity,
+        object: row.object ?? undefined,
+        message: row.message,
+        remediation: '',
+      };
+      const rule = pickAlertRule(rules, finding, instanceId, engine);
+      const def = defByCheckId.get(row.check_id);
+      const notifyResolved =
+        notifyResolvedByKey.get(row.dedupe_key) ??
+        rule?.notifyResolved ??
+        def?.sendRecovery ??
+        true;
+      const channelIds =
+        channelsByKey.get(row.dedupe_key) ??
+        (rule && rule.channelIds.length > 0
+          ? rule.channelIds
+          : def && def.channelIds.length > 0
+            ? def.channelIds
+            : null);
+      const recoveryMessage = def?.recoveryMessage?.trim() || null;
+
       await this.pool.query(
         `update buho.alerts
-            set status = 'resolved', resolved_at = now(), updated_at = now(), pending_count = 0
+            set status = 'resolved', resolved_at = now(), updated_at = now(), pending_count = 0,
+                message = coalesce($2, message)
           where alert_id = $1`,
-        [row.alert_id],
+        [row.alert_id, recoveryMessage],
       );
-      if (row.status === 'firing' && (notifyResolvedByKey.get(row.dedupe_key) ?? true)) {
+      if (row.status === 'firing' && notifyResolved) {
         summary.resolved += 1;
-        await this.enqueueAlertDeliveries(
-          Number(row.alert_id),
-          'resolved',
-          channelsByKey.get(row.dedupe_key) ?? null,
-        );
+        await this.enqueueAlertDeliveries(Number(row.alert_id), 'resolved', channelIds);
       }
     }
 
@@ -1835,14 +1865,14 @@ export class Store {
         ? await this.pool.query<{ channel_id: string }>(
             `select channel_id::text from buho.alert_channels
               where enabled
-                and kind in ('webhook', 'slack', 'teams', 'telegram', 'rocketchat', 'smtp')
+                and kind in (${ALERT_CHANNEL_KINDS_SQL})
                 and channel_id = any($1::bigint[])`,
             [channelIds],
           )
         : await this.pool.query<{ channel_id: string }>(
             `select channel_id::text from buho.alert_channels
               where enabled
-                and kind in ('webhook', 'slack', 'teams', 'telegram', 'rocketchat', 'smtp')`,
+                and kind in (${ALERT_CHANNEL_KINDS_SQL})`,
           );
     for (const channel of channels.rows) {
       await this.pool.query(
@@ -2221,7 +2251,7 @@ export class Store {
           where d.status = 'pending'
             and d.next_attempt_at <= now()
             and c.enabled
-            and c.kind in ('webhook', 'slack', 'teams', 'telegram', 'rocketchat', 'smtp')
+            and c.kind in (${ALERT_CHANNEL_KINDS_SQL})
           order by d.delivery_id
           limit $1
           for update of d skip locked`,
@@ -2309,7 +2339,9 @@ export class Store {
 }
 
 export {
+  ALERT_CHANNEL_KINDS,
   ALERT_SETTINGS_DEFAULTS,
+  type AlertChannelKind,
   type AlertChannelRow,
   type AlertRuleRow,
   type AlertDeliveryJob,
@@ -2369,11 +2401,7 @@ async function deliverSmtp(
 
 function mapAlertChannel(row: Record<string, unknown>): AlertChannelRow {
   const rawKind = String(row['kind'] ?? 'webhook');
-  const kind = (
-    ['webhook', 'slack', 'teams', 'telegram', 'rocketchat', 'smtp'].includes(rawKind)
-      ? rawKind
-      : 'webhook'
-  ) as AlertChannelKind;
+  const kind = (isAlertChannelKind(rawKind) ? rawKind : 'webhook') as AlertChannelKind;
   return {
     channelId: Number(row['channel_id']),
     name: String(row['name']),
