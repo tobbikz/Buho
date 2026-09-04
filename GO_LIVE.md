@@ -1,11 +1,11 @@
 # Go-live checklist (first production customer / pilot)
 
-Use before the first paid or pilot install. Pin **`v1.3.0+`**. Pricing: `PRICING.md`. Contract template: `PILOT_AGREEMENT.md`.
+Use before the first paid or pilot install. Pin **`v1.3.1+`**. Pricing: `PRICING.md`. Contract template: `PILOT_AGREEMENT.md`.
 
 ## 0. Ship the bits
 
-- [ ] `git push origin main` and `git push origin v1.3.0` (GHCR publish runs on the tag)
-- [ ] Confirm images: `ghcr.io/tobbikz/buho-monitor/collector:1.3.0` and `…/web:1.3.0`
+- [ ] `git push origin main` and `git push origin v1.3.1` (GHCR publish runs on the tag)
+- [ ] Confirm images: `ghcr.io/tobbikz/buho-monitor/collector:1.3.1` and `…/web:1.3.1`
 - [ ] Customer host can `docker pull` those tags (or use `./install.sh --pull`)
 
 ## 1. Access & secrets
@@ -55,7 +55,7 @@ Optional: Admin → Databases / Admin → Alerts for advanced config.
 
 ## 6. Update path
 
-- [ ] Pin tag (`v1.3.0+`) and `./install.sh --pull`
+- [ ] Pin tag (`v1.3.1+`) and `./install.sh --pull`
 - [ ] Document who may update / recreate containers
 - [ ] Optional: `npm run alerts:import` once for SQL catalog templates
 

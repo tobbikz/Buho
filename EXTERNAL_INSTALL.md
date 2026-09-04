@@ -7,7 +7,7 @@ A true “install on someone else’s machine” needs that host. This file is t
 ```bash
 git clone https://github.com/tobbikz/buho-monitor.git
 cd buho-monitor
-git checkout v1.3.0
+git checkout v1.3.1
 ./install.sh --pull
 ```
 
@@ -39,7 +39,7 @@ npx tsx scripts/assert-check-parity.ts
 
 | Image | Tag |
 |-------|-----|
-| `ghcr.io/tobbikz/buho-monitor/collector` | `1.3.0` / `latest` |
-| `ghcr.io/tobbikz/buho-monitor/web` | `1.3.0` / `latest` |
+| `ghcr.io/tobbikz/buho-monitor/collector` | `1.3.1` / `latest` |
+| `ghcr.io/tobbikz/buho-monitor/web` | `1.3.1` / `latest` |
 
 Published by `.github/workflows/publish-images.yml` on push of tag `v*`.

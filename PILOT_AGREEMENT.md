@@ -1,7 +1,7 @@
 # Búho — Pilot agreement (template)
 
 **Parties:** IKZ Technologies (“IKZ”) and ________________ (“Customer”).  
-**Product:** Búho database monitor (on-prem), tag **v1.3.0+**.  
+**Product:** Búho database monitor (on-prem), tag **v1.3.1+**.  
 **Pilot term:** 30 days from the Start Date below.  
 **Scope:** up to **3 servers** (host+port) under Full Pro features at **USD $0**.
 

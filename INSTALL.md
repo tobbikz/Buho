@@ -232,8 +232,8 @@ Eso baja `collector` y `web` desde GHCR (`ghcr.io/tobbikz/buho-monitor/...`)
 y levanta el store. Para fijar una versión concreta:
 
 ```bash
-export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho-monitor/collector:1.3.0
-export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho-monitor/web:1.3.0
+export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho-monitor/collector:1.3.1
+export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho-monitor/web:1.3.1
 ./install.sh --pull
 ```
 
@@ -384,7 +384,7 @@ backup del store y smoke. Resumen mínimo:
 2. `sql/monitor-user*.sql` en cada motor
 3. Admin → Alerts → canal Slack/Teams/… de verdad + pack revisado
 4. `BUHO_BACKUP_DIR` en el host y un restore de prueba
-5. `./install.sh --pull` desde tag `v1.3.0+`
+5. `./install.sh --pull` desde tag `v1.3.1+`
 
 ### Actualizar
 
@@ -402,8 +402,8 @@ git checkout v1.1.1          # o la tag que toque
 Versión fija de imagen (sin cambiar el checkout):
 
 ```bash
-export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho-monitor/collector:1.3.0
-export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho-monitor/web:1.3.0
+export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho-monitor/collector:1.3.1
+export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho-monitor/web:1.3.1
 ./install.sh --pull
 ```
 

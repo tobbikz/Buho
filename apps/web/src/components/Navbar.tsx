@@ -105,7 +105,7 @@ export function Navbar({
             </span>
             <span className="navbar__brand-text">
               <span className="navbar__logo">Búho</span>
-              <span className="navbar__version">v1.3</span>
+              <span className="navbar__version">v1.3.1</span>
             </span>
           </Link>
 
