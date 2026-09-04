@@ -19,7 +19,13 @@ function dotClass(instance: SidebarInstance): string {
   return 'status-dot--ok';
 }
 
-export function Sidebar({ instances }: { instances: SidebarInstance[] }) {
+export function Sidebar({
+  instances,
+  onNavigate,
+}: {
+  instances: SidebarInstance[];
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
 
   // Se agrupa acá y no en el servidor porque es presentación: el orden ya viene
@@ -33,6 +39,7 @@ export function Sidebar({ instances }: { instances: SidebarInstance[] }) {
 
   return (
     <aside className="sidebar">
+      <div className="sidebar__label sidebar__label--instances">Instances</div>
       <nav className="sidebar__section sidebar__section--instances">
         {instances.length === 0 ? (
           <div className="px-[0.875rem] py-1 text-[11px] text-foreground-muted">No instances</div>
@@ -42,14 +49,14 @@ export function Sidebar({ instances }: { instances: SidebarInstance[] }) {
               {group ? <div className="sidebar__group">{group}</div> : null}
               {members.map((instance) => {
                 const href = `/instances/${instance.instanceId}`;
-                const active =
-                  pathname === href || pathname.startsWith(`${href}/`);
+                const active = pathname === href || pathname.startsWith(`${href}/`);
                 return (
                   <Link
                     key={instance.instanceId}
                     href={href}
                     className={`sidebar__link ${active ? 'is-active' : ''}`}
                     title={instance.alias}
+                    onClick={onNavigate}
                   >
                     <span className={`status-dot ${dotClass(instance)}`} />
                     <span className="truncate">{instance.alias}</span>

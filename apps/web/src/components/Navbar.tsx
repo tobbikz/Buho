@@ -39,10 +39,14 @@ export function Navbar({
   authEnabled = false,
   isAdmin = false,
   username,
+  onMenuClick,
+  menuOpen = false,
 }: {
   authEnabled?: boolean;
   isAdmin?: boolean;
   username?: string;
+  onMenuClick?: () => void;
+  menuOpen?: boolean;
 }) {
   const pathname = usePathname();
   const [adminOpen, setAdminOpen] = useState(false);
@@ -79,32 +83,48 @@ export function Navbar({
 
       <div className="navbar__inner">
         <div className="navbar__start">
-          <Link href="/" className="navbar__brand">
+          {onMenuClick ? (
+            <button
+              type="button"
+              className={`navbar__burger ${menuOpen ? 'is-open' : ''}`}
+              aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={menuOpen}
+              aria-controls="buho-sidebar"
+              onClick={onMenuClick}
+            >
+              <span />
+              <span />
+              <span />
+            </button>
+          ) : null}
+
+          <Link href="/" className="navbar__brand" onClick={() => menuOpen && onMenuClick?.()}>
             <span className="navbar__mark" aria-hidden>
               <span className="navbar__mark-eye" />
               <span className="navbar__mark-eye" />
             </span>
             <span className="navbar__brand-text">
               <span className="navbar__logo">Búho</span>
-              <span className="navbar__version">v0.4</span>
+              <span className="navbar__version">v1.3</span>
             </span>
           </Link>
 
           <nav className="navbar__rail" aria-label="Main navigation">
-              {FLEET_LINKS.map((link) => {
-                const active = link.match(pathname);
-                return (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    className={`navbar__link ${active ? 'is-active' : ''}`}
-                    aria-current={active ? 'page' : undefined}
-                  >
-                    {link.label}
-                  </Link>
-                );
-              })}
-            </nav>
+            {FLEET_LINKS.map((link) => {
+              const active = link.match(pathname);
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={`navbar__link ${active ? 'is-active' : ''}`}
+                  aria-current={active ? 'page' : undefined}
+                  onClick={() => menuOpen && onMenuClick?.()}
+                >
+                  {link.label}
+                </Link>
+              );
+            })}
+          </nav>
         </div>
 
         <div className="navbar__end">
@@ -131,7 +151,10 @@ export function Navbar({
                         href={link.href}
                         role="menuitem"
                         className={`navbar__dropdown-item ${active ? 'is-active' : ''}`}
-                        onClick={() => setAdminOpen(false)}
+                        onClick={() => {
+                          setAdminOpen(false);
+                          if (menuOpen) onMenuClick?.();
+                        }}
                       >
                         <span className="navbar__dropdown-label">{link.label}</span>
                         <span className="navbar__dropdown-hint">{link.hint}</span>
@@ -170,6 +193,24 @@ export function Navbar({
           </div>
         </div>
       </div>
+
+      {/* Compact primary nav for phone — rail is hidden; this strip scrolls. */}
+      <nav className="navbar__mobile-rail" aria-label="Sections">
+        {FLEET_LINKS.map((link) => {
+          const active = link.match(pathname);
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={`navbar__link ${active ? 'is-active' : ''}`}
+              aria-current={active ? 'page' : undefined}
+              onClick={() => menuOpen && onMenuClick?.()}
+            >
+              {link.label}
+            </Link>
+          );
+        })}
+      </nav>
     </header>
   );
 }

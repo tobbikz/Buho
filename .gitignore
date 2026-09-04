@@ -10,3 +10,4 @@ config.json
 *.log
 .DS_Store
 respaldos/
+tmp/

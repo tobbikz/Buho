@@ -64,7 +64,7 @@ export function InstanceTabs({
         ];
 
   return (
-    <nav className="tabs">
+    <nav className="tabs tabs--scroll" aria-label="Instance sections">
       {tabs.map((tab) => (
         <Link key={tab.href} href={tab.href} className={`tab ${pathname === tab.href ? 'is-active' : ''}`}>
           {tab.label}

@@ -27,7 +27,8 @@
     "ensayo:engines": "bash scripts/ensayo-engines.sh",
     "carga:sintetica": "node scripts/carga-sintetica.mjs",
     "ensayo:alerts": "tsx scripts/ensayo-alerts.ts",
-    "alerts:import": "tsx scripts/import-alert-catalog.ts"
+    "alerts:import": "tsx scripts/import-alert-catalog.ts",
+    "verify:responsive": "node scripts/responsive-smoke.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
