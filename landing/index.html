@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Búho — Monitor de bases de datos on-prem</title>
+    <meta
+      name="description"
+      content="Monitor on-prem de PostgreSQL, SQL Server, MariaDB y MongoDB. Checks con remediación y alertas — sin Prometheus ni Grafana."
+    />
+    <style>
+      :root {
+        --bg: #e8ebef;
+        --surface: #fff;
+        --fg: #141619;
+        --muted: #4a525c;
+        --accent: #005eb8;
+        --border: #cdd3da;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: 'IBM Plex Sans', system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+        line-height: 1.5;
+        font-size: 16px;
+      }
+      .wrap {
+        max-width: 42rem;
+        margin: 0 auto;
+        padding: 3rem 1.25rem 4rem;
+      }
+      .brand {
+        font-size: 2.75rem;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        margin: 0 0 0.5rem;
+      }
+      .tagline {
+        font-size: 1.25rem;
+        color: var(--muted);
+        margin: 0 0 1.75rem;
+        max-width: 36rem;
+      }
+      .cta {
+        display: inline-block;
+        background: var(--accent);
+        color: #fff;
+        text-decoration: none;
+        font-size: 0.8rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        padding: 0.65rem 1rem;
+        border: 1px solid #004a92;
+      }
+      .cta:hover {
+        background: #004a92;
+      }
+      .cta--ghost {
+        background: var(--surface);
+        color: var(--fg);
+        border-color: var(--border);
+        margin-left: 0.5rem;
+      }
+      .cta--ghost:hover {
+        background: #f2f4f6;
+      }
+      h2 {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin: 2.5rem 0 0.75rem;
+      }
+      ul {
+        margin: 0;
+        padding-left: 1.1rem;
+        color: var(--muted);
+      }
+      li {
+        margin-bottom: 0.35rem;
+      }
+      .pitch {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        padding: 1rem 1.1rem;
+        margin: 1.5rem 0;
+      }
+      .pitch p {
+        margin: 0;
+        font-size: 0.95rem;
+      }
+      code {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 0.85em;
+        background: #f2f4f6;
+        padding: 0.1em 0.35em;
+      }
+      footer {
+        margin-top: 3rem;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <p class="brand">Búho</p>
+      <p class="tagline">
+        Monitor on-prem de bases de datos: te dice qué está mal y cómo se arregla — no otro stack de
+        métricas.
+      </p>
+      <p>
+        <a class="cta" href="https://github.com/tobbikz/buho-monitor">Ver en GitHub</a>
+        <a class="cta cta--ghost" href="https://github.com/tobbikz/buho-monitor/blob/main/INSTALL.md"
+          >Instalar en 15 min</a
+        >
+      </p>
+
+      <div class="pitch">
+        <p>
+          <strong>Pitch (30 s):</strong> Redgate/SolarWinds cuestan +$1k/servidor/año; PMM no cubre SQL
+          Server y arrastra Prometheus. Búho es un colector + PostgreSQL + consola, con checks
+          opinados, alertas (Slack/Teams/Discord/…) e informe semanal. On-prem, sin agente en el host
+          del cliente.
+        </p>
+      </div>
+
+      <h2>Qué incluye</h2>
+      <ul>
+        <li>PostgreSQL primero; también SQL Server, MariaDB/MySQL y MongoDB</li>
+        <li>Health score + remediación en español/inglés</li>
+        <li>Alertas nativas: pack de sistema + SQL custom + auto-recovery</li>
+        <li>Parque (backups, disco, jobs, HA), seguridad, análisis de series</li>
+      </ul>
+
+      <h2>Lead gen gratis</h2>
+      <ul>
+        <li>
+          CLI <code>buho-check</code>: mismos checks, sin store —
+          <code>npm run check -- 'postgres://…'</code>
+        </li>
+        <li>Códigos de salida listos para cron/CI (0/1/2/3)</li>
+      </ul>
+
+      <h2>Primer piloto</h2>
+      <ul>
+        <li><code>./install.sh --pull</code> desde tag <code>v1.1.1+</code></li>
+        <li>Checklist: <code>GO_LIVE.md</code> en el repo</li>
+      </ul>
+
+      <footer>IKZ Technologies · suite: Quetzal · Tucán · Colibrí · Búho</footer>
+    </main>
+  </body>
+</html>

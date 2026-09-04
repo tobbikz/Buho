@@ -375,6 +375,17 @@ docker compose up -d
 El formato es el propio de `pg_dump` (`-Fc`), así que se puede restaurar en
 paralelo (`-j 4`) o sólo una tabla.
 
+### Primer cliente (producción)
+
+Sigue **[GO_LIVE.md](GO_LIVE.md)**: secretos, usuarios monitor, canales de alerta reales,
+backup del store y smoke. Resumen mínimo:
+
+1. `.env` con `BUHO_AUTH_PASSWORD` + `BUHO_STORE_URL` (no defaults en red abierta)
+2. `sql/monitor-user*.sql` en cada motor
+3. Admin → Alerts → canal Slack/Teams/… de verdad + pack revisado
+4. `BUHO_BACKUP_DIR` en el host y un restore de prueba
+5. `./install.sh --pull` desde tag `v1.1.1+`
+
 ### Actualizar
 
 **Decisión de entrega (v1.1):** los clientes usan **imágenes publicadas** (`--pull`);
@@ -384,15 +395,15 @@ quien desarrolla en el repo compila con `./install.sh` sin flags.
 # Cliente (recomendado)
 cd buho-monitor
 git fetch --tags
-git checkout v1.1.0          # o la tag que toque
+git checkout v1.1.1          # o la tag que toque
 ./install.sh --pull
 ```
 
 Versión fija de imagen (sin cambiar el checkout):
 
 ```bash
-export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho-monitor/collector:1.1.0
-export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho-monitor/web:1.1.0
+export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho-monitor/collector:1.1.1
+export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho-monitor/web:1.1.1
 ./install.sh --pull
 ```
 

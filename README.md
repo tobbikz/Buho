@@ -8,16 +8,18 @@ Monitor de bases de datos **on-prem**: un colector, un store y una consola. Sin 
 
 ---
 
-## Qué hay hoy (F0 + F1)
+## Qué hay hoy (v1.1+)
 
 | Pieza | Estado |
 |-------|--------|
-| `packages/core` | Capability probe, pools con timeouts, 14 colectores de métricas, motor de deltas, captura de bloqueos, de `pg_stat_statements` y de recursos del host, inventario, auditoría de seguridad y descubrimiento de red de los tres motores |
-| `packages/checks` | 22 checks con severidad y remediación + health score |
-| `packages/store` | Schema particionado (muestras y deltas por consulta), rollups 5m/1h, episodios de bloqueo, inventario, hallazgos de seguridad, etiquetas, cuentas y ajustes, retención por `DROP PARTITION` |
-| `apps/collector` | Scheduler por tiers con aislamiento por instancia |
-| `apps/cli` | `buho-check`: informe de salud por consola |
-| `apps/web` | Consola Next.js 16 con cuentas y roles: flota agrupable, chequeos de flota, informe semanal exportable, parque, seguridad, instancia, análisis, consultas, host, bloqueos, vacuum, replicación, log y administración |
+| `packages/core` | Capability probe, pools, colectores PG + foreign (Maria/MSSQL/Mongo), deltas, bloqueos, host, inventario, seguridad, descubrimiento |
+| `packages/checks` | 22 checks PG + checks Maria/MSSQL + pack de sistema + custom SQL alerts |
+| `packages/store` | Schema particionado, rollups, alertas (`alert_*`), retención, inventario |
+| `apps/collector` | Scheduler por tiers + reconcile/flush de alertas |
+| `apps/cli` (`buho-check`) | Informe de salud **gratis** (lead gen) — mismos checks, sin store |
+| `apps/web` | Consola: flota, checks, alerts, estate, seguridad, análisis, admin |
+| Licencia | Business Source License 1.1 — ver `LICENSE` |
+| Go-live | Checklist primer cliente: **[GO_LIVE.md](GO_LIVE.md)** |
 
 ---
 
@@ -31,6 +33,8 @@ Comprueba requisitos, genera los secretos, levanta store, colector y consola, y
 verifica que estén entrando muestras. La guía completa —usuario de monitoreo por
 motor, métricas del host, lectura del log, proxy con TLS, respaldo del store y
 qué hacer cuando algo no funciona— está en **[INSTALL.md](INSTALL.md)**.
+Checklist del **primer cliente en producción**: **[GO_LIVE.md](GO_LIVE.md)**.
+Landing / pitch estático: **[landing/index.html](landing/index.html)**.
 
 ---
 
@@ -147,7 +151,7 @@ Sigue siendo *agentless*: no hay proceso residente en el servidor del cliente, s
 
 **`min` no es el peor caso de todos los porcentajes.** Con 99 % y 80 % de cache hit entre dos bases, el peor caso es el mínimo; con 5 % y 40 % de tuplas muertas, es el máximo. El catálogo de métricas marca los ratios donde *más es mejor* y el resto usa `max`, en vez de tratar a todos los porcentajes igual y esconder justo el problema que se busca.
 
-**Las alertas no son parte de Búho.** Búho detecta y explica; el ruteo de guardia, silencios y canales son un producto aparte, porque los mismos turnos sirven para otras fuentes y meterlos acá los amarraría a PostgreSQL. Los checks ya dejan sus hallazgos en `buho.check_results` con la forma que necesitaría un ingestor.
+**Las alertas son parte de Búho (desde v1.1).** Checks abren alertas con histéresis, silencios, reglas y entrega a Slack / Teams / Discord / Google Chat / Mattermost / Telegram / Rocket.Chat / PagerDuty / SMTP / webhook genérico. Admin → Alerts. Un producto **multi-fuente** de suite (DataSync + Quetzal + Búho) puede vivir aparte después; no quita el alerting nativo.
 
 **Los porcentajes no se suman entre etiquetas.** Al agregar una métrica etiquetada por base de datos, las tasas se suman pero los ratios no: sumar el cache hit de cuatro bases da 397 %. La función de series recibe la operación (`sum`, `avg`, `min`, `max`) y el cache hit usa `min`, el peor caso.
 
@@ -169,7 +173,7 @@ Sigue siendo *agentless*: no hay proceso residente en el servidor del cliente, s
 - El sugeridor de índices sólo opina de consultas cuyo plan alguien pidió con ANALYZE: no recorre `pg_stat_statements` por su cuenta. Menos ideas, todas verificables.
 - La medición de bloat con `pgstattuple` exige la extensión instalada y que el rol la pueda ejecutar (`pg_stat_scan_tables`). Si falta, la celda lo dice en vez de ofrecer un botón que va a fallar.
 - El sugeridor y el vacuum son de PostgreSQL. MariaDB y SQL Server tienen métricas, chequeos, consultas, bloqueos y log, pero no tienen un equivalente de vacuum ni planes en el mismo formato.
-- Sin alerting: no notifica por correo ni webhook. Es una decisión de alcance, no un pendiente de implementación.
+- Alerting nativo: canales chat/SMTP/webhook + pack de sistema + SQL custom (v1.1+). Un gateway multi-producto (Centinela) es opcional y vive aparte.
 - No hay detección de crecimiento anómalo: exige comparar contra el historial del store, no una consulta a la instancia, y por eso no cabe en el modelo de checks actual.
 
 ---

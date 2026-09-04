@@ -1,6 +1,6 @@
 {
   "name": "buho",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "B\u00faho \u2014 monitor de bases de datos on-prem. PostgreSQL primero.",

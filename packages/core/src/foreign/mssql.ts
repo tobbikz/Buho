@@ -253,6 +253,31 @@ const throughput: ForeignCollector = {
 };
 
 /**
+ * DML aproximado vía estadísticas de índices operativos.
+ * Emite los mismos nombres que PostgreSQL/Maria (`db_tup_*`) para que Overview
+ * y Análisis compartan paneles sin ramas por motor.
+ */
+const dml: ForeignCollector = {
+  id: 'mssql_dml',
+  tier: 'fast',
+  description: 'Inserts / updates / deletes (index operational stats, instance-wide)',
+  sql: () => `
+    select sum(cast(leaf_insert_count as bigint)) as inserted,
+           sum(cast(leaf_update_count as bigint)) as updated,
+           sum(cast(leaf_delete_count as bigint)) as deleted
+      from sys.dm_db_index_operational_stats(null, null, null, null)`,
+  toSamples: (rows) => {
+    const row = rows[0];
+    if (!row) return [];
+    return [
+      { metric: 'db_tup_inserted', value: num(row['inserted']), counter: true },
+      { metric: 'db_tup_updated', value: num(row['updated']), counter: true },
+      { metric: 'db_tup_deleted', value: num(row['deleted']), counter: true },
+    ];
+  },
+};
+
+/**
  * Memoria del sistema operativo y del proceso.
  *
  * Es lo más cercano a las métricas de host que Búho recoge por SSH en
@@ -514,6 +539,7 @@ export const MSSQL_COLLECTORS: ForeignCollector[] = [
   connections,
   waits,
   throughput,
+  dml,
   memory,
   cpu,
   fileIo,

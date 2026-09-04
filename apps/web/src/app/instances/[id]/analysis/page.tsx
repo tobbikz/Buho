@@ -9,6 +9,7 @@ import {
   DEFAULT_METRICS,
   FAMILY_ORDER,
   SERIES_COLORS,
+  defaultMetricsForEngine,
   describeMetric,
   type MetricMeta,
 } from '@/lib/metrics';
@@ -127,10 +128,21 @@ export default async function AnalysisPage({
   const requested = asArray(m);
   // Se ignoran las métricas que esta instancia no tiene: un enlace copiado de
   // otra instancia no debe romper la pantalla, sólo mostrar menos.
-  const selected = (requested.length > 0 ? requested : DEFAULT_METRICS).filter((metric) =>
+  const fallback = defaultMetricsForEngine(engine);
+  const preferred = (requested.length > 0 ? requested : fallback).filter((metric) =>
     labelKeysOf.has(metric),
   );
-  const selectedMeta = selected.map((metric) => describeMetric(metric, labelKeysOf.get(metric) ?? []));
+  // If engine defaults are missing (fresh instance), fall back to whatever exists.
+  const selected =
+    preferred.length > 0
+      ? preferred
+      : fallback
+          .concat(DEFAULT_METRICS)
+          .filter((metric) => labelKeysOf.has(metric))
+          .slice(0, 3);
+  const selectedMeta = selected.map((metric) =>
+    describeMetric(metric, labelKeysOf.get(metric) ?? []),
+  );
 
   const aggregation = (AGGREGATIONS.find((entry) => entry.key === agg)?.key ?? null) as CrossLabel | null;
 

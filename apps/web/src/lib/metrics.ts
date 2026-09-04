@@ -30,6 +30,15 @@ const FAMILIES: { prefix: string; family: string; labelKeys: string[] }[] = [
   { prefix: 'host_', family: 'Host', labelKeys: ['mount'] },
   { prefix: 'connections_', family: 'Connections', labelKeys: [] },
   { prefix: 'mongo_', family: 'MongoDB', labelKeys: ['database'] },
+  { prefix: 'buffer_pool_', family: 'InnoDB / buffer', labelKeys: [] },
+  { prefix: 'innodb_', family: 'InnoDB / buffer', labelKeys: [] },
+  { prefix: 'page_life_', family: 'SQL Server', labelKeys: [] },
+  { prefix: 'file_', family: 'SQL Server', labelKeys: ['database', 'file'] },
+  { prefix: 'mssql_', family: 'SQL Server', labelKeys: [] },
+  { prefix: 'memory_grants_', family: 'SQL Server', labelKeys: [] },
+  { prefix: 'queries_', family: 'Activity', labelKeys: [] },
+  { prefix: 'binlog_', family: 'Replication', labelKeys: [] },
+  { prefix: 'replica_', family: 'Replication', labelKeys: [] },
   { prefix: 'db_', family: 'Database', labelKeys: ['database'] },
   { prefix: 'database_', family: 'Database', labelKeys: ['database'] },
   { prefix: 'xid_', family: 'Database', labelKeys: ['database'] },
@@ -126,6 +135,19 @@ const LABELS: Record<string, string> = {
   io_writes: 'Writes',
   io_evictions: 'Evictions',
   io_fsyncs: 'fsyncs',
+  page_life_expectancy_seconds: 'Page life expectancy',
+  memory_grants_pending: 'Memory grants pending',
+  buffer_pool_dirty_pct: 'Buffer pool dirty',
+  buffer_pool_free_pct: 'Buffer pool free',
+  file_read_latency_ms: 'File read latency',
+  file_write_latency_ms: 'File write latency',
+  queries_total: 'Queries / batch requests',
+  lock_waits: 'Lock waits',
+  full_scans: 'Full scans',
+  sql_compilations: 'SQL compilations',
+  innodb_row_lock_waits: 'InnoDB row lock waits',
+  binlog_bytes: 'Binlog bytes',
+  replica_seconds_behind: 'Replica lag',
 };
 
 const WORDS: Record<string, string> = {
@@ -257,16 +279,38 @@ export const FAMILY_ORDER = [
   'Connections',
   'Activity',
   'Database',
+  'SQL Server',
+  'InnoDB / buffer',
   'WAL',
   'Checkpoints',
   'I/O',
   'Tables',
   'Waits',
   'Replication',
+  'MongoDB',
 ];
 
-/** Punto de partida cuando se entra sin métricas elegidas. */
+/** Punto de partida cuando se entra sin métricas elegidas (PostgreSQL / host). */
 export const DEFAULT_METRICS = ['host_cpu_pct', 'connections_active'];
+
+/** Defaults per engine so Analysis is useful without host metrics. */
+export function defaultMetricsForEngine(engine: string): string[] {
+  switch (engine) {
+    case 'mssql':
+      return [
+        'page_life_expectancy_seconds',
+        'connections_active',
+        'file_read_latency_ms',
+        'db_cache_hit_pct',
+      ];
+    case 'mariadb':
+      return ['db_cache_hit_pct', 'connections_active', 'buffer_pool_dirty_pct', 'queries_total_per_sec'];
+    case 'mongodb':
+      return ['mongo_op_query', 'mongo_mem_resident_mb', 'connections_active'];
+    default:
+      return DEFAULT_METRICS;
+  }
+}
 
 /**
  * Paleta estable por posición: el color de una serie no debe cambiar al agregar
