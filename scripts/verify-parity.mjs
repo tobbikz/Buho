@@ -79,7 +79,7 @@ for (const [nombre, ruta] of pantallas) {
 
   const estado = respuesta?.status() ?? 0;
   const texto = await pagina.textContent('body').catch(() => '');
-  const storeError = /no se pudo leer del store|error de base de datos/i.test(texto ?? '');
+  const storeError = /could not read the store|store url is missing|no se pudo leer del store|error de base de datos/i.test(texto ?? '');
   const titulo = (await pagina.textContent('h1').catch(() => null))?.trim() ?? '(sin título)';
 
   const problemas = [];

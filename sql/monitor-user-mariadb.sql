@@ -24,7 +24,10 @@ grant process on *.* to 'buho_monitor'@'%';
 -- REPLICATION CLIENT; se otorgan los dos porque el nombre cambió y el servidor
 -- ignora el que no conoce.
 grant replication client on *.* to 'buho_monitor'@'%';
--- grant slave monitor on *.* to 'buho_monitor'@'%';   -- MariaDB 10.5+
+-- MariaDB 10.5+: SLAVE MONITOR for SHOW REPLICA STATUS; REPLICATION MASTER ADMIN
+-- for SHOW REPLICA HOSTS (inventory topology). Older servers ignore unknown grants.
+grant slave monitor on *.* to 'buho_monitor'@'%';
+grant replication master admin on *.* to 'buho_monitor'@'%';
 
 -- Las cuentas, sus métodos de autenticación y sus privilegios. Es lo que lee la
 -- auditoría de seguridad; sin esto la pantalla reporta "no verificable" en vez

@@ -57,6 +57,7 @@ export function InstanceTabs({
           // familias que PostgreSQL para que el gráfico se lea igual.
           { href: `${base}/sessions`, label: 'Sessions' },
           { href: `${base}/capacity`, label: 'Capacity' },
+          { href: `${base}/replication`, label: 'Replication' },
           { href: `${base}/locks`, label: 'Locks', badge: blockedCount },
           { href: `${base}/logs`, label: 'Log' },
           { href: `${base}/inventory`, label: 'Inventory' },

@@ -16,12 +16,12 @@ const ENGINE_LABEL: Record<string, string> = {
 };
 
 const ROLE_LABEL: Record<string, string> = {
-  primary: 'Primary (no replicas)',
+  primary: 'Primary / HA posture',
   standby: 'Connected replica',
   upstream: 'Replicating from primary',
-  replica: 'Replica',
+  replica: 'Async replica',
   slot: 'Replication slot',
-  availability_group: 'Availability group',
+  availability_group: 'Always On / AG',
 };
 
 export interface ReplicationTableRow {

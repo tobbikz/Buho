@@ -641,9 +641,110 @@ const jobs: ForeignCheckDefinition = {
     }),
 };
 
+/**
+ * Cobertura semanal estilo prod (Airflow Sys_Alerts / mssql_backup_monitoring):
+ * FULL + DIFF en los últimos 7 días; LOG en las últimas 24 h si el modelo es
+ * FULL o BULK_LOGGED. SIMPLE sólo exige FULL+DIFF. Es el check que dispara
+ * En prod disparaba Sys_Alerts; Búho lo evalúa como finding nativo.
+ */
+const coberturaBackupsSemana: ForeignCheckDefinition = {
+  id: 'mssql_backup_week_coverage',
+  title: 'Weekly backup coverage (FULL/DIFF/LOG)',
+  description:
+    'msdb week window: FULL+DIFF within 7 days; LOG within 1 day for FULL/BULK_LOGGED',
+  sql: () => `
+    with eligible as (
+      select d.name as database_name, d.recovery_model_desc
+        from sys.databases d
+       where d.database_id > 4
+         and d.state_desc = 'ONLINE'
+         and d.is_read_only = 0
+         and d.source_database_id is null
+    ),
+    week_backups as (
+      select e.database_name,
+             e.recovery_model_desc,
+             max(case when bs.type = 'D' then bs.backup_finish_date end) as last_full,
+             max(case when bs.type = 'I' then bs.backup_finish_date end) as last_diff,
+             max(case
+                   when bs.type = 'L'
+                    and bs.backup_finish_date >= dateadd(day, -1, getdate())
+                   then bs.backup_finish_date
+                 end) as last_log
+        from eligible e
+        left join msdb.dbo.backupset bs
+          on bs.database_name = e.database_name
+         and bs.type in ('D', 'I', 'L')
+         and bs.backup_finish_date >= dateadd(day, -7, getdate())
+       group by e.database_name, e.recovery_model_desc
+    ),
+    scored as (
+      select database_name,
+             recovery_model_desc,
+             last_full,
+             last_diff,
+             last_log,
+             case when last_full is null then 0 else 1 end as has_full,
+             case when last_diff is null then 0 else 1 end as has_diff,
+             case
+               when recovery_model_desc not in ('FULL', 'BULK_LOGGED') then 1
+               when last_log is null then 0
+               else 1
+             end as has_log,
+             stuff(
+               concat(
+                 case when last_full is null then ',FULL' else '' end,
+                 case when last_diff is null then ',DIFF' else '' end,
+                 case
+                   when recovery_model_desc in ('FULL', 'BULK_LOGGED')
+                    and last_log is null then ',LOG'
+                   else ''
+                 end
+               ),
+               1, 1, ''
+             ) as missing_types
+        from week_backups
+    )
+    select database_name,
+           recovery_model_desc,
+           missing_types,
+           convert(varchar(19), last_full, 120) as last_full,
+           convert(varchar(19), last_diff, 120) as last_diff,
+           convert(varchar(19), last_log, 120) as last_log
+      from scored
+     where has_full = 0 or has_diff = 0 or has_log = 0
+     order by database_name`,
+  evaluate: (rows) =>
+    rows.map((row) => {
+      const db = text(row['database_name']);
+      const missing = text(row['missing_types'], 'coverage');
+      const modelo = text(row['recovery_model_desc']);
+      return {
+        severity: missing.includes('FULL') ? ('critical' as const) : ('warning' as const),
+        object: db,
+        message:
+          `incomplete weekly backup coverage (${modelo}): missing ${missing}` +
+          ` (FULL/DIFF ≤7d` +
+          (modelo === 'FULL' || modelo === 'BULK_LOGGED' ? ', LOG ≤1d' : '') +
+          ').',
+        remediation:
+          'Align Agent (or maintenance plan) with FULL+DIFF at least weekly and LOG backups ' +
+          'within 24 hours for FULL/BULK_LOGGED. SIMPLE only needs FULL+DIFF. ' +
+          'last_full=' +
+          text(row['last_full'], 'never') +
+          ', last_diff=' +
+          text(row['last_diff'], 'never') +
+          ', last_log=' +
+          text(row['last_log'], 'never') +
+          '.',
+      };
+    }),
+};
+
 export const MSSQL_CHECKS: ForeignCheckDefinition[] = [
   configuracionServidor,
   basesDeDatos,
+  coberturaBackupsSemana,
   esperas,
   indices,
   jobs,

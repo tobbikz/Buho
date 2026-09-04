@@ -210,15 +210,24 @@ done
 [[ "${chequeos:-0}" -gt 0 ]] && ok "$chequeos chequeos ejecutados" || mal 'ningún chequeo ejecutado'
 
 # Tráfico para que haya algo que atribuir en el flujo.
-for _ in $(seq 1 3); do
+# Los deltas de pg_stat_statements necesitan al menos dos ciclos del colector
+# (la primera muestra es baseline). Esperar en bucle, no preguntar una vez.
+for _ in $(seq 1 4); do
   docker exec "$OBJETIVO" psql -U postgres -d tienda -qX \
     -c "insert into pedidos (cliente, total) select 'x' || g, random() from generate_series(1, 200) g" \
     -c 'update pedidos set total = total + 1 where id % 7 = 0' \
     -c 'select count(*) from pedidos' >/dev/null 2>&1
-  sleep 20
+  sleep 15
 done
 
-sentencias=$(consulta 'select count(*) from buho.statement_stats')
+sentencias=0
+for _ in $(seq 1 24); do
+  sentencias=$(consulta 'select count(*) from buho.statement_stats')
+  [[ "${sentencias:-0}" -gt 0 ]] && break
+  docker exec "$OBJETIVO" psql -U postgres -d tienda -qX \
+    -c 'select count(*), sum(total) from pedidos' >/dev/null 2>&1 || true
+  sleep 5
+done
 [[ "${sentencias:-0}" -gt 0 ]] && ok "$sentencias deltas de consultas" || mal 'sin estadísticas de consultas'
 
 # ------------------------------------------------------------------- consola

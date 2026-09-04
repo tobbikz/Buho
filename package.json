@@ -1,9 +1,9 @@
 {
   "name": "buho",
-  "version": "0.5.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
-  "description": "Búho — monitor de bases de datos on-prem. PostgreSQL primero.",
+  "description": "B\u00faho \u2014 monitor de bases de datos on-prem. PostgreSQL primero.",
   "engines": {
     "node": ">=22"
   },
@@ -24,13 +24,20 @@
     "verify:parity": "node scripts/verify-parity.mjs",
     "verify:flow": "node scripts/probe-fleet-flow.mjs",
     "ensayo:instalacion": "bash scripts/ensayo-instalacion.sh",
-    "carga:sintetica": "node scripts/carga-sintetica.mjs"
+    "ensayo:engines": "bash scripts/ensayo-engines.sh",
+    "carga:sintetica": "node scripts/carga-sintetica.mjs",
+    "ensayo:alerts": "tsx scripts/ensayo-alerts.ts",
+    "alerts:import": "tsx scripts/import-alert-catalog.ts"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
+    "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.23.1",
     "playwright": "^1.62.1",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "nodemailer": "^10.0.0"
   }
 }

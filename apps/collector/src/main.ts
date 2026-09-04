@@ -8,7 +8,14 @@
  * propio manejo de errores: una instancia enferma no puede tumbar el ciclo de
  * las demás.
  */
-import { runChecks, runForeignChecks } from '@buho/checks';
+import {
+  runChecks,
+  runForeignChecks,
+  runCustomAlerts,
+  healthScore,
+  evaluateAlertPack,
+  alertPackMetricNames,
+} from '@buho/checks';
 import {
   capabilityWarnings,
   auditSecurity,
@@ -48,6 +55,7 @@ import {
   sampleForeignStatements,
   sampleForeignBlocking,
   sampleForeignSessions,
+  tagged,
   readForeignLog,
 } from '@buho/core';
 import type { Capabilities, EngineClient, InstanceConfig, Tier } from '@buho/core';
@@ -577,19 +585,37 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
     );
   });
 
-  startLoop(`${instance.alias}/checks`, CHECKS_INTERVAL_MS, async () => {
-    const summary = await runForeignChecks(client, caps);
-    await store.saveCheckResults(instanceId, summary.results, summary.healthScore);
-    for (const error of summary.errors) {
-      log('warn', `${instance.alias}/checks: ${error.checkId}: ${error.message}`);
-    }
-    const critical = summary.results.filter((result) => result.severity === 'critical').length;
-    log(
-      'info',
-      `${instance.alias}/checks: score ${summary.healthScore}/100, ${summary.results.length} hallazgos` +
-        `${critical > 0 ? ` (${critical} críticos)` : ''}`,
-    );
-  });
+    startLoop(`${instance.alias}/checks`, CHECKS_INTERVAL_MS, async () => {
+      const summary = await runForeignChecks(client, caps);
+      const customDefs = await store.listAlertDefinitionsFor(instanceId, caps.engine);
+      const custom = await runCustomAlerts(customDefs, instanceId, caps.engine, (sql) =>
+        client.query(sql),
+      );
+      const pack = await store.alertPackSettings();
+      const packFindings = evaluateAlertPack(
+        await store.latestMetrics(instanceId, alertPackMetricNames()),
+        pack,
+      );
+      const results = [...summary.results, ...custom.results, ...packFindings];
+      const errors = [...summary.errors, ...custom.errors];
+      const score = healthScore(results);
+      await store.saveCheckResults(instanceId, results, score);
+      const alerts = await store.reconcileAlerts(instanceId, results);
+      for (const error of errors) {
+        log('warn', `${instance.alias}/checks: ${error.checkId}: ${error.message}`);
+      }
+      const critical = results.filter((result) => result.severity === 'critical').length;
+      log(
+        'info',
+        `${instance.alias}/checks: score ${score}/100, ${results.length} hallazgos` +
+          `${critical > 0 ? ` (${critical} críticos)` : ''}` +
+          (customDefs.length ? ` · ${customDefs.length} custom` : '') +
+          (packFindings.length ? ` · ${packFindings.length} pack` : '') +
+          (alerts.fired || alerts.resolved
+            ? ` · alerts +${alerts.fired}/-${alerts.resolved}`
+            : ''),
+      );
+    });
 
   // Se vuelve a preguntar qué se puede medir: performance_schema, Query Store o
   // un permiso nuevo aparecen sin reiniciar nada, y el ciclo tiene que
@@ -730,12 +756,34 @@ async function monitorInstance(instance: InstanceConfig): Promise<void> {
 
     startLoop(`${instance.alias}/checks`, CHECKS_INTERVAL_MS, async () => {
       const summary = await runChecks(pool, caps);
-      await store.saveCheckResults(instanceId, summary.results, summary.healthScore);
-      const critical = summary.results.filter((r) => r.severity === 'critical').length;
+      const customDefs = await store.listAlertDefinitionsFor(instanceId, 'postgres');
+      const custom = await runCustomAlerts(customDefs, instanceId, 'postgres', async (sql) => {
+        const result = await pool.query(tagged(sql));
+        return result.rows as Record<string, unknown>[];
+      });
+      const pack = await store.alertPackSettings();
+      const packFindings = evaluateAlertPack(
+        await store.latestMetrics(instanceId, alertPackMetricNames()),
+        pack,
+      );
+      const results = [...summary.results, ...custom.results, ...packFindings];
+      const errors = [...summary.errors, ...custom.errors];
+      const score = healthScore(results);
+      await store.saveCheckResults(instanceId, results, score);
+      const alerts = await store.reconcileAlerts(instanceId, results);
+      for (const error of errors) {
+        log('warn', `${instance.alias}/checks: ${error.checkId}: ${error.message}`);
+      }
+      const critical = results.filter((r) => r.severity === 'critical').length;
       log(
         'info',
-        `${instance.alias}/checks: score ${summary.healthScore}/100, ${summary.results.length} hallazgos` +
-          `${critical > 0 ? ` (${critical} críticos)` : ''}`,
+        `${instance.alias}/checks: score ${score}/100, ${results.length} hallazgos` +
+          `${critical > 0 ? ` (${critical} críticos)` : ''}` +
+          (customDefs.length ? ` · ${customDefs.length} custom` : '') +
+          (packFindings.length ? ` · ${packFindings.length} pack` : '') +
+          (alerts.fired || alerts.resolved
+            ? ` · alerts +${alerts.fired}/-${alerts.resolved}`
+            : ''),
       );
     });
 
@@ -882,6 +930,13 @@ startLoop('mantenimiento', MAINTENANCE_INTERVAL_MS, async () => {
       (result.baselines > 0 ? `, ${result.baselines} baseline cells` : '') +
       ` (raw ${retention.rawDays}d, 5m ${retention.rollup5mDays}d, 1h ${retention.rollup1hDays}d)`,
   );
+});
+
+startLoop('alerts/deliver', 15_000, async () => {
+  const result = await store.flushAlertDeliveries();
+  if (result.sent > 0 || result.failed > 0) {
+    log('info', `alerts: delivered ${result.sent}, failed ${result.failed}`);
+  }
 });
 
 // Hot-add: console targets appear without a collector restart.

@@ -78,6 +78,20 @@ grant select on dbo.backupset to buho_monitor;
 grant select on dbo.backupmediafamily to buho_monitor;
 go
 
+-- Agent schedules (estate jobs). Without these, inventory fails hard on
+-- sysjobschedules / sysjobactivity instead of reporting "not verifiable".
+grant select on dbo.sysjobs to buho_monitor;
+grant select on dbo.sysjobactivity to buho_monitor;
+grant select on dbo.sysjobhistory to buho_monitor;
+grant select on dbo.sysjobschedules to buho_monitor;
+grant select on dbo.syscategories to buho_monitor;
+-- Log shipping (Always On alternative on many installs).
+grant select on dbo.log_shipping_primary_databases to buho_monitor;
+grant select on dbo.log_shipping_secondary_databases to buho_monitor;
+grant select on dbo.log_shipping_monitor_primary to buho_monitor;
+grant select on dbo.log_shipping_monitor_secondary to buho_monitor;
+go
+
 
 -- ------------------------------------------------ cada base: tamaños de disco
 

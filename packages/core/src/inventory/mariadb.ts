@@ -134,43 +134,98 @@ export async function collectMariadb(client: EngineClient): Promise<InventorySna
   const replication: ReplicationRow[] = [];
   const replica = await client.query('show replica status');
   for (const row of replica) {
+    const io = String(row['Slave_IO_Running'] ?? row['Replica_IO_Running'] ?? 'Unknown');
+    const sql = String(row['Slave_SQL_Running'] ?? row['Replica_SQL_Running'] ?? 'Unknown');
     replication.push({
       role: 'replica',
-      peer: `${row['Source_Host'] ?? row['Master_Host'] ?? 'desconocido'}:${
+      peer: `${row['Source_Host'] ?? row['Master_Host'] ?? 'unknown'}:${
         row['Source_Port'] ?? row['Master_Port'] ?? ''
       }`,
-      state: String(row['Slave_IO_Running'] ?? row['Replica_IO_Running'] ?? 'desconocido'),
+      state: io === 'Yes' && sql === 'Yes' ? 'Yes' : `IO=${io} SQL=${sql}`,
       lagSeconds: num(row['Seconds_Behind_Master'] ?? row['Seconds_Behind_Source']),
       detail: {
-        sql_running: text(row['Slave_SQL_Running'] ?? row['Replica_SQL_Running']),
-        last_error: text(row['Last_Error']),
+        kind: 'async_replica',
+        sql_running: sql,
+        io_running: io,
+        last_error: text(row['Last_Error'] || row['Last_IO_Error'] || row['Last_SQL_Error']),
         gtid: text(row['Gtid_IO_Pos']),
+        using_gtid: text(row['Using_Gtid']),
+        source_log_file: text(row['Master_Log_File'] ?? row['Source_Log_File']),
       },
     });
   }
 
-  // Réplicas conectadas contra este servidor.
-  const hosts = await client.query('show replica hosts');
-  for (const row of hosts) {
-    replication.push({
-      role: 'standby',
-      peer: `${row['Host'] ?? 'desconocido'}:${row['Port'] ?? ''}`,
-      state: 'conectada',
-      detail: { server_id: text(row['Server_id']) },
+  // Connected replicas registered against this primary (needs REPLICATION MASTER ADMIN).
+  try {
+    const hosts = await client.query('show replica hosts');
+    for (const row of hosts) {
+      replication.push({
+        role: 'standby',
+        peer: `${row['Host'] ?? 'unknown'}:${row['Port'] ?? ''}`,
+        state: 'connected',
+        detail: { kind: 'registered_replica', server_id: text(row['Server_id']) },
+      });
+    }
+  } catch (error) {
+    notes.push({
+      domain: 'replication',
+      level: 'info',
+      message:
+        `Could not list connected replicas (SHOW REPLICA HOSTS): ${
+          error instanceof Error ? error.message : String(error)
+        }. Grant REPLICATION MASTER ADMIN to the monitor user to enable this.`,
     });
   }
 
   const [binlog] = await client.query(
-    'select @@log_bin as log_bin, @@gtid_binlog_pos as gtid_pos, @@server_id as server_id, @@read_only as read_only',
+    `select @@log_bin as log_bin,
+            @@gtid_binlog_pos as gtid_pos,
+            @@server_id as server_id,
+            @@read_only as read_only,
+            @@binlog_format as binlog_format,
+            @@log_bin_basename as log_bin_basename`,
   );
   const logBin = String(binlog?.['log_bin'] ?? '0') === '1';
+  const isReplica = replication.some((row) => row.role === 'replica');
+  const connectedReplicas = replication.filter((row) => row.role === 'standby').length;
 
-  if (replication.length === 0) {
-    replication.push({
+  if (!isReplica) {
+    // Always emit an explicit primary / HA posture row so the console never
+    // looks "empty" when there are simply no replicas yet.
+    const state = !logBin
+      ? 'standalone — binary log OFF (cannot accept replicas or do PITR)'
+      : connectedReplicas > 0
+        ? `primary — ${connectedReplicas} registered replica(s)`
+        : 'primary — binary log ON, no connected replicas';
+    replication.unshift({
       role: 'primary',
       peer: '',
-      state: logBin ? 'binlog activo, sin réplicas' : 'sin replicación',
-      detail: { gtid_pos: text(binlog?.['gtid_pos']), server_id: text(binlog?.['server_id']) },
+      state,
+      detail: {
+        kind: 'ha_posture',
+        log_bin: logBin,
+        gtid_pos: text(binlog?.['gtid_pos']),
+        server_id: text(binlog?.['server_id']),
+        read_only: text(binlog?.['read_only']),
+        binlog_format: text(binlog?.['binlog_format']),
+        connected_replicas: connectedReplicas,
+      },
+    });
+  }
+
+  if (!logBin && !isReplica) {
+    notes.push({
+      domain: 'replication',
+      level: 'warn',
+      message:
+        'Binary logging is OFF (log_bin=0). This MariaDB cannot be a replication primary and has no point-in-time recovery. Enable log_bin in my.cnf and restart to start accepting replicas.',
+    });
+  } else if (logBin && connectedReplicas === 0 && !isReplica) {
+    notes.push({
+      domain: 'replication',
+      level: 'info',
+      message:
+        'This instance can be a primary (binlog on) but no replicas are registered via SHOW REPLICA HOSTS. When a replica connects with report_host set, it appears here.',
     });
   }
   snapshot.replication = replication;

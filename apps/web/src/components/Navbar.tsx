@@ -8,6 +8,7 @@ import { logout } from '@/app/logout/actions';
 const FLEET_LINKS = [
   { href: '/', label: 'Overview', match: (path: string) => path === '/' },
   { href: '/checks', label: 'Checks', match: (path: string) => path.startsWith('/checks') },
+  { href: '/alerts', label: 'Alerts', match: (path: string) => path.startsWith('/alerts') },
   { href: '/events', label: 'Events', match: (path: string) => path.startsWith('/events') },
   { href: '/flow', label: 'Flow', match: (path: string) => path === '/flow' },
   { href: '/report', label: 'Report', match: (path: string) => path.startsWith('/report') },
@@ -17,6 +18,7 @@ const FLEET_LINKS = [
 
 const ADMIN_LINKS = [
   { href: '/admin/instances', label: 'Databases', hint: 'Monitored targets' },
+  { href: '/admin/alerts', label: 'Alerts', hint: 'Webhooks and silences' },
   { href: '/admin/discovery', label: 'Discovery', hint: 'Network scan' },
   { href: '/admin/users', label: 'Users', hint: 'Console accounts' },
   { href: '/admin/retention', label: 'Retention', hint: 'Data lifecycle' },

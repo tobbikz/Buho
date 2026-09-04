@@ -133,7 +133,13 @@ export function InventoryInstance({
 
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Replication</span>
+            <span className="panel-title">Replication & HA</span>
+            <Link
+              href={`/instances/${instanceId}/replication`}
+              className="text-[11px] underline decoration-dotted"
+            >
+              open page
+            </Link>
           </div>
           {inventory.replication.length === 0 ? (
             <div className="empty">No replication data.</div>
@@ -141,10 +147,11 @@ export function InventoryInstance({
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Rol</th>
-                  <th>Par</th>
+                  <th>Role</th>
+                  <th>Peer</th>
                   <th>State</th>
                   <th className="text-right">Lag</th>
+                  <th>Detail</th>
                 </tr>
               </thead>
               <tbody>
@@ -153,7 +160,13 @@ export function InventoryInstance({
                     <td>{row.role}</td>
                     <td className="font-mono text-[11px]">{row.peer || '·'}</td>
                     <td>{row.state ?? '·'}</td>
-                    <td className="num">{row.lagSeconds === null ? '·' : formatDuration(row.lagSeconds)}</td>
+                    <td className="num">{row.lagSeconds == null ? '·' : formatDuration(row.lagSeconds)}</td>
+                    <td className="max-w-0 truncate font-mono text-[10px] text-foreground-muted">
+                      {Object.entries(row.detail ?? {})
+                        .filter(([, value]) => value !== null && value !== '')
+                        .map(([key, value]) => `${key}=${value}`)
+                        .join(' ') || '·'}
+                    </td>
                   </tr>
                 ))}
               </tbody>

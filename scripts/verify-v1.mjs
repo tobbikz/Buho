@@ -39,7 +39,7 @@ if (process.env['BUHO_DEBUG']) {
  * mala. De ahí la comprobación de que el valor quedó escrito antes de enviar.
  */
 async function login() {
-  await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/login`, { waitUntil: 'load', timeout: 60_000 });
 
   if (new URL(page.url()).pathname !== '/login') {
     console.log('· ya había sesión abierta');
@@ -66,7 +66,7 @@ async function login() {
     // que esperar el cambio de URL, no la carga de la página.
     try {
       await page.waitForURL((url) => new URL(url).pathname !== '/login', { timeout: 15_000 });
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('load');
       console.log('· sesión iniciada');
       return;
     } catch {
@@ -75,7 +75,7 @@ async function login() {
         process.exit(1);
       }
     }
-    await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
+    await page.goto(`${BASE}/login`, { waitUntil: 'load', timeout: 60_000 });
   }
 
   console.error('✗ no se pudo entrar: revisar BUHO_USER y BUHO_PASSWORD');
@@ -84,14 +84,16 @@ async function login() {
 
 async function ver(nombre, ruta, esperado) {
   clientErrors = [];
-  const respuesta = await page.goto(`${BASE}${ruta}`, { waitUntil: 'networkidle' });
+  // `load` (not networkidle): live charts / polling keep the network busy and
+  // make networkidle hang forever on pages like /report.
+  const respuesta = await page.goto(`${BASE}${ruta}`, { waitUntil: 'load', timeout: 60_000 });
   const codigo = respuesta?.status() ?? 0;
   const cuerpo = await page.locator('body').innerText();
 
   const problemas = [];
   if (codigo >= 400) problemas.push(`HTTP ${codigo}`);
-  // El panel de error del store responde 200: hay que buscarlo por texto.
-  if (/No se pudo leer el store|Falta la URL del store/i.test(cuerpo)) {
+  // The store error panel returns 200: match by copy, not status.
+  if (/Could not read the store|Store URL is missing|Falta la URL del store|No se pudo leer el store/i.test(cuerpo)) {
     problemas.push('error del store en pantalla');
   }
   if (clientErrors.length > 0) problemas.push(`error de cliente: ${clientErrors[0]}`);
@@ -109,38 +111,38 @@ async function ver(nombre, ruta, esperado) {
 
 await login();
 
-// Pantallas de flota, que no dependen de que exista ninguna instancia.
-await ver('Resumen de flota', '/', 'Flota');
-await ver('Chequeos de la flota', '/checks');
-await ver('Informe semanal', '/report', 'Informe');
-await ver('Informe, semana anterior', '/report?semana=1');
-await ver('Parque: versiones', '/estate/versions');
-await ver('Parque: configuración', '/estate/configuration');
-await ver('Parque: disco', '/estate/disk');
-await ver('Parque: replicación', '/estate/replication');
-await ver('Parque: respaldos', '/estate');
-await ver('Parque: jobs', '/estate/jobs');
-await ver('Parque: licencias', '/estate/licensing');
-await ver('Seguridad', '/security');
-await ver('Seguridad: cuentas', '/security/accounts');
-await ver('Seguridad: cobertura', '/security/coverage');
-await ver('Administración: usuarios', '/admin/users');
-await ver('Administración: retención', '/admin/retention');
-await ver('Administración: descubrimiento', '/admin/discovery');
-await ver('Administración: auditoría', '/admin/audit');
+// Fleet screens — do not require a monitored instance.
+await ver('Fleet overview', '/', 'Fleet');
+await ver('Fleet checks', '/checks');
+await ver('Weekly report', '/report', 'Weekly report');
+await ver('Weekly report, prior week', '/report?semana=1');
+await ver('Estate: versions', '/estate/versions');
+await ver('Estate: configuration', '/estate/configuration');
+await ver('Estate: disk', '/estate/disk');
+await ver('Estate: replication', '/estate/replication');
+await ver('Estate: backups', '/estate');
+await ver('Estate: jobs', '/estate/jobs');
+await ver('Estate: licensing', '/estate/licensing');
+await ver('Security', '/security');
+await ver('Security: accounts', '/security/accounts');
+await ver('Security: coverage', '/security/coverage');
+await ver('Admin: users', '/admin/users');
+await ver('Admin: retention', '/admin/retention');
+await ver('Admin: discovery', '/admin/discovery');
+await ver('Admin: audit', '/admin/audit');
 
-// Descarga del informe: es el entregable, y una ruta aparte de la pantalla.
+// Report download: deliverable route, separate from the page.
 const exportacion = await context.request.get(`${BASE}/report/export`);
 const markdown = await exportacion.text();
-if (exportacion.status() !== 200 || !markdown.startsWith('# Informe semanal')) {
-  errores.push(`Descarga del informe: HTTP ${exportacion.status()}`);
-  console.log(`✗ ${'Descarga del informe'.padEnd(28)} HTTP ${exportacion.status()}`);
+if (exportacion.status() !== 200 || !markdown.startsWith('# Weekly database report')) {
+  errores.push(`Report download: HTTP ${exportacion.status()}`);
+  console.log(`✗ ${'Report download'.padEnd(28)} HTTP ${exportacion.status()}`);
 } else {
-  console.log(`✓ ${'Descarga del informe'.padEnd(28)} ${markdown.length} bytes de Markdown`);
+  console.log(`✓ ${'Report download'.padEnd(28)} ${markdown.length} bytes of Markdown`);
 }
 
-// Pantallas por instancia, con la primera instancia que aparezca en la barra.
-await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+// Instance screens — pick the first instance link in the sidebar.
+await page.goto(`${BASE}/`, { waitUntil: 'load', timeout: 60_000 });
 const enlaces = await page.locator('.sidebar a[href^="/instances/"]').all();
 const ids = [];
 for (const enlace of enlaces) {
@@ -150,26 +152,25 @@ for (const enlace of enlaces) {
 }
 
 if (ids.length === 0) {
-  console.log('· no hay instancias en el store: se omiten las pantallas de instancia');
+  console.log('· no instances in the store: skipping instance screens');
 } else {
-  // Con motores mezclados conviene fijar la instancia: las pantallas de
-  // PostgreSQL son las que más superficie tienen.
+  // Prefer an explicit id when engines are mixed; Postgres has the widest surface.
   const id = process.env['BUHO_INSTANCE'] ?? ids[0];
-  console.log(`· usando la instancia ${id} (de ${ids.length} en la barra)`);
-  await ver('Instancia: resumen', `/instances/${id}`);
-  await ver('Instancia: análisis', `/instances/${id}/analysis?m=connections_total`);
-  await ver('Instancia: consultas', `/instances/${id}/queries`);
-  await ver('Instancia: host', `/instances/${id}/host`);
-  await ver('Instancia: bloqueos', `/instances/${id}/locks`);
-  await ver('Instancia: vacuum', `/instances/${id}/vacuum`);
-  await ver('Instancia: replicación', `/instances/${id}/replication`);
-  await ver('Instancia: log', `/instances/${id}/logs`);
-  await ver('Flota: flujo del parque', '/flow');
-  await ver('Instancia: sesiones y esperas', `/instances/${id}/sessions`);
-  await ver('Instancia: flujo y uso', `/instances/${id}/flow`);
-  await ver('Instancia: capacidad', `/instances/${id}/capacity`);
-  await ver('Instancia: topología', `/instances/${id}/topology`);
-  await ver('Instancia: análisis vs 24h', `/instances/${id}/analysis?m=connections_total&vs=24h`);
+  console.log(`· using instance ${id} (of ${ids.length} in the sidebar)`);
+  await ver('Instance: overview', `/instances/${id}`);
+  await ver('Instance: analysis', `/instances/${id}/analysis?m=connections_total`);
+  await ver('Instance: queries', `/instances/${id}/queries`);
+  await ver('Instance: host', `/instances/${id}/host`);
+  await ver('Instance: locks', `/instances/${id}/locks`);
+  await ver('Instance: vacuum', `/instances/${id}/vacuum`);
+  await ver('Instance: replication', `/instances/${id}/replication`);
+  await ver('Instance: logs', `/instances/${id}/logs`);
+  await ver('Fleet: flow', '/flow');
+  await ver('Instance: sessions', `/instances/${id}/sessions`);
+  await ver('Instance: flow', `/instances/${id}/flow`);
+  await ver('Instance: capacity', `/instances/${id}/capacity`);
+  await ver('Instance: topology', `/instances/${id}/topology`);
+  await ver('Instance: analysis vs 24h', `/instances/${id}/analysis?m=connections_total&vs=24h`);
 }
 
 await browser.close();

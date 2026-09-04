@@ -148,3 +148,25 @@ export async function runForeignChecks(client: EngineClient, caps: ForeignCaps):
 
   return { results, errors, healthScore: healthScore(results) };
 }
+
+export {
+  customCheckId,
+  definitionApplies,
+  evaluateThreshold,
+  findingsFromDefinition,
+  runCustomAlerts,
+  type CustomAlertDefinition,
+  type CustomAlertRunError,
+  type CustomThresholdType,
+} from './custom-alerts';
+
+export {
+  ALERT_PACK_CATALOG,
+  alertPackMetricNames,
+  defaultAlertPack,
+  evaluateAlertPack,
+  mergeAlertPack,
+  type AlertPackConfig,
+  type PackItemMeta,
+  type PackThresholds,
+} from './alert-pack';

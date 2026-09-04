@@ -265,7 +265,7 @@ export async function collectPostgres(client: EngineClient): Promise<InventorySn
       domain: 'backups',
       level: 'info',
       message:
-        'PostgreSQL does not expose a backup catalog: the server cannot report when pg_dump or pg_basebackup last ran. Búho reports what is verifiable from inside the instance — WAL archiving — and real backup tools (pgBackRest, Barman, client scripts) must be integrated separately.',
+        'PostgreSQL does not expose a backup catalog: the server cannot report when pg_dump or pg_basebackup last ran. Búho reports what is verifiable from inside the instance — WAL archiving — and real backup tools (pgBackRest, Barman, client scripts) must be integrated separately. Operational dump/pgBackRest jobs stay outside Búho (as in prod Airflow BACKUPS); Búho alerts on archive health and check findings.',
     },
   ];
 

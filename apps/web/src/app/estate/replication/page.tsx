@@ -34,9 +34,20 @@ export default async function ReplicationPage() {
   }
 
   const withReplicas = rows.filter(
-    (row) => row.role === 'standby' || row.role === 'upstream' || row.role === 'availability_group',
+    (row) =>
+      row.role === 'standby' ||
+      row.role === 'upstream' ||
+      row.role === 'replica' ||
+      (row.role === 'availability_group' && row.peer !== ''),
   );
-  const alone = rows.filter((row) => row.role === 'primary');
+  const alone = rows.filter((row) => {
+    if (row.role !== 'primary' && !(row.role === 'availability_group' && !row.peer)) return false;
+    // Posture-only rows still mean "no live replica peer".
+    return true;
+  }).filter((row) => {
+    // Don't double-count an instance that also has real replica peers.
+    return !withReplicas.some((peer) => peer.instanceId === row.instanceId);
+  });
   const danger = rows.filter(isDangerous);
   const retained = rows
     .filter((row) => row.role === 'slot')

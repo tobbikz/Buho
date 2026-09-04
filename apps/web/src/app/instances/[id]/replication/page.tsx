@@ -1,12 +1,18 @@
 import Link from 'next/link';
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { InstanceTabs } from '@/components/InstanceTabs';
+import { NotesPanel } from '@/components/NotesPanel';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { TimeseriesPanel } from '@/components/TimeseriesPanel';
 import { Topbar } from '@/components/Topbar';
 import { formatAgo, formatBytes, formatClock, formatDuration, formatNumber } from '@/lib/format';
-import { getInstanceEngine } from '@/lib/estate';
+import {
+  ENGINE_LABEL,
+  getInstanceEngine,
+  getInstanceInventory,
+  type ReplicationRow as EstateReplicationRow,
+} from '@/lib/estate';
 import { getInstance, getSeries, getSeriesByLabel } from '@/lib/queries';
 import {
   getReplicationTopology,
@@ -244,7 +250,9 @@ export default async function ReplicationPage({
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
 
   const engineKind = await getInstanceEngine(instanceId);
-  if (engineKind && engineKind !== 'postgres') redirect(`/instances/${instanceId}`);
+  if (engineKind && engineKind !== 'postgres') {
+    return <ForeignReplicationPage instanceId={instanceId} engine={engineKind} />;
+  }
 
   const window = WINDOWS.find((candidate) => candidate.key === w) ?? WINDOWS[1]!;
 
@@ -603,6 +611,148 @@ export default async function ReplicationPage({
             </div>
           </section>
         )}
+      </div>
+    </>
+  );
+}
+
+async function ForeignReplicationPage({
+  instanceId,
+  engine,
+}: {
+  instanceId: number;
+  engine: string;
+}) {
+  let instance;
+  let inventory;
+  try {
+    [instance, inventory] = await Promise.all([
+      getInstance(instanceId),
+      getInstanceInventory(instanceId),
+    ]);
+  } catch (error) {
+    return (
+      <>
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: String(instanceId) }]} />
+        <div className="page">
+          <StoreError message={error instanceof Error ? error.message : String(error)} />
+        </div>
+      </>
+    );
+  }
+  if (!instance) notFound();
+
+  const rows = inventory.replication as EstateReplicationRow[];
+  const instanceNotes = inventory.notes.filter((note) => note.domain === 'replication');
+  const hadr = rows.find((row) => row.detail?.['kind'] === 'hadr_posture');
+  const haPosture = rows.find((row) => row.detail?.['kind'] === 'ha_posture');
+  const peers = rows.filter(
+    (row) =>
+      row.role === 'standby' ||
+      row.role === 'replica' ||
+      (row.role === 'availability_group' && row.peer) ||
+      String(row.detail?.['kind'] ?? '').startsWith('log_shipping') ||
+      String(row.detail?.['kind'] ?? '') === 'mirroring' ||
+      String(row.detail?.['kind'] ?? '').startsWith('transactional'),
+  );
+
+  return (
+    <>
+      <Topbar
+        crumbs={[
+          { label: 'Fleet', href: '/' },
+          { label: instance.alias, href: `/instances/${instanceId}` },
+          { label: 'Replication' },
+        ]}
+      />
+      <div className="page">
+        <header className="page-header">
+          <div>
+            <h1 className="page-title">Replication & HA</h1>
+            <p className="page-sub">
+              {ENGINE_LABEL[engine] ?? engine} · inventory snapshot
+              {inventory.engine?.capturedAt ? ` · read ${formatAgo(inventory.engine.capturedAt)}` : ''}
+            </p>
+          </div>
+          <Link href="/estate/replication" className="btn">
+            Fleet replication
+          </Link>
+        </header>
+
+        <InstanceTabs instanceId={instanceId} engine={engine} />
+
+        <div className="stat-grid">
+          <StatCard
+            label="Live peers"
+            value={String(peers.length)}
+            hint="replicas, AG members, log shipping, mirroring"
+            tone={peers.length > 0 ? 'ok' : 'warn'}
+          />
+          <StatCard
+            label="HA posture"
+            value={
+              hadr
+                ? String(hadr.detail?.['is_hadr_enabled'] ? 'Always On ON' : 'Always On OFF')
+                : haPosture
+                  ? String(haPosture.detail?.['log_bin'] ? 'binlog ON' : 'binlog OFF')
+                  : '—'
+            }
+            hint={engine === 'mssql' ? 'SERVERPROPERTY(IsHadrEnabled)' : '@@log_bin'}
+          />
+          <StatCard
+            label="Worst lag"
+            value={
+              peers.some((row) => row.lagSeconds != null)
+                ? formatDuration(Math.max(...peers.map((row) => row.lagSeconds ?? 0)))
+                : '—'
+            }
+          />
+        </div>
+
+        {instanceNotes.length > 0 ? <NotesPanel notes={instanceNotes} title="What this means" /> : null}
+
+        <section className="panel">
+          <div className="panel-header">
+            <span className="panel-title">Topology from the engine</span>
+          </div>
+          {rows.length === 0 ? (
+            <div className="empty">No replication inventory yet — wait for the hourly collector pass.</div>
+          ) : (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Role</th>
+                    <th>Peer</th>
+                    <th>State</th>
+                    <th className="text-right">Lag</th>
+                    <th>Detail</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, index) => (
+                    <tr key={`${row.role}-${row.peer}-${index}`}>
+                      <td>{row.role}</td>
+                      <td className="font-mono text-[11px]">{row.peer || '·'}</td>
+                      <td>
+                        <span className="tag tag--muted">{row.state ?? '·'}</span>
+                      </td>
+                      <td className="num">
+                        {row.lagSeconds == null ? '·' : formatDuration(row.lagSeconds)}
+                      </td>
+                      <td className="max-w-0 truncate font-mono text-[10px] text-foreground-muted">
+                        {Object.entries(row.detail ?? {})
+                          .filter(([, value]) => value !== null && value !== '')
+                          .map(([key, value]) => `${key}=${value}`)
+                          .join(' ') || '·'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
     </>
   );

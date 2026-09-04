@@ -1244,3 +1244,142 @@ begin
   return affected;
 end;
 $$;
+
+-- ------------------------------------------------------------------- alerts
+--
+-- Búho owns its own alerting (product decision 2026-09-03): checks produce
+-- findings; this layer decides when to fire, silence, and deliver. Webhook
+-- first; SMTP can reuse the same delivery queue later.
+
+create table if not exists buho.alert_channels (
+  channel_id  bigint      generated always as identity primary key,
+  name        text        not null,
+  kind        text        not null   check (kind in ('webhook', 'slack', 'teams', 'telegram', 'rocketchat', 'smtp')),
+  config      jsonb       not null default '{}',
+  enabled     boolean     not null default true,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+-- Drop rocketchat-only experiment rows used a different shape; widen kind check.
+delete from buho.alert_channels where kind not in ('webhook', 'slack', 'teams', 'telegram', 'rocketchat', 'smtp');
+alter table buho.alert_channels drop constraint if exists alert_channels_kind_check;
+alter table buho.alert_channels
+  add constraint alert_channels_kind_check
+  check (kind in ('webhook', 'slack', 'teams', 'telegram', 'rocketchat', 'smtp'));
+
+create table if not exists buho.alerts (
+  alert_id       bigint      generated always as identity primary key,
+  instance_id    bigint      not null references buho.instances (instance_id) on delete cascade,
+  dedupe_key     text        not null,
+  check_id       text        not null,
+  object         text,
+  severity       text        not null check (severity in ('critical', 'warning', 'info')),
+  title          text        not null,
+  message        text        not null,
+  remediation    text        not null,
+  status         text        not null check (status in ('pending', 'firing', 'resolved')),
+  pending_count  integer     not null default 0,
+  fired_at       timestamptz,
+  resolved_at    timestamptz,
+  last_seen_at   timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  unique (instance_id, dedupe_key)
+);
+
+create index if not exists alerts_open_lookup
+  on buho.alerts (status, severity, last_seen_at desc)
+  where status in ('pending', 'firing');
+
+create table if not exists buho.alert_silences (
+  silence_id   bigint      generated always as identity primary key,
+  instance_id  bigint      references buho.instances (instance_id) on delete cascade,
+  check_id     text,
+  reason       text        not null,
+  starts_at    timestamptz not null default now(),
+  ends_at      timestamptz not null,
+  created_by   text,
+  created_at   timestamptz not null default now(),
+  check (ends_at > starts_at)
+);
+
+create index if not exists alert_silences_active
+  on buho.alert_silences (ends_at);
+
+create table if not exists buho.alert_deliveries (
+  delivery_id     bigint      generated always as identity primary key,
+  alert_id        bigint      not null references buho.alerts (alert_id) on delete cascade,
+  channel_id      bigint      not null references buho.alert_channels (channel_id) on delete cascade,
+  event           text        not null check (event in ('fired', 'resolved')),
+  status          text        not null check (status in ('pending', 'sent', 'failed')),
+  attempts        integer     not null default 0,
+  last_error      text,
+  next_attempt_at timestamptz not null default now(),
+  sent_at         timestamptz,
+  created_at      timestamptz not null default now()
+);
+
+create index if not exists alert_deliveries_pending
+  on buho.alert_deliveries (next_attempt_at)
+  where status = 'pending';
+
+-- Per-check / per-instance routing. First matching rule by priority wins.
+create table if not exists buho.alert_rules (
+  rule_id            bigint      generated always as identity primary key,
+  name               text        not null,
+  enabled            boolean     not null default true,
+  match_check_id     text,
+  match_instance_id  bigint      references buho.instances (instance_id) on delete cascade,
+  match_engine       text,
+  match_severities   text[]      not null default array['critical','warning'],
+  action             text        not null default 'alert'
+                       check (action in ('alert', 'suppress')),
+  hysteresis         integer     check (hysteresis is null or hysteresis between 1 and 20),
+  severity_override  text        check (severity_override is null
+                                   or severity_override in ('critical', 'warning', 'info')),
+  channel_ids        bigint[]    not null default '{}',
+  notify_resolved    boolean     not null default true,
+  priority           integer     not null default 100,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now(),
+  updated_by         text
+);
+
+create index if not exists alert_rules_lookup
+  on buho.alert_rules (enabled, priority, match_check_id, match_instance_id);
+
+-- Custom SQL alerts (prod Sys_Alerts granularity): named query + threshold_type.
+-- check_id in buho.alerts becomes custom.<name>. Scope with instance and/or engine.
+create table if not exists buho.alert_definitions (
+  definition_id      bigint      generated always as identity primary key,
+  name               text        not null,
+  title              text        not null,
+  enabled            boolean     not null default true,
+  match_instance_id  bigint      references buho.instances (instance_id) on delete cascade,
+  match_engine       text,
+  severity           text        not null check (severity in ('critical', 'warning', 'info')),
+  sql                text        not null,
+  threshold_type     text        not null
+                       check (threshold_type in (
+                         'rows', 'no_rows', 'numeric', 'freshness', 'text_match',
+                         'numeric_per_row', 'numeric_max_across_rows', 'delta'
+                       )),
+  threshold          jsonb       not null default '{}'::jsonb,
+  message_template   text        not null,
+  remediation        text        not null default '',
+  recovery_message   text,
+  send_recovery      boolean     not null default true,
+  cooldown_minutes   integer     not null default 0 check (cooldown_minutes >= 0),
+  display_columns    text[]      not null default '{}',
+  hysteresis         integer     check (hysteresis is null or hysteresis between 1 and 20),
+  channel_ids        bigint[]    not null default '{}',
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now(),
+  updated_by         text,
+  unique (name),
+  check (match_instance_id is not null or match_engine is not null)
+);
+
+create index if not exists alert_definitions_scope
+  on buho.alert_definitions (enabled, match_engine, match_instance_id);
+

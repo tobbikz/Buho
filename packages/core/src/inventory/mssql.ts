@@ -378,32 +378,100 @@ export async function collectMssql(client: EngineClient): Promise<InventorySnaps
     });
   }
 
-  // ------------------------------------------------------------ replicación
+  // ------------------------------------------------------------ replicación / HA
   const replication: ReplicationRow[] = [];
   const hadr = props?.['hadr_enabled'] === 1 || props?.['hadr_enabled'] === true;
 
+  // Always surface Always On posture — an empty AG list with HADR off used to
+  // look like "Búho does not support AG" rather than "AG is disabled here".
+  replication.push({
+    role: 'availability_group',
+    peer: '',
+    state: hadr ? 'Always On enabled' : 'Always On DISABLED',
+    detail: {
+      kind: 'hadr_posture',
+      is_hadr_enabled: hadr,
+      edition: edition,
+      note: hadr
+        ? 'sys.availability_groups is readable; replica rows follow when groups exist.'
+        : 'SERVERPROPERTY(IsHadrEnabled)=0. Enable Always On Availability Groups on Windows Server / failover cluster, or use log shipping / transactional replication below.',
+    },
+  });
+
   if (hadr) {
-    const replicas = await client.query(
-      `select ar.replica_server_name, ar.availability_mode_desc, ar.failover_mode_desc,
-              hars.role_desc, hars.synchronization_health_desc, hars.connected_state_desc,
-              ag.name as group_name
-         from sys.availability_replicas ar
-         join sys.availability_groups ag on ag.group_id = ar.group_id
-         left join sys.dm_hadr_availability_replica_states hars on hars.replica_id = ar.replica_id`,
-    );
-    for (const row of replicas) {
-      replication.push({
-        role: 'availability_group',
-        peer: String(row['replica_server_name'] ?? 'desconocido'),
-        state: text(row['synchronization_health_desc']) ?? text(row['connected_state_desc']),
-        detail: {
-          group: text(row['group_name']),
-          role: text(row['role_desc']),
-          availability_mode: text(row['availability_mode_desc']),
-          failover_mode: text(row['failover_mode_desc']),
-        },
+    try {
+      const replicas = await client.query(
+        `select ar.replica_server_name, ar.availability_mode_desc, ar.failover_mode_desc,
+                hars.role_desc, hars.synchronization_health_desc, hars.connected_state_desc,
+                ag.name as group_name,
+                datediff(second, hars.last_connect_date, sysutcdatetime()) as seconds_since_connect
+           from sys.availability_replicas ar
+           join sys.availability_groups ag on ag.group_id = ar.group_id
+           left join sys.dm_hadr_availability_replica_states hars on hars.replica_id = ar.replica_id`,
+      );
+      for (const row of replicas) {
+        replication.push({
+          role: 'availability_group',
+          peer: String(row['replica_server_name'] ?? 'unknown'),
+          state: text(row['synchronization_health_desc']) ?? text(row['connected_state_desc']),
+          detail: {
+            kind: 'availability_replica',
+            group: text(row['group_name']),
+            role: text(row['role_desc']),
+            availability_mode: text(row['availability_mode_desc']),
+            failover_mode: text(row['failover_mode_desc']),
+            connected_state: text(row['connected_state_desc']),
+          },
+        });
+      }
+
+      const dbJoin = await client.query(
+        `select ag.name as group_name, db_name(drs.database_id) as db,
+                drs.is_local, drs.is_primary_replica, drs.synchronization_state_desc,
+                drs.synchronization_health_desc,
+                drs.secondary_lag_seconds
+           from sys.dm_hadr_database_replica_states drs
+           join sys.availability_replicas ar on ar.replica_id = drs.replica_id
+           join sys.availability_groups ag on ag.group_id = ar.group_id
+          where drs.is_local = 1`,
+      );
+      for (const row of dbJoin) {
+        replication.push({
+          role: 'availability_group',
+          peer: String(row['db'] ?? 'unknown'),
+          state: text(row['synchronization_health_desc']) ?? text(row['synchronization_state_desc']),
+          lagSeconds: num(row['secondary_lag_seconds']),
+          detail: {
+            kind: 'availability_database',
+            group: text(row['group_name']),
+            is_primary_replica: row['is_primary_replica'] === true,
+            synchronization_state: text(row['synchronization_state_desc']),
+          },
+        });
+      }
+
+      if (replicas.length === 0) {
+        notes.push({
+          domain: 'replication',
+          level: 'warn',
+          message:
+            'Always On is enabled but no availability groups exist yet. Create an AG to get replica health and lag here.',
+        });
+      }
+    } catch (error) {
+      notes.push({
+        domain: 'replication',
+        level: 'warn',
+        message: `Could not read Always On DMVs: ${error instanceof Error ? error.message : String(error)}`,
       });
     }
+  } else {
+    notes.push({
+      domain: 'replication',
+      level: 'info',
+      message:
+        'Always On Availability Groups are disabled on this instance (IsHadrEnabled=0). Búho still checks database mirroring, log shipping, and transactional replication below.',
+    });
   }
 
   const mirroring = await client.query(
@@ -415,26 +483,102 @@ export async function collectMssql(client: EngineClient): Promise<InventorySnaps
   for (const row of mirroring) {
     replication.push({
       role: 'standby',
-      peer: String(row['mirroring_partner_name'] ?? 'desconocido'),
+      peer: String(row['mirroring_partner_name'] ?? 'unknown'),
       state: text(row['mirroring_state_desc']),
-      detail: { database: text(row['db']), role: text(row['mirroring_role_desc']), kind: 'mirroring' },
+      detail: {
+        kind: 'mirroring',
+        database: text(row['db']),
+        role: text(row['mirroring_role_desc']),
+      },
     });
   }
 
-  if (replication.length === 0) {
+  try {
+    const logShipPrimary = await client.query(
+      `select primary_database, monitor_server,
+              datediff(second, last_backup_date, sysutcdatetime()) as seconds_since_backup,
+              last_backup_file
+         from msdb.dbo.log_shipping_primary_databases`,
+    );
+    for (const row of logShipPrimary) {
+      replication.push({
+        role: 'primary',
+        peer: String(row['primary_database'] ?? ''),
+        state: 'log shipping primary',
+        lagSeconds: num(row['seconds_since_backup']),
+        detail: {
+          kind: 'log_shipping_primary',
+          monitor_server: text(row['monitor_server']),
+          last_backup_file: text(row['last_backup_file']),
+        },
+      });
+    }
+    const logShipSecondary = await client.query(
+      `select sd.secondary_database, s.primary_server, s.primary_database,
+              datediff(second, sd.last_restored_date, sysutcdatetime()) as seconds_since_restore,
+              sd.last_restored_file
+         from msdb.dbo.log_shipping_secondary_databases sd
+         join msdb.dbo.log_shipping_secondary s on s.secondary_id = sd.secondary_id`,
+    );
+    for (const row of logShipSecondary) {
+      replication.push({
+        role: 'standby',
+        peer: `${row['primary_server'] ?? '?'}/${row['primary_database'] ?? '?'}`,
+        state: 'log shipping secondary',
+        lagSeconds: num(row['seconds_since_restore']),
+        detail: {
+          kind: 'log_shipping_secondary',
+          secondary_database: text(row['secondary_database']),
+          last_restored_file: text(row['last_restored_file']),
+        },
+      });
+    }
+  } catch (error) {
+    notes.push({
+      domain: 'replication',
+      level: 'info',
+      message:
+        `Log shipping catalog not readable: ${error instanceof Error ? error.message : String(error)}. Grant SELECT on msdb.dbo.log_shipping_* to the monitor login.`,
+    });
+  }
+
+  try {
+    const pubs = await client.query(
+      `select p.name as publication, p.publication_type, p.status,
+              d.name as publisher_db
+         from distribution.dbo.MSpublications p
+         join distribution.dbo.MSpublisher_databases d on d.publisher_id = p.publisher_id`,
+    );
+    for (const row of pubs) {
+      replication.push({
+        role: 'primary',
+        peer: String(row['publication'] ?? ''),
+        state: `txn replication · status ${row['status'] ?? '?'}`,
+        detail: {
+          kind: 'transactional_publication',
+          publisher_db: text(row['publisher_db']),
+          publication_type: text(row['publication_type']),
+        },
+      });
+    }
+  } catch {
+    // distribution DB is absent on most installs — silence is correct.
+  }
+
+  const haRows = replication.filter(
+    (row) =>
+      (row.detail?.['kind'] !== 'hadr_posture' && row.role === 'availability_group') ||
+      row.detail?.['kind'] === 'mirroring' ||
+      String(row.detail?.['kind'] ?? '').startsWith('log_shipping') ||
+      String(row.detail?.['kind'] ?? '').startsWith('transactional'),
+  );
+  if (haRows.length === 0 && !hadr) {
     replication.push({
       role: 'primary',
       peer: '',
-      state: hadr ? 'AlwaysOn habilitado, sin grupos' : 'sin alta disponibilidad configurada',
+      state: 'no HA mechanism configured (no AG, mirroring, log shipping, or txn replication)',
+      detail: { kind: 'ha_summary', is_hadr_enabled: false },
     });
-    if (!hadr) {
-      notes.push({
-        domain: 'replication',
-        level: 'info',
-        message:
-          'AlwaysOn está deshabilitado y no hay mirroring. Búho lee además log shipping y replicación transaccional cuando existen; acá no hay ninguna réplica que reportar.',
-      });
-    }
   }
   snapshot.replication = replication;
 

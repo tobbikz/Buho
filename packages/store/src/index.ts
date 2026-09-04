@@ -15,7 +15,34 @@ import type {
   SecurityAudit,
   StatementDelta,
 } from '@buho/core';
-import type { CheckResult } from '@buho/checks';
+import type {
+  AlertPackConfig,
+  CheckResult,
+  CustomAlertDefinition,
+  CustomThresholdType,
+} from '@buho/checks';
+import {
+  alertPackMetricNames,
+  customCheckId,
+  mergeAlertPack,
+} from '@buho/checks';
+import {
+  ALERT_SETTINGS_DEFAULTS,
+  actionableFindings,
+  alertDedupeKey,
+  pickAlertRule,
+  resolveChannelDelivery,
+  smtpMailContent,
+  type AlertChannelKind,
+  type AlertChannelRow,
+  type AlertDeliveryJob,
+  type AlertReconcileSummary,
+  type AlertRow,
+  type AlertRuleRow,
+  type AlertSettings,
+  type AlertSeverity,
+  type AlertStatus,
+} from './alerts';
 
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
@@ -1547,7 +1574,841 @@ export class Store {
   async deleteMonitorTarget(targetId: number): Promise<void> {
     await this.pool.query(`delete from buho.monitor_targets where target_id = $1`, [targetId]);
   }
+
+  async alertSettings(): Promise<AlertSettings> {
+    const result = await this.pool.query<{ value: Partial<AlertSettings> }>(
+      "select value from buho.settings where key = 'alerts'",
+    );
+    const stored = result.rows[0]?.value;
+    if (!stored) return { ...ALERT_SETTINGS_DEFAULTS, hysteresis: { ...ALERT_SETTINGS_DEFAULTS.hysteresis } };
+    return {
+      enabled: stored.enabled ?? ALERT_SETTINGS_DEFAULTS.enabled,
+      minSeverity: stored.minSeverity ?? ALERT_SETTINGS_DEFAULTS.minSeverity,
+      hysteresis: { ...ALERT_SETTINGS_DEFAULTS.hysteresis, ...(stored.hysteresis ?? {}) },
+    };
+  }
+
+  async saveAlertSettings(settings: AlertSettings, updatedBy?: string): Promise<void> {
+    await this.pool.query(
+      `insert into buho.settings (key, value, updated_at, updated_by)
+            values ('alerts', $1::jsonb, now(), $2)
+       on conflict (key) do update
+              set value = excluded.value, updated_at = now(), updated_by = excluded.updated_by`,
+      [JSON.stringify(settings), updatedBy ?? null],
+    );
+  }
+
+  /**
+   * Turns the latest check findings into pending/firing/resolved alerts and
+   * enqueues webhook deliveries. Safe to call every check cycle.
+   */
+  async reconcileAlerts(
+    instanceId: number,
+    results: CheckResult[],
+  ): Promise<AlertReconcileSummary> {
+    const settings = await this.alertSettings();
+    const summary: AlertReconcileSummary = {
+      opened: 0,
+      fired: 0,
+      resolved: 0,
+      silenced: 0,
+      suppressed: 0,
+    };
+    if (!settings.enabled) return summary;
+
+    const engineRow = await this.pool.query<{ engine: string }>(
+      `select engine from buho.instances where instance_id = $1`,
+      [instanceId],
+    );
+    const engine = engineRow.rows[0]?.engine ?? 'postgres';
+    const rules = await this.listAlertRules();
+    const definitions = await this.listAlertDefinitions();
+    const defByCheckId = new Map(
+      definitions.map((def) => [customCheckId(def.name), def] as const),
+    );
+
+    const findings = actionableFindings(results, settings);
+    const now = new Date();
+    const seen = new Set<string>();
+    const notifyResolvedByKey = new Map<string, boolean>();
+    const channelsByKey = new Map<string, number[] | null>();
+
+    const silences = await this.pool.query<{ instance_id: string | null; check_id: string | null }>(
+      `select instance_id::text, check_id
+         from buho.alert_silences
+        where ends_at > now()
+          and starts_at <= now()
+          and (instance_id is null or instance_id = $1)`,
+      [instanceId],
+    );
+
+    const isSilenced = (checkId: string): boolean =>
+      silences.rows.some(
+        (row) =>
+          (row.instance_id === null || Number(row.instance_id) === instanceId) &&
+          (row.check_id === null || row.check_id === checkId),
+      );
+
+    for (const finding of findings) {
+      const key = alertDedupeKey(finding.checkId, finding.object);
+      seen.add(key);
+      if (isSilenced(finding.checkId)) {
+        summary.silenced += 1;
+        continue;
+      }
+
+      const rule = pickAlertRule(rules, finding, instanceId, engine);
+      if (rule?.action === 'suppress') {
+        summary.suppressed += 1;
+        continue;
+      }
+
+      const def = defByCheckId.get(finding.checkId);
+      const severity = (rule?.severityOverride ?? finding.severity) as AlertSeverity;
+      const threshold =
+        rule?.hysteresis ??
+        def?.hysteresis ??
+        settings.hysteresis[severity] ??
+        settings.hysteresis.warning;
+      notifyResolvedByKey.set(key, rule?.notifyResolved ?? def?.sendRecovery ?? true);
+      channelsByKey.set(
+        key,
+        rule && rule.channelIds.length > 0
+          ? rule.channelIds
+          : def && def.channelIds.length > 0
+            ? def.channelIds
+            : null,
+      );
+
+      const existing = await this.pool.query<{
+        alert_id: string;
+        status: AlertStatus;
+        pending_count: number;
+      }>(
+        `select alert_id::text, status, pending_count
+           from buho.alerts
+          where instance_id = $1 and dedupe_key = $2`,
+        [instanceId, key],
+      );
+
+      const row = existing.rows[0];
+      if (!row) {
+        const pendingCount = 1;
+        const fireNow = pendingCount >= threshold;
+        const inserted = await this.pool.query<{ alert_id: string }>(
+          `insert into buho.alerts
+             (instance_id, dedupe_key, check_id, object, severity, title, message, remediation,
+              status, pending_count, fired_at, last_seen_at, updated_at)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), now())
+           returning alert_id::text`,
+          [
+            instanceId,
+            key,
+            finding.checkId,
+            finding.object ?? null,
+            severity,
+            finding.title,
+            finding.message,
+            finding.remediation,
+            fireNow ? 'firing' : 'pending',
+            pendingCount,
+            fireNow ? now : null,
+          ],
+        );
+        summary.opened += 1;
+        if (fireNow) {
+          summary.fired += 1;
+          await this.enqueueAlertDeliveries(
+            Number(inserted.rows[0]!.alert_id),
+            'fired',
+            channelsByKey.get(key) ?? null,
+          );
+        }
+        continue;
+      }
+
+      const alertId = Number(row.alert_id);
+      if (row.status === 'firing') {
+        await this.pool.query(
+          `update buho.alerts
+              set severity = $2, title = $3, message = $4, remediation = $5, object = $6,
+                  last_seen_at = now(), updated_at = now(), resolved_at = null
+            where alert_id = $1`,
+          [alertId, severity, finding.title, finding.message, finding.remediation, finding.object ?? null],
+        );
+        continue;
+      }
+
+      if (row.status === 'resolved') {
+        const pendingCount = 1;
+        const fireNow = pendingCount >= threshold;
+        await this.pool.query(
+          `update buho.alerts
+              set severity = $2, title = $3, message = $4, remediation = $5, object = $6,
+                  status = $7, pending_count = $8, fired_at = $9, resolved_at = null,
+                  last_seen_at = now(), updated_at = now()
+            where alert_id = $1`,
+          [
+            alertId,
+            severity,
+            finding.title,
+            finding.message,
+            finding.remediation,
+            finding.object ?? null,
+            fireNow ? 'firing' : 'pending',
+            pendingCount,
+            fireNow ? now : null,
+          ],
+        );
+        summary.opened += 1;
+        if (fireNow) {
+          summary.fired += 1;
+          await this.enqueueAlertDeliveries(alertId, 'fired', channelsByKey.get(key) ?? null);
+        }
+        continue;
+      }
+
+      const pendingCount = row.pending_count + 1;
+      const fireNow = pendingCount >= threshold;
+      await this.pool.query(
+        `update buho.alerts
+            set severity = $2, title = $3, message = $4, remediation = $5, object = $6,
+                status = $7, pending_count = $8, fired_at = coalesce(fired_at, $9),
+                last_seen_at = now(), updated_at = now()
+          where alert_id = $1`,
+        [
+          alertId,
+          severity,
+          finding.title,
+          finding.message,
+          finding.remediation,
+          finding.object ?? null,
+          fireNow ? 'firing' : 'pending',
+          pendingCount,
+          fireNow ? now : null,
+        ],
+      );
+      if (fireNow) {
+        summary.fired += 1;
+        await this.enqueueAlertDeliveries(alertId, 'fired', channelsByKey.get(key) ?? null);
+      }
+    }
+
+    const open = await this.pool.query<{
+      alert_id: string;
+      dedupe_key: string;
+      status: AlertStatus;
+    }>(
+      `select alert_id::text, dedupe_key, status
+         from buho.alerts
+        where instance_id = $1 and status in ('pending', 'firing')`,
+      [instanceId],
+    );
+    for (const row of open.rows) {
+      if (seen.has(row.dedupe_key)) continue;
+      await this.pool.query(
+        `update buho.alerts
+            set status = 'resolved', resolved_at = now(), updated_at = now(), pending_count = 0
+          where alert_id = $1`,
+        [row.alert_id],
+      );
+      if (row.status === 'firing' && (notifyResolvedByKey.get(row.dedupe_key) ?? true)) {
+        summary.resolved += 1;
+        await this.enqueueAlertDeliveries(
+          Number(row.alert_id),
+          'resolved',
+          channelsByKey.get(row.dedupe_key) ?? null,
+        );
+      }
+    }
+
+    return summary;
+  }
+
+  private async enqueueAlertDeliveries(
+    alertId: number,
+    event: 'fired' | 'resolved',
+    channelIds: number[] | null = null,
+  ): Promise<void> {
+    const channels =
+      channelIds && channelIds.length > 0
+        ? await this.pool.query<{ channel_id: string }>(
+            `select channel_id::text from buho.alert_channels
+              where enabled
+                and kind in ('webhook', 'slack', 'teams', 'telegram', 'rocketchat', 'smtp')
+                and channel_id = any($1::bigint[])`,
+            [channelIds],
+          )
+        : await this.pool.query<{ channel_id: string }>(
+            `select channel_id::text from buho.alert_channels
+              where enabled
+                and kind in ('webhook', 'slack', 'teams', 'telegram', 'rocketchat', 'smtp')`,
+          );
+    for (const channel of channels.rows) {
+      await this.pool.query(
+        `insert into buho.alert_deliveries (alert_id, channel_id, event, status, next_attempt_at)
+              values ($1, $2, $3, 'pending', now())`,
+        [alertId, channel.channel_id, event],
+      );
+    }
+  }
+
+  async listAlertRules(): Promise<AlertRuleRow[]> {
+    const result = await this.pool.query<Record<string, unknown>>(
+      `select rule_id, name, enabled, match_check_id, match_instance_id, match_engine,
+              match_severities, action, hysteresis, severity_override, channel_ids,
+              notify_resolved, priority, updated_at, updated_by
+         from buho.alert_rules
+        order by priority, rule_id`,
+    );
+    return result.rows.map(mapAlertRule);
+  }
+
+  async upsertAlertRule(input: {
+    ruleId?: number;
+    name: string;
+    enabled: boolean;
+    matchCheckId?: string | null;
+    matchInstanceId?: number | null;
+    matchEngine?: string | null;
+    matchSeverities: AlertSeverity[];
+    action: 'alert' | 'suppress';
+    hysteresis?: number | null;
+    severityOverride?: AlertSeverity | null;
+    channelIds?: number[];
+    notifyResolved?: boolean;
+    priority?: number;
+    updatedBy?: string;
+  }): Promise<number> {
+    if (input.ruleId) {
+      await this.pool.query(
+        `update buho.alert_rules
+            set name=$2, enabled=$3, match_check_id=$4, match_instance_id=$5, match_engine=$6,
+                match_severities=$7::text[], action=$8, hysteresis=$9, severity_override=$10,
+                channel_ids=$11::bigint[], notify_resolved=$12, priority=$13,
+                updated_at=now(), updated_by=$14
+          where rule_id=$1`,
+        [
+          input.ruleId,
+          input.name,
+          input.enabled,
+          input.matchCheckId ?? null,
+          input.matchInstanceId ?? null,
+          input.matchEngine ?? null,
+          input.matchSeverities,
+          input.action,
+          input.hysteresis ?? null,
+          input.severityOverride ?? null,
+          input.channelIds ?? [],
+          input.notifyResolved ?? true,
+          input.priority ?? 100,
+          input.updatedBy ?? null,
+        ],
+      );
+      return input.ruleId;
+    }
+    const inserted = await this.pool.query<{ rule_id: string }>(
+      `insert into buho.alert_rules
+         (name, enabled, match_check_id, match_instance_id, match_engine, match_severities,
+          action, hysteresis, severity_override, channel_ids, notify_resolved, priority, updated_by)
+       values ($1,$2,$3,$4,$5,$6::text[],$7,$8,$9,$10::bigint[],$11,$12,$13)
+       returning rule_id::text`,
+      [
+        input.name,
+        input.enabled,
+        input.matchCheckId ?? null,
+        input.matchInstanceId ?? null,
+        input.matchEngine ?? null,
+        input.matchSeverities,
+        input.action,
+        input.hysteresis ?? null,
+        input.severityOverride ?? null,
+        input.channelIds ?? [],
+        input.notifyResolved ?? true,
+        input.priority ?? 100,
+        input.updatedBy ?? null,
+      ],
+    );
+    return Number(inserted.rows[0]!.rule_id);
+  }
+
+  async deleteAlertRule(ruleId: number): Promise<void> {
+    await this.pool.query(`delete from buho.alert_rules where rule_id = $1`, [ruleId]);
+  }
+
+  async listAlerts(opts: {
+    status?: AlertStatus[];
+    limit?: number;
+  } = {}): Promise<AlertRow[]> {
+    const statuses = opts.status ?? ['pending', 'firing'];
+    const limit = opts.limit ?? 200;
+    const result = await this.pool.query<Record<string, unknown>>(
+      `select a.alert_id, a.instance_id, i.alias, i.engine, a.dedupe_key, a.check_id, a.object,
+              a.severity, a.title, a.message, a.remediation, a.status, a.pending_count,
+              a.fired_at, a.resolved_at, a.last_seen_at, a.updated_at
+         from buho.alerts a
+         join buho.instances i using (instance_id)
+        where a.status = any($1::text[])
+        order by case a.severity when 'critical' then 0 when 'warning' then 1 else 2 end,
+                 a.last_seen_at desc
+        limit $2`,
+      [statuses, limit],
+    );
+    return result.rows.map(mapAlertRow);
+  }
+
+  async listAlertChannels(): Promise<AlertChannelRow[]> {
+    const result = await this.pool.query<Record<string, unknown>>(
+      `select channel_id, name, kind, config, enabled, created_at, updated_at
+         from buho.alert_channels
+        order by channel_id`,
+    );
+    return result.rows.map(mapAlertChannel);
+  }
+
+  async alertPackSettings(): Promise<AlertPackConfig> {
+    const result = await this.pool.query<{ value: Partial<AlertPackConfig> }>(
+      "select value from buho.settings where key = 'alert_pack'",
+    );
+    return mergeAlertPack(result.rows[0]?.value ?? null);
+  }
+
+  async saveAlertPackSettings(pack: AlertPackConfig, updatedBy: string): Promise<void> {
+    const merged = mergeAlertPack(pack);
+    await this.pool.query(
+      `insert into buho.settings (key, value, updated_at, updated_by)
+            values ('alert_pack', $1::jsonb, now(), $2)
+       on conflict (key) do update
+              set value = excluded.value, updated_at = now(), updated_by = excluded.updated_by`,
+      [JSON.stringify(merged), updatedBy],
+    );
+  }
+
+  /** Latest value per metric name (any labels — pack uses unlabeled aggregates). */
+  async latestMetrics(
+    instanceId: number,
+    metrics: string[],
+  ): Promise<Record<string, number>> {
+    if (metrics.length === 0) return {};
+    const result = await this.pool.query<{ metric: string; value: number }>(
+      `select distinct on (metric) metric, value
+         from buho.metric_samples
+        where instance_id = $1
+          and metric = any($2::text[])
+          and ts > now() - interval '15 minutes'
+        order by metric, ts desc`,
+      [instanceId, metrics],
+    );
+    const out: Record<string, number> = {};
+    for (const row of result.rows) {
+      const value = Number(row.value);
+      if (Number.isFinite(value)) out[row.metric] = value;
+    }
+    return out;
+  }
+
+  async upsertAlertChannel(input: {
+    channelId?: number;
+    name: string;
+    kind: AlertChannelKind;
+    config: Record<string, unknown>;
+    enabled?: boolean;
+  }): Promise<number> {
+    const enabled = input.enabled ?? true;
+    if (input.channelId) {
+      await this.pool.query(
+        `update buho.alert_channels
+            set name = $2, kind = $3, config = $4::jsonb, enabled = $5, updated_at = now()
+          where channel_id = $1`,
+        [input.channelId, input.name, input.kind, JSON.stringify(input.config), enabled],
+      );
+      return input.channelId;
+    }
+    const inserted = await this.pool.query<{ channel_id: string }>(
+      `insert into buho.alert_channels (name, kind, config, enabled)
+            values ($1, $2, $3::jsonb, $4)
+       returning channel_id::text`,
+      [input.name, input.kind, JSON.stringify(input.config), enabled],
+    );
+    return Number(inserted.rows[0]!.channel_id);
+  }
+
+  async upsertWebhookChannel(name: string, url: string, enabled = true, channelId?: number): Promise<number> {
+    return this.upsertAlertChannel({
+      channelId,
+      name,
+      kind: 'webhook',
+      config: { url },
+      enabled,
+    });
+  }
+
+  async deleteAlertChannel(channelId: number): Promise<void> {
+    await this.pool.query(`delete from buho.alert_channels where channel_id = $1`, [channelId]);
+  }
+
+  async listAlertDefinitions(): Promise<CustomAlertDefinition[]> {
+    const result = await this.pool.query<Record<string, unknown>>(
+      `select definition_id, name, title, enabled, match_instance_id, match_engine, severity,
+              sql, threshold_type, threshold, message_template, remediation, recovery_message,
+              send_recovery, cooldown_minutes, display_columns, hysteresis, channel_ids
+         from buho.alert_definitions
+        order by name`,
+    );
+    return result.rows.map(mapAlertDefinition);
+  }
+
+  async listAlertDefinitionsFor(
+    instanceId: number,
+    engine: string,
+  ): Promise<CustomAlertDefinition[]> {
+    const all = await this.listAlertDefinitions();
+    return all.filter((def) => {
+      if (!def.enabled) return false;
+      if (def.matchInstanceId != null && def.matchInstanceId !== instanceId) return false;
+      if (def.matchEngine && def.matchEngine !== engine) return false;
+      if (def.matchInstanceId == null && !def.matchEngine) return false;
+      return true;
+    });
+  }
+
+  async upsertAlertDefinition(input: {
+    definitionId?: number;
+    name: string;
+    title: string;
+    enabled: boolean;
+    matchInstanceId?: number | null;
+    matchEngine?: string | null;
+    severity: AlertSeverity;
+    sql: string;
+    thresholdType: CustomThresholdType;
+    threshold?: Record<string, unknown>;
+    messageTemplate: string;
+    remediation?: string;
+    recoveryMessage?: string | null;
+    sendRecovery?: boolean;
+    cooldownMinutes?: number;
+    displayColumns?: string[];
+    hysteresis?: number | null;
+    channelIds?: number[];
+    updatedBy?: string;
+  }): Promise<number> {
+    const name = input.name.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_');
+    if (!name) throw new Error('alert definition name required');
+    if (!input.matchInstanceId && !input.matchEngine) {
+      throw new Error('alert definition needs match_instance_id or match_engine');
+    }
+    const params = [
+      name,
+      input.title.trim() || name,
+      input.enabled,
+      input.matchInstanceId ?? null,
+      input.matchEngine ?? null,
+      input.severity,
+      input.sql,
+      input.thresholdType,
+      JSON.stringify(input.threshold ?? {}),
+      input.messageTemplate,
+      input.remediation ?? '',
+      input.recoveryMessage ?? null,
+      input.sendRecovery ?? true,
+      input.cooldownMinutes ?? 0,
+      input.displayColumns ?? [],
+      input.hysteresis ?? null,
+      input.channelIds ?? [],
+      input.updatedBy ?? null,
+    ];
+    if (input.definitionId) {
+      await this.pool.query(
+        `update buho.alert_definitions
+            set name=$2, title=$3, enabled=$4, match_instance_id=$5, match_engine=$6,
+                severity=$7, sql=$8, threshold_type=$9, threshold=$10::jsonb,
+                message_template=$11, remediation=$12, recovery_message=$13,
+                send_recovery=$14, cooldown_minutes=$15, display_columns=$16::text[],
+                hysteresis=$17, channel_ids=$18::bigint[], updated_at=now(), updated_by=$19
+          where definition_id=$1`,
+        [input.definitionId, ...params],
+      );
+      return input.definitionId;
+    }
+    const inserted = await this.pool.query<{ definition_id: string }>(
+      `insert into buho.alert_definitions
+         (name, title, enabled, match_instance_id, match_engine, severity, sql, threshold_type,
+          threshold, message_template, remediation, recovery_message, send_recovery,
+          cooldown_minutes, display_columns, hysteresis, channel_ids, updated_by)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15::text[],$16,$17::bigint[],$18)
+       returning definition_id::text`,
+      params,
+    );
+    return Number(inserted.rows[0]!.definition_id);
+  }
+
+  async deleteAlertDefinition(definitionId: number): Promise<void> {
+    await this.pool.query(`delete from buho.alert_definitions where definition_id = $1`, [
+      definitionId,
+    ]);
+  }
+
+  async createAlertSilence(input: {
+    instanceId?: number | null;
+    checkId?: string | null;
+    reason: string;
+    hours: number;
+    createdBy?: string;
+  }): Promise<number> {
+    const result = await this.pool.query<{ silence_id: string }>(
+      `insert into buho.alert_silences (instance_id, check_id, reason, ends_at, created_by)
+            values ($1, $2, $3, now() + ($4 || ' hours')::interval, $5)
+       returning silence_id::text`,
+      [
+        input.instanceId ?? null,
+        input.checkId ?? null,
+        input.reason,
+        String(Math.max(1, Math.min(168, input.hours))),
+        input.createdBy ?? null,
+      ],
+    );
+    return Number(result.rows[0]!.silence_id);
+  }
+
+  async listActiveSilences(): Promise<
+    Array<{
+      silenceId: number;
+      instanceId: number | null;
+      alias: string | null;
+      checkId: string | null;
+      reason: string;
+      startsAt: Date;
+      endsAt: Date;
+      createdBy: string | null;
+    }>
+  > {
+    const result = await this.pool.query<Record<string, unknown>>(
+      `select s.silence_id, s.instance_id, i.alias, s.check_id, s.reason,
+              s.starts_at, s.ends_at, s.created_by
+         from buho.alert_silences s
+         left join buho.instances i using (instance_id)
+        where s.ends_at > now()
+        order by s.ends_at`,
+    );
+    return result.rows.map((row) => ({
+      silenceId: Number(row['silence_id']),
+      instanceId: row['instance_id'] == null ? null : Number(row['instance_id']),
+      alias: (row['alias'] as string | null) ?? null,
+      checkId: (row['check_id'] as string | null) ?? null,
+      reason: String(row['reason']),
+      startsAt: row['starts_at'] as Date,
+      endsAt: row['ends_at'] as Date,
+      createdBy: (row['created_by'] as string | null) ?? null,
+    }));
+  }
+
+  /** Claim and send pending alert deliveries (webhook / Slack / Teams / Telegram / Rocket.Chat). */
+  async flushAlertDeliveries(limit = 20): Promise<{ sent: number; failed: number }> {
+    const client = await this.pool.connect();
+    let sent = 0;
+    let failed = 0;
+    try {
+      await client.query('begin');
+      const jobs = await client.query<Record<string, unknown>>(
+        `select d.delivery_id, d.alert_id, d.channel_id, d.event, d.attempts,
+                c.kind, c.config, a.instance_id, i.alias, i.engine, a.check_id, a.object,
+                a.severity, a.title, a.message, a.remediation, a.fired_at, a.resolved_at
+           from buho.alert_deliveries d
+           join buho.alert_channels c using (channel_id)
+           join buho.alerts a using (alert_id)
+           join buho.instances i using (instance_id)
+          where d.status = 'pending'
+            and d.next_attempt_at <= now()
+            and c.enabled
+            and c.kind in ('webhook', 'slack', 'teams', 'telegram', 'rocketchat', 'smtp')
+          order by d.delivery_id
+          limit $1
+          for update of d skip locked`,
+        [limit],
+      );
+
+      for (const row of jobs.rows) {
+        const deliveryId = Number(row['delivery_id']);
+        const attempts = Number(row['attempts']) + 1;
+        const kind = String(row['kind']) as AlertChannelKind;
+        const config = (row['config'] ?? {}) as AlertChannelRow['config'];
+        const event = row['event'] as 'fired' | 'resolved';
+        const alert = {
+          alertId: Number(row['alert_id']),
+          instanceId: Number(row['instance_id']),
+          alias: String(row['alias']),
+          engine: String(row['engine']),
+          checkId: String(row['check_id']),
+          object: (row['object'] as string | null) ?? null,
+          severity: String(row['severity']),
+          title: String(row['title']),
+          message: String(row['message']),
+          remediation: String(row['remediation']),
+          firedAt: (row['fired_at'] as Date | null) ?? null,
+          resolvedAt: (row['resolved_at'] as Date | null) ?? null,
+        };
+
+        try {
+          if (kind === 'smtp') {
+            await deliverSmtp(config, event, alert);
+          } else {
+            const delivery = resolveChannelDelivery(kind, config, event, alert);
+            const response = await fetch(delivery.url, {
+              method: 'POST',
+              headers: {
+                'user-agent': 'buho-alerts/0.5',
+                ...delivery.headers,
+              },
+              body: JSON.stringify(delivery.body),
+              signal: AbortSignal.timeout(15_000),
+            });
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+          }
+          await client.query(
+            `update buho.alert_deliveries
+                set status = 'sent', attempts = $2, last_error = null, sent_at = now()
+              where delivery_id = $1`,
+            [deliveryId, attempts],
+          );
+          sent += 1;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const backoffMinutes = Math.min(60, 2 ** Math.min(attempts, 5));
+          const terminal = attempts >= 8;
+          await client.query(
+            `update buho.alert_deliveries
+                set status = $2, attempts = $3, last_error = $4,
+                    next_attempt_at = now() + ($5 || ' minutes')::interval
+              where delivery_id = $1`,
+            [
+              deliveryId,
+              terminal ? 'failed' : 'pending',
+              attempts,
+              message.slice(0, 500),
+              String(backoffMinutes),
+            ],
+          );
+          failed += 1;
+        }
+      }
+
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    return { sent, failed };
+  }
+
 }
+
+export {
+  ALERT_SETTINGS_DEFAULTS,
+  type AlertChannelRow,
+  type AlertRuleRow,
+  type AlertDeliveryJob,
+  type AlertReconcileSummary,
+  type AlertRow,
+  type AlertSettings,
+  type AlertSeverity,
+  type AlertStatus,
+};
+
+function mapAlertRow(row: Record<string, unknown>): AlertRow {
+  return {
+    alertId: Number(row['alert_id']),
+    instanceId: Number(row['instance_id']),
+    alias: String(row['alias']),
+    engine: String(row['engine']),
+    dedupeKey: String(row['dedupe_key']),
+    checkId: String(row['check_id']),
+    object: (row['object'] as string | null) ?? null,
+    severity: row['severity'] as AlertSeverity,
+    title: String(row['title']),
+    message: String(row['message']),
+    remediation: String(row['remediation']),
+    status: row['status'] as AlertStatus,
+    pendingCount: Number(row['pending_count']),
+    firedAt: (row['fired_at'] as Date | null) ?? null,
+    resolvedAt: (row['resolved_at'] as Date | null) ?? null,
+    lastSeenAt: row['last_seen_at'] as Date,
+    updatedAt: row['updated_at'] as Date,
+  };
+}
+
+
+async function deliverSmtp(
+  config: AlertChannelRow['config'],
+  event: 'fired' | 'resolved',
+  alert: Parameters<typeof smtpMailContent>[1],
+): Promise<void> {
+  const host = (config.host ?? '').trim();
+  const from = (config.from ?? '').trim();
+  const to = (config.to ?? '').trim();
+  if (!host || !from || !to) {
+    throw new Error('smtp needs host, from, and to');
+  }
+  const nodemailer = await import('nodemailer');
+  const transporter = nodemailer.createTransport({
+    host,
+    port: Number(config.port ?? (config.secure ? 465 : 587)),
+    secure: Boolean(config.secure),
+    auth: config.user
+      ? { user: config.user, pass: config.pass ?? '' }
+      : undefined,
+  });
+  const mail = smtpMailContent(event, alert);
+  await transporter.sendMail({ from, to, subject: mail.subject, text: mail.text });
+}
+
+function mapAlertChannel(row: Record<string, unknown>): AlertChannelRow {
+  const rawKind = String(row['kind'] ?? 'webhook');
+  const kind = (
+    ['webhook', 'slack', 'teams', 'telegram', 'rocketchat', 'smtp'].includes(rawKind)
+      ? rawKind
+      : 'webhook'
+  ) as AlertChannelKind;
+  return {
+    channelId: Number(row['channel_id']),
+    name: String(row['name']),
+    kind,
+    config: (row['config'] as AlertChannelRow['config']) ?? {},
+    enabled: Boolean(row['enabled']),
+    createdAt: row['created_at'] as Date,
+    updatedAt: row['updated_at'] as Date,
+  };
+}
+
+function mapAlertDefinition(row: Record<string, unknown>): CustomAlertDefinition {
+  return {
+    definitionId: Number(row['definition_id']),
+    name: String(row['name']),
+    title: String(row['title']),
+    enabled: Boolean(row['enabled']),
+    matchInstanceId:
+      row['match_instance_id'] == null ? null : Number(row['match_instance_id']),
+    matchEngine: (row['match_engine'] as string | null) ?? null,
+    severity: row['severity'] as CustomAlertDefinition['severity'],
+    sql: String(row['sql']),
+    thresholdType: row['threshold_type'] as CustomThresholdType,
+    threshold: (row['threshold'] as Record<string, unknown>) ?? {},
+    messageTemplate: String(row['message_template']),
+    remediation: String(row['remediation'] ?? ''),
+    recoveryMessage: (row['recovery_message'] as string | null) ?? null,
+    sendRecovery: Boolean(row['send_recovery']),
+    cooldownMinutes: Number(row['cooldown_minutes'] ?? 0),
+    displayColumns: (row['display_columns'] as string[]) ?? [],
+    hysteresis: row['hysteresis'] == null ? null : Number(row['hysteresis']),
+    channelIds: ((row['channel_ids'] as Array<string | number>) ?? []).map(Number),
+  };
+}
+
 
 export interface MonitorTargetInput {
   tenant?: string;
@@ -1613,5 +2474,25 @@ function mapMonitorTarget(row: Record<string, unknown>): MonitorTargetRow {
     createdAt: row['created_at'] as Date,
     updatedAt: row['updated_at'] as Date,
     createdBy: (row['created_by'] as string | null) ?? null,
+  };
+}
+
+function mapAlertRule(row: Record<string, unknown>): AlertRuleRow {
+  return {
+    ruleId: Number(row['rule_id']),
+    name: String(row['name']),
+    enabled: Boolean(row['enabled']),
+    matchCheckId: (row['match_check_id'] as string | null) ?? null,
+    matchInstanceId: row['match_instance_id'] == null ? null : Number(row['match_instance_id']),
+    matchEngine: (row['match_engine'] as string | null) ?? null,
+    matchSeverities: ((row['match_severities'] as string[]) ?? []).map((s) => s as AlertSeverity),
+    action: row['action'] as 'alert' | 'suppress',
+    hysteresis: row['hysteresis'] == null ? null : Number(row['hysteresis']),
+    severityOverride: (row['severity_override'] as AlertSeverity | null) ?? null,
+    channelIds: ((row['channel_ids'] as Array<string | number>) ?? []).map(Number),
+    notifyResolved: Boolean(row['notify_resolved']),
+    priority: Number(row['priority'] ?? 100),
+    updatedAt: row['updated_at'] as Date,
+    updatedBy: (row['updated_by'] as string | null) ?? null,
   };
 }

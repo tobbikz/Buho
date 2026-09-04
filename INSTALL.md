@@ -232,12 +232,12 @@ Eso baja `collector` y `web` desde GHCR (`ghcr.io/tobbikz/buho-monitor/...`)
 y levanta el store. Para fijar una versión concreta:
 
 ```bash
-export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho-monitor/collector:0.3.0
-export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho-monitor/web:0.3.0
+export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho-monitor/collector:1.1.0
+export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho-monitor/web:1.1.0
 ./install.sh --pull
 ```
 
-Las imágenes se publican automáticamente al etiquetar un release (`v0.3.0`).
+Las imágenes se publican automáticamente al etiquetar un release (`v1.1.0`).
 Si GHCR pide autenticación para paquetes privados: `echo $TOKEN | docker login ghcr.io -u USUARIO --password-stdin`.
 
 ---
@@ -377,11 +377,41 @@ paralelo (`-j 4`) o sólo una tabla.
 
 ### Actualizar
 
+**Decisión de entrega (v1.1):** los clientes usan **imágenes publicadas** (`--pull`);
+quien desarrolla en el repo compila con `./install.sh` sin flags.
+
 ```bash
-git pull && ./install.sh
+# Cliente (recomendado)
+cd buho-monitor
+git fetch --tags
+git checkout v1.1.0          # o la tag que toque
+./install.sh --pull
 ```
 
-El esquema se migra solo al arrancar el colector.
+Versión fija de imagen (sin cambiar el checkout):
+
+```bash
+export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho-monitor/collector:1.1.0
+export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho-monitor/web:1.1.0
+./install.sh --pull
+```
+
+Desarrollador / fork:
+
+```bash
+git pull
+./install.sh                # build local
+```
+
+El esquema se migra solo al arrancar el colector (`store.migrate()`).
+Tras un pull grande: `BUHO_STORE_URL=... npm run migrate` si se corre fuera de Docker.
+
+Catálogo de alertas SQL (opcional, una vez):
+
+```bash
+BUHO_STORE_URL=postgres://buho:…@127.0.0.1:55432/buho \
+  npx tsx scripts/import-alert-catalog.ts
+```
 
 ### Cuánto ocupa
 

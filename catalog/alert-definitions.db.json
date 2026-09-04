@@ -1,0 +1,88 @@
+{
+  "alerts": [
+    {
+      "name": "postgres_replica_lag_high",
+      "title": "PostgreSQL replica lag high",
+      "match_engine": "postgres",
+      "severity": "warning",
+      "threshold_type": "rows",
+      "threshold": { "min_rows": 1 },
+      "display_columns": ["application_name", "client_addr", "replay_lag_seconds"],
+      "message_template": "PostgreSQL: {rows} standby(s) with replay lag ≥ 30s.\n\n{all_rows}",
+      "remediation": "Check network, standby I/O, and whether the primary is flooding WAL.",
+      "sql": "select application_name, client_addr::text as client_addr, extract(epoch from replay_lag)::int as replay_lag_seconds from pg_stat_replication where replay_lag is not null and replay_lag >= interval '30 seconds'"
+    },
+    {
+      "name": "postgres_replica_replay_paused",
+      "title": "PostgreSQL replay paused",
+      "match_engine": "postgres",
+      "severity": "critical",
+      "threshold_type": "rows",
+      "threshold": { "min_rows": 1 },
+      "display_columns": ["pid", "application_name"],
+      "message_template": "PostgreSQL: recovery replay is paused on this standby.\n\n{all_rows}",
+      "remediation": "SELECT pg_wal_replay_resume(); if paused on purpose, silence this alert.",
+      "sql": "select pid, application_name from pg_stat_activity where backend_type = 'startup' and pg_is_in_recovery() and pg_get_wal_replay_pause_state() = 'paused'"
+    },
+    {
+      "name": "postgres_logical_slot_inactive",
+      "title": "PostgreSQL inactive logical slot",
+      "match_engine": "postgres",
+      "severity": "critical",
+      "threshold_type": "rows",
+      "threshold": { "min_rows": 1 },
+      "display_columns": ["slot_name", "plugin", "wal_status"],
+      "message_template": "PostgreSQL: {rows} inactive logical slot(s) retaining WAL.\n\n{all_rows}",
+      "remediation": "Fix the consumer or DROP the slot before disk fills.",
+      "sql": "select slot_name, plugin, wal_status, active from pg_replication_slots where slot_type = 'logical' and active = false"
+    },
+    {
+      "name": "mssql_hadr_replica_unhealthy",
+      "title": "SQL Server AG replica unhealthy",
+      "match_engine": "mssql",
+      "severity": "critical",
+      "threshold_type": "rows",
+      "threshold": { "min_rows": 1 },
+      "display_columns": ["replica_server_name", "role_desc", "operational_state_desc", "connected_state_desc"],
+      "message_template": "MSSQL: {rows} AG replica(s) not healthy.\n\n{all_rows}",
+      "remediation": "Check Always On dashboard, endpoints, and quorum.",
+      "sql": "select ar.replica_server_name, ars.role_desc, ars.operational_state_desc, ars.connected_state_desc, ars.synchronization_health_desc from sys.dm_hadr_availability_replica_states ars join sys.availability_replicas ar on ar.replica_id = ars.replica_id where ars.synchronization_health_desc <> 'HEALTHY' or ars.connected_state_desc <> 'CONNECTED'"
+    },
+    {
+      "name": "mssql_agent_job_failed",
+      "title": "SQL Server Agent job failed",
+      "match_engine": "mssql",
+      "severity": "critical",
+      "threshold_type": "rows",
+      "threshold": { "min_rows": 1 },
+      "display_columns": ["job_name", "run_date", "run_time", "message"],
+      "message_template": "MSSQL: {rows} Agent job(s) failed on last run.\n\n{all_rows}",
+      "remediation": "Open Agent history for the job and fix the failing step.",
+      "sql": "select j.name as job_name, h.run_date, h.run_time, left(h.message, 200) as message from msdb.dbo.sysjobs j cross apply (select top 1 run_status, run_date, run_time, message from msdb.dbo.sysjobhistory where job_id = j.job_id and step_id = 0 order by run_date desc, run_time desc) h where j.enabled = 1 and h.run_status = 0"
+    },
+    {
+      "name": "mssql_active_blocking",
+      "title": "SQL Server active blocking",
+      "match_engine": "mssql",
+      "severity": "warning",
+      "threshold_type": "rows",
+      "threshold": { "min_rows": 1 },
+      "display_columns": ["session_id", "blocking_session_id", "wait_time_ms", "wait_type"],
+      "message_template": "MSSQL: {rows} blocked session(s).\n\n{all_rows}",
+      "remediation": "Identify the blocker head and the object; kill only if safe.",
+      "sql": "select session_id, blocking_session_id, wait_time_ms, wait_type from sys.dm_exec_requests where blocking_session_id <> 0 and wait_time_ms >= 5000"
+    },
+    {
+      "name": "mariadb_replica_io_not_running",
+      "title": "MariaDB replica IO not running",
+      "match_engine": "mariadb",
+      "severity": "critical",
+      "threshold_type": "rows",
+      "threshold": { "min_rows": 1 },
+      "display_columns": ["Replica_IO_Running", "Last_IO_Error"],
+      "message_template": "MariaDB: replica IO thread is not running.\n\n{all_rows}",
+      "remediation": "Check SHOW REPLICA STATUS and network/credentials to the primary.",
+      "sql": "show replica status"
+    }
+  ]
+}
