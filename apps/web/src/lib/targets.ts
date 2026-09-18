@@ -44,6 +44,8 @@ export interface MonitorTargetInput {
   tags?: Record<string, string>;
   hostMetrics?: Record<string, unknown>;
   enabled?: boolean;
+  /** PostgreSQL: create one target per connectable database on the host. */
+  expandAllDatabases?: boolean;
 }
 
 const ENGINES = new Set(['postgres', 'mariadb', 'mssql', 'mongodb']);
@@ -110,7 +112,7 @@ export function parseTargetForm(form: FormData): MonitorTargetInput {
   }
 
   const tags: Record<string, string> = {};
-  const tagKey = String(form.get('tagKey') ?? '').trim();
+  const tagKey = String(form.get('tagKey') ?? '').trim().toUpperCase();
   const tagValue = String(form.get('tagValue') ?? '').trim();
   if (tagKey && tagValue) tags[tagKey] = tagValue;
 
@@ -122,11 +124,12 @@ export function parseTargetForm(form: FormData): MonitorTargetInput {
     database: String(form.get('database') ?? '').trim(),
     username,
     password: String(form.get('password') ?? ''),
-    environment: String(form.get('environment') ?? 'prod').trim() || 'prod',
+    environment: String(form.get('environment') ?? 'PROD').trim().toUpperCase() || 'PROD',
     ssl: form.get('ssl') === 'on',
     tags,
     hostMetrics: hostMetricsFromForm(form),
     enabled: true,
+    expandAllDatabases: form.get('expandAllDatabases') === 'on',
   };
 }
 
@@ -136,10 +139,59 @@ export async function saveMonitorTarget(input: MonitorTargetInput): Promise<numb
     throw new Error('Password is required for a new target.');
   }
 
-  const database =
+  const seedDatabase =
     input.database ||
     (input.engine === 'mongodb' ? 'admin' : input.engine === 'mssql' ? 'master' : 'postgres');
 
+  let databases = [seedDatabase];
+  if (input.engine === 'postgres' && input.expandAllDatabases) {
+    try {
+      databases = await listPostgresDatabases({
+        host: input.host,
+        port: input.port,
+        database: seedDatabase,
+        username: input.username,
+        password: input.password,
+        ssl: input.ssl,
+      });
+      if (databases.length === 0) databases = [seedDatabase];
+    } catch (error) {
+      throw new Error(
+        `Could not list databases on ${input.host}: ${
+          error instanceof Error ? error.message : String(error)
+        }. Grant CONNECT on each database (or uncheck “every database”).`,
+      );
+    }
+  }
+
+  let firstTargetId = 0;
+  for (const database of databases) {
+    const alias =
+      databases.length === 1
+        ? input.alias
+        : `${input.alias}-${database}`.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 63);
+    const targetId = await upsertOneTarget(
+      { ...input, alias, database },
+      session.username,
+    );
+    if (!firstTargetId) firstTargetId = targetId;
+  }
+
+  await logConsoleEvent(
+    session.username,
+    'monitor_target.upsert',
+    databases.length > 1
+      ? `${input.alias} → ${databases.length} databases on ${input.host}:${input.port}`
+      : `${input.alias} (${input.engine}://${input.host}:${input.port}/${seedDatabase})`,
+  );
+
+  return firstTargetId;
+}
+
+async function upsertOneTarget(
+  input: MonitorTargetInput & { database: string },
+  username: string,
+): Promise<number> {
   const rows = await query<{ target_id: string }>(
     `insert into buho.monitor_targets
        (alias, engine, host, port, database, username, password, environment, ssl, tags, host_metrics, enabled, created_by)
@@ -163,29 +215,27 @@ export async function saveMonitorTarget(input: MonitorTargetInput): Promise<numb
       input.engine,
       input.host,
       input.port,
-      database,
+      input.database,
       input.username,
       input.password,
       input.environment,
       input.ssl,
       JSON.stringify(input.tags ?? {}),
       JSON.stringify(input.hostMetrics ?? {}),
-      session.username,
+      username,
     ],
   );
 
-  // Fleet shows the instance before the collector's first sample.
   await query(
     `insert into buho.instances (tenant, alias, host, port, database, environment, engine, last_seen_at)
-     values ('default', $1, $2, $3, $4, $5, $6, now())
+     values ('default', $1, $2, $3, $4, $5, $6, null)
      on conflict (tenant, alias) do update set
        host = excluded.host,
        port = excluded.port,
        database = excluded.database,
        environment = excluded.environment,
-       engine = excluded.engine,
-       last_seen_at = now()`,
-    [input.alias, input.host, input.port, database, input.environment, input.engine],
+       engine = excluded.engine`,
+    [input.alias, input.host, input.port, input.database, input.environment, input.engine],
   );
 
   const tags = input.tags ?? {};
@@ -202,15 +252,51 @@ export async function saveMonitorTarget(input: MonitorTargetInput): Promise<numb
         [instanceId, key, value],
       );
     }
+    // Mark host grouping for multi-DB expands.
+    if (input.expandAllDatabases) {
+      await query(
+        `insert into buho.instance_tags (instance_id, key, value) values ($1, 'HOST', $2)
+         on conflict (instance_id, key) do update set value = excluded.value`,
+        [instanceId, input.host],
+      );
+    }
   }
 
-  await logConsoleEvent(
-    session.username,
-    'monitor_target.upsert',
-    `${input.alias} (${input.engine}://${input.host}:${input.port})`,
-  );
-
   return Number(rows[0]?.target_id);
+}
+
+/** Connectable non-template databases on a PostgreSQL host. */
+export async function listPostgresDatabases(input: {
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password: string;
+  ssl: boolean;
+}): Promise<string[]> {
+  const pg = await import('pg');
+  const pool = new pg.default.Pool({
+    host: input.host,
+    port: input.port,
+    database: input.database,
+    user: input.username,
+    password: input.password,
+    ssl: input.ssl ? { rejectUnauthorized: false } : undefined,
+    connectionTimeoutMillis: 8_000,
+    max: 1,
+  });
+  try {
+    const result = await pool.query<{ datname: string }>(
+      `select datname
+         from pg_database
+        where datallowconn
+          and not datistemplate
+        order by datname`,
+    );
+    return result.rows.map((row) => row.datname);
+  } finally {
+    await pool.end().catch(() => undefined);
+  }
 }
 
 export async function setTargetEnabled(targetId: number, enabled: boolean): Promise<void> {

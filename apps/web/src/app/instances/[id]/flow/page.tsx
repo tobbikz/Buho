@@ -154,7 +154,11 @@ export default async function FlowPage({
               from reading each query&apos;s text
               {engine === 'postgres'
                 ? ', and PostgreSQL counters are below for contrast. For the full catalog map, see the ORM tab.'
-                : '.'}
+                : '.'}{' '}
+              <Link href="/design-lab/flow" className="underline">
+                Design lab
+              </Link>
+              : polish packs for this layout.
             </p>
           </div>
         </header>

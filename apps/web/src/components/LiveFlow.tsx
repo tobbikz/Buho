@@ -29,16 +29,52 @@ interface Snapshot {
   error?: string;
 }
 
+interface Corridor {
+  from: number;
+  to: number;
+  value: number;
+  kind: 'write' | 'read';
+}
+
 interface Particle {
-  link: number;
+  corridor: number;
   t: number;
   speed: number;
   size: number;
+  lane: number;
 }
+
+const PARTICLES_PER_RATE = 0.7;
+const MAX_PARTICLES_PER_SECOND = 48;
+const MAX_PARTICLES = 72;
+const COMET_LEN = 0.07;
+const COMET_SAMPLES = 6;
+
+/**
+ * TEMP stress-test: paint N synthetic tables so we can see scale.
+ * Set to 0 to restore real live data only (delete this block after the look-see).
+ */
+const DEMO_TABLE_COUNT = 0;
+
+/** Viewport packing — never grow the canvas taller than the stage. */
+const MIN_TABLE_ROW = 13;
+const TABLE_COL_WIDTH = 122;
 
 const WRITE = '#0a6e42';
 const READ = '#005eb8';
-const NODE_COLORS = [WRITE, READ, '#5c6b7a', '#8a5a00'];
+const TABLE = '#8a5a00';
+const MIN_NODE_HEIGHT = 26;
+
+const THEME = {
+  bg: '#eef1f4',
+  stage: '#ffffff',
+  stageBorder: '#d8dde5',
+  card: '#ffffff',
+  cardBorder: '#c9d0d9',
+  label: 'rgba(55, 62, 71, 0.95)',
+  labelMuted: 'rgba(110, 118, 128, 0.85)',
+};
+
 function hexAlpha(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
@@ -46,26 +82,79 @@ function hexAlpha(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-const MIN_NODE_HEIGHT = 26;
+function pointOnCubic(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  t: number,
+): { x: number; y: number } {
+  const medio = (a.x + b.x) / 2;
+  const u = 1 - t;
+  return {
+    x: u ** 3 * a.x + 3 * u ** 2 * t * medio + 3 * u * t ** 2 * medio + t ** 3 * b.x,
+    y: u ** 3 * a.y + 3 * u ** 2 * t * a.y + 3 * u * t ** 2 * b.y + t ** 3 * b.y,
+  };
+}
 
-/** Visible particles per unit of measured rate (rows/s, calls/s, ms/s). */
-const PARTICLES_PER_RATE = 0.35;
-/** Hard cap so the canvas stays readable on hot instances. */
-const MAX_PARTICLES_PER_SECOND = 18;
-/** Max particles on screen at once. */
-const MAX_PARTICLES = 28;
+function tangentOnCubic(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  t: number,
+): { x: number; y: number } {
+  const p0 = pointOnCubic(a, b, Math.max(0, t - 0.01));
+  const p1 = pointOnCubic(a, b, Math.min(1, t + 0.01));
+  return { x: p1.x - p0.x, y: p1.y - p0.y };
+}
 
-const THEME = {
-  bg: '#f2f4f6',
-  grid: 'rgba(160, 172, 190, 0.22)',
-  edge: 'rgba(0, 94, 184, 0.14)',
-  edgeHot: 'rgba(0, 94, 184, 0.32)',
-  particle: 'rgba(0, 94, 184, 0.82)',
-  particleGlow: 'rgba(0, 94, 184, 0.12)',
-  label: 'rgba(74, 82, 92, 0.92)',
-  labelMuted: 'rgba(122, 130, 140, 0.55)',
-  nodeIdle: '#a8b0ba',
-};
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+function shortRate(value: number, unit: Unit): string {
+  if (unit === 'ms') return `${formatUnit(value, 'ms')}/s`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M/s`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k/s`;
+  if (value > 0 && value < 10) return `${value.toFixed(value < 1 ? 2 : 1)}/s`;
+  return `${Math.round(value).toLocaleString('en')}/s`;
+}
+
+/** Zipf-ish traffic across many tables for the temporary stress demo. */
+function buildDemoSnapshot(count: number, seed?: Snapshot | null): Snapshot {
+  const nodes: LiveNode[] = [
+    { name: 'app:writes', depth: 0, label: 'Application writes' },
+    { name: 'app:reads', depth: 0, label: 'Application reads' },
+  ];
+  const links: LiveLink[] = [];
+  const schemas = ['public', 'buho_demo', 'analytics', 'billing', 'ops', 'crm'];
+  let writeTotal = 0;
+  let readTotal = 0;
+
+  for (let i = 0; i < count; i += 1) {
+    const schema = schemas[i % schemas.length]!;
+    const name = i === 0 && seed ? 'orders' : `t_${String(i).padStart(3, '0')}`;
+    const label = `${schema}.${name}`;
+    const idx = nodes.length;
+    nodes.push({ name: `table:${label}`, depth: 2, label });
+
+    // Hot head + long tail (first ~8 tables carry most traffic).
+    const rank = i + 1;
+    const write = Math.max(0.4, 6200 / Math.pow(rank, 1.15) + (i % 7 === 0 ? 180 : 0));
+    const read = Math.max(0.15, 420 / Math.pow(rank, 1.05) + (i % 5 === 0 ? 40 : 0));
+    writeTotal += write;
+    readTotal += read;
+    links.push({ source: 0, target: idx, value: write, kind: 'write' });
+    links.push({ source: 1, target: idx, value: read, kind: 'read' });
+  }
+
+  return {
+    nodes,
+    links,
+    windowMinutes: seed?.windowMinutes ?? 5,
+    generatedAt: new Date().toISOString(),
+    referenceRate: writeTotal + readTotal,
+    activeSessions: seed?.activeSessions ?? 12,
+    blockedSessions: seed?.blockedSessions ?? 0,
+  };
+}
 
 interface NodePos {
   x: number;
@@ -73,10 +162,138 @@ interface NodePos {
   label: string;
   depth: number;
   weight: number;
+  name: string;
+  writeIn: number;
+  readIn: number;
+  /** Aggregated tail of the long list. */
+  isOthers?: boolean;
+  othersCount?: number;
+  /** Schema aggregate node (group mode). */
+  isSchema?: boolean;
+  tableCount?: number;
+  isTopWrite?: boolean;
+  isTopRead?: boolean;
+  isTopAttacked?: boolean;
 }
 
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
+interface PackMeta {
+  tableCols: number;
+  hiddenCount: number;
+  visibleTables: number;
+}
+
+type GroupMode = 'table' | 'schema';
+
+interface HeatRank {
+  hottestWrite: { label: string; rate: number } | null;
+  hottestRead: { label: string; rate: number } | null;
+  /** Highest combined W+R — “most attacked”. */
+  mostAttacked: { label: string; rate: number } | null;
+}
+
+function schemaOfLabel(label: string): string {
+  const limpio = label.replace(/^[a-z]+:/i, '');
+  if (limpio.includes('.')) return limpio.split('.')[0]!;
+  return limpio || 'unknown';
+}
+
+/** Collapse table leaves into schema nodes for group view. */
+function aggregateBySchema(snap: Snapshot): Snapshot {
+  const apps = snap.nodes
+    .map((nodo, indice) => ({ nodo, indice }))
+    .filter(({ nodo }) => nodo.depth === 0);
+  const nodes: LiveNode[] = apps.map(({ nodo }) => ({ ...nodo }));
+  const appIndex = new Map<number, number>();
+  apps.forEach(({ indice }, nuevo) => appIndex.set(indice, nuevo));
+
+  const schemas = new Map<string, { write: number; read: number; tables: number }>();
+  for (const enlace of snap.links) {
+    const dst = snap.nodes[enlace.target];
+    if (!dst || dst.depth < 2) continue;
+    const schema = schemaOfLabel(dst.label);
+    const slot = schemas.get(schema) ?? { write: 0, read: 0, tables: 0 };
+    if (enlace.kind === 'write') slot.write += enlace.value;
+    else if (enlace.kind === 'read') slot.read += enlace.value;
+    schemas.set(schema, slot);
+  }
+
+  // Count distinct tables per schema from nodes.
+  const seenTables = new Map<string, Set<string>>();
+  for (const nodo of snap.nodes) {
+    if (nodo.depth < 2) continue;
+    const schema = schemaOfLabel(nodo.label);
+    const set = seenTables.get(schema) ?? new Set<string>();
+    set.add(nodo.name);
+    seenTables.set(schema, set);
+  }
+  for (const [schema, set] of seenTables) {
+    const slot = schemas.get(schema) ?? { write: 0, read: 0, tables: 0 };
+    slot.tables = set.size;
+    schemas.set(schema, slot);
+  }
+
+  const links: LiveLink[] = [];
+  const writeApp = nodes.findIndex((n) => n.name.includes('writes'));
+  const readApp = nodes.findIndex((n) => n.depth === 0 && !n.name.includes('writes'));
+
+  for (const [schema, slot] of [...schemas.entries()].sort(
+    (a, b) => b[1].write + b[1].read - (a[1].write + a[1].read),
+  )) {
+    const idx = nodes.length;
+    nodes.push({
+      name: `schema:${schema}`,
+      depth: 2,
+      label: schema,
+    });
+    if (slot.write > 0 && writeApp >= 0) {
+      links.push({ source: writeApp, target: idx, value: slot.write, kind: 'write' });
+    }
+    if (slot.read > 0 && readApp >= 0) {
+      links.push({ source: readApp, target: idx, value: slot.read, kind: 'read' });
+    }
+    // stash table count on name suffix for layout (parsed later)
+    nodes[idx]!.name = `schema:${schema}|${slot.tables}`;
+  }
+
+  return { ...snap, nodes, links };
+}
+
+function rankHeat(nodos: NodePos[]): HeatRank {
+  let hottestWrite: HeatRank['hottestWrite'] = null;
+  let hottestRead: HeatRank['hottestRead'] = null;
+  let mostAttacked: HeatRank['mostAttacked'] = null;
+  for (const nodo of nodos) {
+    if (!nodo || nodo.depth < 2 || nodo.isOthers) continue;
+    if (!hottestWrite || nodo.writeIn > hottestWrite.rate) {
+      hottestWrite = { label: nodo.label, rate: nodo.writeIn };
+    }
+    if (!hottestRead || nodo.readIn > hottestRead.rate) {
+      hottestRead = { label: nodo.label, rate: nodo.readIn };
+    }
+    const total = nodo.writeIn + nodo.readIn;
+    if (!mostAttacked || total > mostAttacked.rate) {
+      mostAttacked = { label: nodo.label, rate: total };
+    }
+  }
+  return { hottestWrite, hottestRead, mostAttacked };
+}
+
+function roundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+) {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + w, y, x + w, y + h, radius);
+  ctx.arcTo(x + w, y + h, x, y + h, radius);
+  ctx.arcTo(x, y + h, x, y, radius);
+  ctx.arcTo(x, y, x + w, y, radius);
+  ctx.closePath();
 }
 
 export function LiveFlow({
@@ -94,15 +311,58 @@ export function LiveFlow({
   height?: number;
   intervalMs?: number;
 }) {
+  const demoOn = DEMO_TABLE_COUNT > 0;
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const [pantallaCompleta, setPantallaCompleta] = useState(false);
+  const [viewportH, setViewportH] = useState(
+    typeof window !== 'undefined' ? window.innerHeight : 900,
+  );
+
+  useEffect(() => {
+    if (!pantallaCompleta) return;
+    const sync = () => setViewportH(window.innerHeight);
+    sync();
+    window.addEventListener('resize', sync);
+    const onKey = (evento: KeyboardEvent) => {
+      if (evento.key === 'Escape') setPantallaCompleta(false);
+    };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('resize', sync);
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [pantallaCompleta]);
+
+  /** Stage always matches viewport — layout packs into this, no tall scroll. */
+  const marcoAlto = pantallaCompleta ? viewportH : height;
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const snapshotRef = useRef<Snapshot | null>(null);
+  const packMetaRef = useRef<PackMeta>({ tableCols: 1, hiddenCount: 0, visibleTables: 0 });
   const smoothLinksRef = useRef<LiveLink[]>([]);
   const referenceRef = useRef(1);
-  const posicionesRef = useRef<{ x: number; y: number; label: string; depth: number; name: string }[]>([]);
+  const unitRef = useRef(unit);
+  unitRef.current = unit;
+  const posicionesRef = useRef<NodePos[]>([]);
   const [elegido, setElegido] = useState<{ label: string; depth: number; name: string } | null>(null);
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(
+    demoOn ? buildDemoSnapshot(DEMO_TABLE_COUNT) : null,
+  );
   const [fallo, setFallo] = useState<string | null>(null);
   const [edad, setEdad] = useState(0);
+  const [groupMode, setGroupMode] = useState<GroupMode>('table');
+  const groupModeRef = useRef<GroupMode>('table');
+  groupModeRef.current = groupMode;
+  const [heatRank, setHeatRank] = useState<HeatRank>({
+    hottestWrite: null,
+    hottestRead: null,
+    mostAttacked: null,
+  });
+  const heatRankRef = useRef<HeatRank>(heatRank);
+  const lastRankPostRef = useRef(0);
 
   const url = useMemo(() => {
     const parametros = new URLSearchParams({
@@ -114,6 +374,16 @@ export function LiveFlow({
   }, [scope, instanceId, weight]);
 
   useEffect(() => {
+    if (DEMO_TABLE_COUNT > 0) {
+      const demo = buildDemoSnapshot(DEMO_TABLE_COUNT);
+      snapshotRef.current = demo;
+      referenceRef.current = demo.referenceRate ?? 1;
+      setSnapshot(demo);
+      setFallo(null);
+      setEdad(0);
+      return;
+    }
+
     let vivo = true;
     let temporizador: ReturnType<typeof setTimeout> | undefined;
 
@@ -166,51 +436,214 @@ export function LiveFlow({
     let cuadro = 0;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-    const layoutNodes = (snap: Snapshot, ancho: number, alto: number): NodePos[] => {
-      const nodos: NodePos[] = [];
+    const layoutNodes = (
+      snap: Snapshot,
+      ancho: number,
+      alto: number,
+      enlaces: LiveLink[],
+    ): { nodos: NodePos[]; meta: PackMeta; display: Snapshot } => {
       const pesoDe = new Map<number, number>();
-      for (const enlace of snap.links) {
+      const writeIn = new Map<number, number>();
+      const readIn = new Map<number, number>();
+
+      for (const enlace of enlaces) {
         pesoDe.set(enlace.source, (pesoDe.get(enlace.source) ?? 0) + enlace.value);
         pesoDe.set(enlace.target, (pesoDe.get(enlace.target) ?? 0) + enlace.value);
+        if (enlace.kind === 'write') {
+          writeIn.set(enlace.target, (writeIn.get(enlace.target) ?? 0) + enlace.value);
+        } else if (enlace.kind === 'read') {
+          readIn.set(enlace.target, (readIn.get(enlace.target) ?? 0) + enlace.value);
+        }
       }
 
-      const columnas = new Map<number, number[]>();
+      const apps: number[] = [];
+      const tables: number[] = [];
       snap.nodes.forEach((nodo, indice) => {
-        const lista = columnas.get(nodo.depth) ?? [];
-        lista.push(indice);
-        columnas.set(nodo.depth, lista);
+        if (nodo.depth === 0) apps.push(indice);
+        else if (nodo.depth >= 2) tables.push(indice);
       });
 
-      const profundidades = [...columnas.keys()].sort((a, b) => a - b);
-      const margenIzq = 96;
-      const margenDer = 190;
-      const utilX = Math.max(ancho - margenIzq - margenDer, 120);
+      apps.sort((a, b) => {
+        const aw = snap.nodes[a]!.name.includes('writes') ? 0 : 1;
+        const bw = snap.nodes[b]!.name.includes('writes') ? 0 : 1;
+        return aw - bw;
+      });
+      tables.sort((a, b) => (pesoDe.get(b) ?? 0) - (pesoDe.get(a) ?? 0));
 
-      for (const profundidad of profundidades) {
-        const lista = (columnas.get(profundidad) ?? []).slice();
-        lista.sort((a, b) => (pesoDe.get(b) ?? 0) - (pesoDe.get(a) ?? 0));
-        const x =
-          profundidades.length === 1
-            ? ancho / 2
-            : margenIzq + (utilX * profundidad) / (profundidades.length - 1);
-        const paso = alto / (lista.length + 1);
-        lista.forEach((indice, orden) => {
-          const nodo = snap.nodes[indice]!;
+      const topPad = Math.max(36, alto * 0.06);
+      const botPad = Math.max(28, alto * 0.05);
+      const utilY = Math.max(alto - topPad - botPad, 80);
+      const margenIzq = 108;
+      const tableBand = Math.max(ancho - margenIzq - 36, 160);
+      const maxCols = Math.max(1, Math.min(6, Math.floor(tableBand / TABLE_COL_WIDTH)));
+      const maxRows = Math.max(4, Math.floor(utilY / MIN_TABLE_ROW));
+      const capacity = maxCols * maxRows;
+
+      let visible = tables;
+      let hiddenCount = 0;
+      let othersWrite = 0;
+      let othersRead = 0;
+      let displayNodes = snap.nodes;
+      let displayLinks = enlaces;
+      let othersIndex = -1;
+
+      if (tables.length > capacity) {
+        const keep = Math.max(1, capacity - 1);
+        const head = tables.slice(0, keep);
+        const tail = tables.slice(keep);
+        hiddenCount = tail.length;
+        for (const idx of tail) {
+          othersWrite += writeIn.get(idx) ?? 0;
+          othersRead += readIn.get(idx) ?? 0;
+        }
+
+        displayNodes = [...snap.nodes];
+        othersIndex = displayNodes.length;
+        displayNodes.push({
+          name: 'table:__others__',
+          depth: 2,
+          label: `+${hiddenCount} more`,
+        });
+
+        const writeApp = apps.find((i) => snap.nodes[i]!.name.includes('writes'));
+        const readApp = apps.find((i) => snap.nodes[i]!.name.includes('writes') === false);
+        displayLinks = enlaces.filter((enlace) => {
+          const src = snap.nodes[enlace.source];
+          const dst = snap.nodes[enlace.target];
+          if (!src || !dst) return false;
+          if (dst.depth >= 2 && tail.includes(enlace.target)) return false;
+          if (src.depth >= 2 && tail.includes(enlace.source)) return false;
+          return true;
+        });
+        if (othersWrite > 0 && writeApp !== undefined) {
+          displayLinks.push({
+            source: writeApp,
+            target: othersIndex,
+            value: othersWrite,
+            kind: 'write',
+          });
+        }
+        if (othersRead > 0 && readApp !== undefined) {
+          displayLinks.push({
+            source: readApp,
+            target: othersIndex,
+            value: othersRead,
+            kind: 'read',
+          });
+        }
+
+        visible = [...head, othersIndex];
+        pesoDe.set(othersIndex, othersWrite + othersRead);
+        writeIn.set(othersIndex, othersWrite);
+        readIn.set(othersIndex, othersRead);
+      }
+
+      const tableCols = Math.min(maxCols, Math.max(1, Math.ceil(visible.length / maxRows)));
+      const rowsPerCol = Math.ceil(visible.length / tableCols);
+      const nodos: NodePos[] = [];
+
+      const placeApps = () => {
+        const paso = utilY / (apps.length + 1);
+        apps.forEach((indice, orden) => {
+          const nodo = displayNodes[indice]!;
           nodos[indice] = {
-            x,
-            y: paso * (orden + 1),
+            x: margenIzq,
+            y: topPad + paso * (orden + 1),
             label: nodo.label,
             depth: nodo.depth,
             weight: pesoDe.get(indice) ?? 0,
+            name: nodo.name,
+            writeIn: writeIn.get(indice) ?? 0,
+            readIn: readIn.get(indice) ?? 0,
           };
         });
+      };
+
+      placeApps();
+
+      // Columns grow leftward from the right edge so APP→table paths stay short.
+      visible.forEach((indice, orden) => {
+        const col = Math.floor(orden / rowsPerCol);
+        const row = orden % rowsPerCol;
+        const inCol = Math.min(rowsPerCol, visible.length - col * rowsPerCol);
+        const paso = utilY / (inCol + 1);
+        const x = ancho - 16 - TABLE_COL_WIDTH / 2 - (tableCols - 1 - col) * TABLE_COL_WIDTH;
+        const nodo = displayNodes[indice]!;
+        nodos[indice] = {
+          x,
+          y: topPad + paso * (row + 1),
+          label: nodo.label,
+          depth: nodo.depth,
+          weight: pesoDe.get(indice) ?? 0,
+          name: nodo.name,
+          writeIn: writeIn.get(indice) ?? 0,
+          readIn: readIn.get(indice) ?? 0,
+          isOthers: indice === othersIndex,
+          othersCount: indice === othersIndex ? hiddenCount : undefined,
+        };
+      });
+
+      const meta: PackMeta = {
+        tableCols,
+        hiddenCount,
+        visibleTables: visible.length - (hiddenCount > 0 ? 1 : 0),
+      };
+
+      return {
+        nodos,
+        meta,
+        display: {
+          ...snap,
+          nodes: displayNodes,
+          links: displayLinks,
+        },
+      };
+    };
+
+    /** Collapse APP → schema → table into direct APP ↔ table corridors. */
+    const buildCorridors = (snap: Snapshot, nodos: NodePos[], enlaces: LiveLink[]): Corridor[] => {
+      const writeApp = snap.nodes.findIndex((n) => n.depth === 0 && n.name.includes('writes'));
+      const readApp = snap.nodes.findIndex((n) => n.depth === 0 && !n.name.includes('writes'));
+      const corridors: Corridor[] = [];
+
+      snap.nodes.forEach((nodo, indice) => {
+        if (nodo.depth < 2 || !nodos[indice]) return;
+        const w = nodos[indice]!.writeIn;
+        const r = nodos[indice]!.readIn;
+        if (w > 0 && writeApp >= 0 && nodos[writeApp]) {
+          corridors.push({ from: writeApp, to: indice, value: w, kind: 'write' });
+        }
+        if (r > 0 && readApp >= 0 && nodos[readApp]) {
+          // Travel direction: table → APP read.
+          corridors.push({ from: indice, to: readApp, value: r, kind: 'read' });
+        }
+      });
+
+      // Fallback if writeIn/readIn empty: use leaf/root links.
+      if (corridors.length === 0) {
+        for (const enlace of enlaces) {
+          if (enlace.value <= 0) continue;
+          const src = snap.nodes[enlace.source];
+          const dst = snap.nodes[enlace.target];
+          if (!src || !dst) continue;
+          if (enlace.kind === 'write' && src.depth === 0 && dst.depth >= 2) {
+            corridors.push({
+              from: enlace.source,
+              to: enlace.target,
+              value: enlace.value,
+              kind: 'write',
+            });
+          }
+        }
       }
-      return nodos;
+
+      return corridors;
     };
 
     const dibujar = (ahora: number) => {
       const delta = Math.min((ahora - anterior) / 1000, 0.05);
       anterior = ahora;
+      const unitNow = unitRef.current;
 
       const snap = snapshotRef.current;
       const ancho = canvas.clientWidth;
@@ -222,8 +655,16 @@ export function LiveFlow({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, ancho, alto);
 
+      // Outer wash + inset stage so the diagram owns a defined frame.
       ctx.fillStyle = THEME.bg;
       ctx.fillRect(0, 0, ancho, alto);
+      const inset = 10;
+      roundRect(ctx, inset, inset, ancho - inset * 2, alto - inset * 2, 4);
+      ctx.fillStyle = THEME.stage;
+      ctx.fill();
+      ctx.strokeStyle = THEME.stageBorder;
+      ctx.lineWidth = 1;
+      ctx.stroke();
 
       if (!snap || snap.links.length === 0) {
         cuadro = requestAnimationFrame(dibujar);
@@ -241,193 +682,371 @@ export function LiveFlow({
           suave.value = lerp(suave.value, objetivo.value, blend);
           suave.source = objetivo.source;
           suave.target = objetivo.target;
+          suave.kind = objetivo.kind;
         }
       }
 
       const enlaces = smoothLinksRef.current;
-      const nodos = layoutNodes({ ...snap, links: enlaces }, ancho, alto);
-      posicionesRef.current = nodos
-        .map((nodo, indice) =>
-          nodo
-            ? {
-                x: nodo.x,
-                y: nodo.y,
-                label: nodo.label,
-                depth: nodo.depth,
-                name: snap.nodes[indice]?.name ?? nodo.label,
-              }
-            : null,
-        )
-        .filter(
-          (nodo): nodo is { x: number; y: number; label: string; depth: number; name: string } =>
-            nodo !== null,
-        );
+      const modo = groupModeRef.current;
+      const baseSnap: Snapshot = {
+        ...snap,
+        links: enlaces,
+        nodes: snap.nodes,
+      };
+      const viewSnap = modo === 'schema' ? aggregateBySchema(baseSnap) : baseSnap;
+      const packed = layoutNodes(viewSnap, ancho, alto, viewSnap.links);
+      const nodos = packed.nodos;
+      const displaySnap = packed.display;
+      posicionesRef.current = nodos.filter(Boolean);
+      if (
+        packMetaRef.current.hiddenCount !== packed.meta.hiddenCount ||
+        packMetaRef.current.tableCols !== packed.meta.tableCols ||
+        packMetaRef.current.visibleTables !== packed.meta.visibleTables
+      ) {
+        packMetaRef.current = packed.meta;
+      }
 
-      const total = enlaces.reduce((suma, enlace) => suma + enlace.value, 0);
+      // Tag schema aggregates + heat crowns.
+      for (const nodo of nodos) {
+        if (!nodo || nodo.depth < 2) continue;
+        if (nodo.name.startsWith('schema:')) {
+          nodo.isSchema = true;
+          const parts = nodo.name.split('|');
+          const count = Number(parts[1] ?? 0);
+          if (Number.isFinite(count) && count > 0) nodo.tableCount = count;
+          nodo.label = (parts[0] ?? nodo.name).replace(/^schema:/, '');
+        }
+      }
+      const ranks = rankHeat(nodos.filter(Boolean) as NodePos[]);
+      for (const nodo of nodos) {
+        if (!nodo || nodo.depth < 2) continue;
+        nodo.isTopWrite = ranks.hottestWrite?.label === nodo.label;
+        nodo.isTopRead = ranks.hottestRead?.label === nodo.label;
+        nodo.isTopAttacked = ranks.mostAttacked?.label === nodo.label;
+      }
+      if (ahora - lastRankPostRef.current > 500) {
+        lastRankPostRef.current = ahora;
+        const prev = heatRankRef.current;
+        if (
+          prev.hottestWrite?.label !== ranks.hottestWrite?.label ||
+          prev.hottestRead?.label !== ranks.hottestRead?.label ||
+          prev.mostAttacked?.label !== ranks.mostAttacked?.label ||
+          prev.hottestWrite?.rate !== ranks.hottestWrite?.rate ||
+          prev.hottestRead?.rate !== ranks.hottestRead?.rate ||
+          prev.mostAttacked?.rate !== ranks.mostAttacked?.rate
+        ) {
+          heatRankRef.current = ranks;
+          queueMicrotask(() => setHeatRank(ranks));
+        }
+      }
+
+      const corridors = buildCorridors(displaySnap, nodos, displaySnap.links);
+      const total = corridors.reduce((suma, c) => suma + c.value, 0);
       const referencia = Math.max(referenceRef.current, total, 0.001);
       const actividad = Math.min(1, total / referencia);
 
-      for (const enlace of enlaces) {
-        const origen = nodos[enlace.source];
-        const destino = nodos[enlace.target];
-        if (!origen || !destino) continue;
-        const intensidad = total > 0 ? enlace.value / total : 0;
-        const alpha = 0.06 + intensidad * 0.12 + actividad * 0.1;
-        const color = enlace.kind === 'write' ? WRITE : enlace.kind === 'read' ? READ : '#005eb8';
-        ctx.beginPath();
-        ctx.moveTo(origen.x, origen.y);
-        const medio = (origen.x + destino.x) / 2;
-        ctx.bezierCurveTo(medio, origen.y, medio, destino.y, destino.x, destino.y);
-        ctx.strokeStyle = color;
-        ctx.globalAlpha = alpha;
-        ctx.lineWidth = 0.5 + Math.sqrt(intensidad) * 2.2;
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-      }
+      // Particles only — clean comets.
+      // Split write/read budgets so a tiny READ stream still shows (not starved by 8k writes).
+      const writes = corridors
+        .map((cor, i) => ({ cor, i }))
+        .filter(({ cor }) => cor.kind === 'write' && cor.value > 0);
+      const reads = corridors
+        .map((cor, i) => ({ cor, i }))
+        .filter(({ cor }) => cor.kind === 'read' && cor.value > 0);
 
-      // Emission uses log-scale of the measured rate so 12k/s does not flood the
-      // canvas. Particles hop through schema→table when a first-hop finishes,
-      // otherwise they visually pile up on the schema node.
       const rawEmission = Math.min(
-        MAX_PARTICLES_PER_SECOND,
-        Math.log10(1 + total) * 4.2 * PARTICLES_PER_RATE + Math.min(total, 2) * 0.15,
+        DEMO_TABLE_COUNT > 0 ? 90 : MAX_PARTICLES_PER_SECOND,
+        Math.log10(1 + total) * 5.5 * PARTICLES_PER_RATE + Math.min(total, 6) * 0.25,
       );
+      // Always reserve a visible slice for the quieter direction.
+      const writeShare =
+        writes.length && reads.length ? 0.62 : writes.length ? 1 : 0;
+      const readShare = 1 - writeShare;
+      const particleLimit = DEMO_TABLE_COUNT > 0 ? 140 : MAX_PARTICLES;
 
-      // Prefer spawning on depth-0 links (Writes/Reads → schema). Continuations
-      // cover schema → table so the stream reaches the table.
-      const roots = enlaces
-        .map((enlace, i) => ({ enlace, i }))
-        .filter(({ enlace }) => {
-          if (enlace.value <= 0) return false;
-          const depth = snap.nodes[enlace.source]?.depth ?? 0;
-          return depth === 0;
+      const emitPool = (
+        pool: { cor: Corridor; i: number }[],
+        budget: number,
+      ) => {
+        if (pool.length === 0 || budget <= 0) return;
+        // Soften so one hot table doesn't monopolize the pool.
+        const pesos = pool.map(({ cor }) => Math.pow(cor.value, 0.4));
+        const pesoTotal = pesos.reduce((s, p) => s + p, 0) || 1;
+        const floor = Math.max(0.15, (budget * 0.2) / pool.length);
+        pool.forEach(({ cor, i }, orden) => {
+          const cuota = pesos[orden]! / pesoTotal;
+          const rate = Math.max(floor, budget * cuota);
+          acumulado[i] = (acumulado[i] ?? Math.random()) + delta * rate;
+          while ((acumulado[i] ?? 0) >= 1 && particulas.length < particleLimit) {
+            acumulado[i] = (acumulado[i] ?? 0) - 1;
+            particulas.push({
+              corridor: i,
+              t: 0,
+              speed: 0.34 + Math.min(0.5, Math.log10(1 + cor.value) * 0.13),
+              size: 2 + Math.min(2.8, Math.pow(cuota, 0.35) * 2.2),
+              lane: (Math.random() - 0.5) * 1.1,
+            });
+          }
         });
-      const rootTotal = roots.reduce((suma, item) => suma + item.enlace.value, 0) || 1;
+      };
 
-      for (const { enlace, i } of roots) {
-        const cuota = enlace.value / rootTotal;
-        acumulado[i] = (acumulado[i] ?? Math.random()) + delta * rawEmission * cuota;
-        while ((acumulado[i] ?? 0) >= 1 && particulas.length < MAX_PARTICLES) {
-          acumulado[i] = (acumulado[i] ?? 0) - 1;
-          particulas.push({
-            link: i,
-            t: 0,
-            speed: 0.35 + Math.min(0.55, Math.log10(1 + enlace.value) * 0.12),
-            size: 1.35 + Math.min(1.4, Math.sqrt(cuota) * 1.2),
-          });
-        }
-      }
+      emitPool(writes, rawEmission * writeShare);
+      emitPool(reads, rawEmission * readShare);
+
+      const corTotal = corridors.reduce((suma, c) => suma + c.value, 0) || 1;
 
       for (let i = particulas.length - 1; i >= 0; i -= 1) {
         const particula = particulas[i]!;
         particula.t += particula.speed * delta;
         if (particula.t >= 1) {
-          const enlaceHecho = enlaces[particula.link];
-          if (enlaceHecho && particulas.length < MAX_PARTICLES) {
-            const siguientes = enlaces
-              .map((enlace, indice) => ({ enlace, indice }))
-              .filter(
-                ({ enlace }) =>
-                  enlace.source === enlaceHecho.target &&
-                  enlace.value > 0 &&
-                  (enlace.kind === undefined ||
-                    enlaceHecho.kind === undefined ||
-                    enlace.kind === enlaceHecho.kind),
-              );
-            if (siguientes.length > 0) {
-              const peso = siguientes.reduce((suma, item) => suma + item.enlace.value, 0);
-              let pick = Math.random() * peso;
-              let elegido = siguientes[0]!;
-              for (const candidato of siguientes) {
-                pick -= candidato.enlace.value;
-                if (pick <= 0) {
-                  elegido = candidato;
-                  break;
-                }
-              }
-              particulas.push({
-                link: elegido.indice,
-                t: 0,
-                speed: particula.speed * 1.05,
-                size: particula.size,
-              });
-            }
-          }
           particulas.splice(i, 1);
           continue;
         }
-        const enlace = enlaces[particula.link];
-        if (!enlace) {
-          particulas.splice(i, 1);
-          continue;
-        }
-        const origen = nodos[enlace.source];
-        const destino = nodos[enlace.target];
-        if (!origen || !destino) {
-          particulas.splice(i, 1);
-          continue;
-        }
-        const t = particula.t;
-        const medio = (origen.x + destino.x) / 2;
-        const x =
-          (1 - t) ** 3 * origen.x +
-          3 * (1 - t) ** 2 * t * medio +
-          3 * (1 - t) * t ** 2 * medio +
-          t ** 3 * destino.x;
-        const y =
-          (1 - t) ** 3 * origen.y +
-          3 * (1 - t) ** 2 * t * origen.y +
-          3 * (1 - t) * t ** 2 * destino.y +
-          t ** 3 * destino.y;
 
+        const cor = corridors[particula.corridor];
+        if (!cor) {
+          particulas.splice(i, 1);
+          continue;
+        }
+        const from = nodos[cor.from];
+        const to = nodos[cor.to];
+        if (!from || !to) {
+          particulas.splice(i, 1);
+          continue;
+        }
+
+        const color = cor.kind === 'write' ? WRITE : READ;
+        const t = particula.t;
         const brillo = Math.sin(Math.PI * t);
-        const color = enlace.kind === 'write' ? WRITE : enlace.kind === 'read' ? READ : '#005eb8';
+        const laneSpread = 10 + Math.sqrt(cor.value / corTotal) * 18;
+
+        const offsetPoint = (tt: number) => {
+          const p = pointOnCubic(from, to, tt);
+          const tan = tangentOnCubic(from, to, tt);
+          const len = Math.hypot(tan.x, tan.y) || 1;
+          const nx = -tan.y / len;
+          const ny = tan.x / len;
+          const spread = laneSpread * particula.lane;
+          return { x: p.x + nx * spread, y: p.y + ny * spread };
+        };
+
+        const tTail = Math.max(0, t - COMET_LEN);
         ctx.beginPath();
-        ctx.arc(x, y, particula.size, 0, Math.PI * 2);
-        ctx.fillStyle = hexAlpha(color, 0.45 + brillo * 0.4);
+        for (let s = 0; s <= COMET_SAMPLES; s += 1) {
+          const u = s / COMET_SAMPLES;
+          const tt = tTail + (t - tTail) * u;
+          const p = offsetPoint(tt);
+          if (s === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        }
+        ctx.strokeStyle = hexAlpha(color, 0.28 + brillo * 0.32);
+        ctx.lineWidth = Math.max(1.4, particula.size * 0.9);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+
+        const head = offsetPoint(t);
+        ctx.beginPath();
+        ctx.arc(head.x, head.y, Math.max(1.8, particula.size * 0.75), 0, Math.PI * 2);
+        ctx.fillStyle = hexAlpha(color, 0.88 + brillo * 0.12);
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(x, y, particula.size * 2.4, 0, Math.PI * 2);
-        ctx.fillStyle = hexAlpha(color, 0.04 + brillo * 0.08);
+        ctx.arc(head.x, head.y, Math.max(0.8, particula.size * 0.3), 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,255,255,${0.55 + brillo * 0.3})`;
         ctx.fill();
       }
 
-      const pulso = 0.5 + 0.5 * Math.sin(ahora / (1200 - actividad * 500));
-      nodos.forEach((nodo, indice) => {
+      const pulso = 0.5 + 0.5 * Math.sin(ahora / (1100 - actividad * 450));
+      const tableCount = packed.meta.visibleTables + (packed.meta.hiddenCount > 0 ? 1 : 0);
+      const compact = tableCount > 6;
+      const micro = tableCount > 20 || packed.meta.tableCols > 1;
+
+      nodos.forEach((nodo) => {
         if (!nodo) return;
-        const snapNode = snap.nodes[indice]?.name ?? '';
-        const color =
-          nodo.depth === 0
-            ? snapNode.includes('writes')
-              ? WRITE
-              : READ
-            : NODE_COLORS[Math.min(nodo.depth, NODE_COLORS.length - 1)]!;
         const activo = nodo.weight > 0;
-        const radio = activo ? 3 + pulso * (0.4 + actividad * 0.9) : 2.2;
 
-        if (activo) {
-          ctx.beginPath();
-          ctx.arc(nodo.x, nodo.y, radio * 3.5, 0, Math.PI * 2);
-          ctx.fillStyle = `${color}14`;
-          ctx.fill();
-        }
-        ctx.beginPath();
-        ctx.arc(nodo.x, nodo.y, radio, 0, Math.PI * 2);
-        ctx.fillStyle = activo ? color : THEME.nodeIdle;
-        ctx.fill();
-
-        ctx.font = '10px ui-monospace, SFMono-Regular, monospace';
-        ctx.fillStyle = activo ? THEME.label : THEME.labelMuted;
-        ctx.textBaseline = 'middle';
-        const etiqueta = nodo.label.length > 26 ? `${nodo.label.slice(0, 25)}…` : nodo.label;
         if (nodo.depth === 0) {
-          ctx.textAlign = 'right';
-          ctx.fillText(etiqueta, nodo.x - 8, nodo.y);
-        } else {
+          const isWrite = nodo.name.includes('writes');
+          const color = isWrite ? WRITE : READ;
+          const cardW = micro ? 88 : compact ? 96 : 108;
+          const cardH = micro ? 40 : compact ? 48 : 58;
+          const x = nodo.x - cardW + 6;
+          const y = nodo.y - cardH / 2;
+
+          roundRect(ctx, x, y, cardW, cardH, 3);
+          ctx.fillStyle = THEME.card;
+          ctx.fill();
+          ctx.strokeStyle = activo ? color : THEME.cardBorder;
+          ctx.lineWidth = activo ? 1.6 : 1;
+          ctx.stroke();
+          ctx.fillStyle = color;
+          ctx.fillRect(x, y, 3, cardH);
+
+          ctx.font = '600 8px ui-sans-serif, system-ui, sans-serif';
+          ctx.fillStyle = THEME.labelMuted;
           ctx.textAlign = 'left';
-          ctx.fillText(etiqueta, nodo.x + 8, nodo.y);
+          ctx.textBaseline = 'top';
+          ctx.fillText(micro ? 'APP' : 'APPLICATION', x + 10, y + (micro ? 5 : compact ? 6 : 9));
+
+          ctx.font = `600 ${micro ? 10 : compact ? 11 : 13}px ui-monospace, SFMono-Regular, monospace`;
+          ctx.fillStyle = color;
+          ctx.fillText(isWrite ? 'WRITE →' : '← READ', x + 10, y + (micro ? 17 : compact ? 20 : 24));
+
+          ctx.font = `${micro ? 9 : compact ? 10 : 11}px ui-monospace, SFMono-Regular, monospace`;
+          ctx.fillStyle = THEME.label;
+          ctx.fillText(shortRate(nodo.weight, unitNow), x + 10, y + (micro ? 28 : compact ? 34 : 40));
+
+          ctx.beginPath();
+          ctx.arc(nodo.x, nodo.y, 3 + pulso * 0.4, 0, Math.PI * 2);
+          ctx.fillStyle = color;
+          ctx.fill();
+          return;
+        }
+
+        if (nodo.depth >= 2) {
+          if (nodo.isOthers) {
+            const cardW = 110;
+            const cardH = micro ? 18 : 28;
+            const x = nodo.x - cardW / 2;
+            const y = nodo.y - cardH / 2;
+            roundRect(ctx, x, y, cardW, cardH, 3);
+            ctx.fillStyle = '#f4f6f8';
+            ctx.fill();
+            ctx.strokeStyle = THEME.cardBorder;
+            ctx.setLineDash([3, 2]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = '600 9px ui-monospace, SFMono-Regular, monospace';
+            ctx.fillStyle = THEME.labelMuted;
+            ctx.fillText(`+${nodo.othersCount ?? 0} more`, nodo.x, nodo.y);
+            return;
+          }
+
+          const parts = nodo.label.includes('.') ? nodo.label.split('.') : [nodo.label];
+          const schema = parts.length > 1 ? parts[0]! : '';
+          const table = parts.length > 1 ? parts.slice(1).join('.') : nodo.label;
+
+          if (micro) {
+            const cardW = 112;
+            const cardH = nodo.isSchema ? 22 : 15;
+            const x = nodo.x - cardW / 2;
+            const y = nodo.y - cardH / 2;
+            roundRect(ctx, x, y, cardW, cardH, 2);
+            ctx.fillStyle = THEME.card;
+            ctx.fill();
+            ctx.strokeStyle = activo ? (nodo.isSchema ? '#5c6b7a' : TABLE) : THEME.cardBorder;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.fillStyle = nodo.isSchema ? '#5c6b7a' : TABLE;
+            ctx.fillRect(x, y, 2, cardH);
+
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.font = '600 8px ui-monospace, SFMono-Regular, monospace';
+            ctx.fillStyle = THEME.label;
+            const label = nodo.isSchema
+              ? nodo.label.length > 10
+                ? `${nodo.label.slice(0, 9)}…`
+                : nodo.label
+              : table.length > 9
+                ? `${table.slice(0, 8)}…`
+                : table;
+            ctx.fillText(label, x + 5, nodo.isSchema ? nodo.y - 4 : nodo.y);
+            ctx.font = '7px ui-monospace, SFMono-Regular, monospace';
+            if (nodo.isSchema) {
+              ctx.fillStyle = THEME.labelMuted;
+              ctx.fillText(
+                `${nodo.tableCount ?? 0} tbl · ${shortRate(nodo.writeIn + nodo.readIn, unitNow)}`,
+                x + 5,
+                nodo.y + 6,
+              );
+            } else {
+              ctx.fillStyle = WRITE;
+              ctx.fillText(shortRate(nodo.writeIn, unitNow), x + 58, nodo.y);
+            }
+            // Crowns
+            let badgeX = x + cardW - 4;
+            if (nodo.isTopAttacked) {
+              ctx.fillStyle = '#8a5a00';
+              ctx.font = '700 7px ui-sans-serif, system-ui, sans-serif';
+              ctx.textAlign = 'right';
+              ctx.fillText('HOT', badgeX, y - 2);
+              badgeX -= 22;
+            }
+            if (nodo.isTopWrite) {
+              ctx.fillStyle = WRITE;
+              ctx.fillText('W↑', badgeX, y - 2);
+              badgeX -= 16;
+            }
+            if (nodo.isTopRead) {
+              ctx.fillStyle = READ;
+              ctx.fillText('R↑', badgeX, y - 2);
+            }
+            return;
+          }
+
+          const cardW = compact ? 132 : 158;
+          const cardH = compact ? 44 : 76;
+          const x = nodo.x - cardW / 2;
+          const y = nodo.y - cardH / 2;
+
+          roundRect(ctx, x, y, cardW, cardH, 3);
+          ctx.fillStyle = THEME.card;
+          ctx.fill();
+          ctx.strokeStyle = activo ? TABLE : THEME.cardBorder;
+          ctx.lineWidth = activo ? 1.5 : 1;
+          ctx.stroke();
+          ctx.fillStyle = TABLE;
+          ctx.fillRect(x, y, 3, cardH);
+
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          if (compact) {
+            const label = table.length > 14 ? `${table.slice(0, 13)}…` : table;
+            ctx.font = '600 11px ui-monospace, SFMono-Regular, monospace';
+            ctx.fillStyle = THEME.label;
+            ctx.fillText(label, x + 10, y + 8);
+            ctx.font = '9px ui-monospace, SFMono-Regular, monospace';
+            ctx.fillStyle = WRITE;
+            ctx.fillText(`W ${shortRate(nodo.writeIn, unitNow)}`, x + 10, y + 26);
+            ctx.fillStyle = READ;
+            ctx.fillText(`R ${shortRate(nodo.readIn, unitNow)}`, x + 72, y + 26);
+          } else {
+            if (schema) {
+              ctx.font = '9px ui-monospace, SFMono-Regular, monospace';
+              ctx.fillStyle = THEME.labelMuted;
+              ctx.fillText(schema, x + 14, y + 10);
+            }
+            ctx.font = '600 13px ui-monospace, SFMono-Regular, monospace';
+            ctx.fillStyle = THEME.label;
+            const tableLabel = table.length > 16 ? `${table.slice(0, 15)}…` : table;
+            ctx.fillText(tableLabel, x + 14, y + 24);
+            ctx.font = '10px ui-monospace, SFMono-Regular, monospace';
+            ctx.fillStyle = WRITE;
+            ctx.fillText(`W ${shortRate(nodo.writeIn, unitNow)}`, x + 14, y + 44);
+            ctx.fillStyle = READ;
+            ctx.fillText(`R ${shortRate(nodo.readIn, unitNow)}`, x + 14, y + 58);
+          }
         }
       });
+
+      ctx.font = '9px ui-sans-serif, system-ui, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = WRITE;
+      ctx.fillText('● WRITE  APP → table', inset + 8, alto - inset - 6);
+      ctx.fillStyle = READ;
+      ctx.fillText('● READ   table → APP', inset + 148, alto - inset - 6);
+      if (packed.meta.hiddenCount > 0 || packed.meta.tableCols > 1) {
+        ctx.fillStyle = THEME.labelMuted;
+        ctx.fillText(
+          `showing ${packed.meta.visibleTables}${packed.meta.hiddenCount ? ` + ${packed.meta.hiddenCount} more` : ''} · ${packed.meta.tableCols} col`,
+          inset + 300,
+          alto - inset - 6,
+        );
+      }
 
       cuadro = requestAnimationFrame(dibujar);
     };
@@ -456,7 +1075,7 @@ export function LiveFlow({
     const y = evento.clientY - caja.top;
 
     let mejor: { label: string; depth: number; name: string } | null = null;
-    let distancia = 26;
+    let distancia = 40;
     for (const nodo of posicionesRef.current) {
       const d = Math.hypot(nodo.x - x, nodo.y - y);
       if (d < distancia) {
@@ -486,15 +1105,80 @@ export function LiveFlow({
   return (
     <div>
       <div
-        className="relative overflow-hidden rounded-[3px] border border-border bg-[var(--surface-muted)]"
-        style={{ height }}
+        ref={stageRef}
+        className={
+          pantallaCompleta
+            ? 'fixed inset-0 z-[200] flex flex-col overflow-hidden border-0 bg-[var(--surface-muted)]'
+            : 'relative flex flex-col overflow-hidden rounded-[3px] border border-border bg-[var(--surface-muted)]'
+        }
+        style={{ height: marcoAlto }}
       >
-        <canvas ref={canvasRef} className="h-full w-full cursor-pointer" onClick={alPinchar} />
+        <div className="z-10 flex flex-wrap items-center gap-2 border-b border-border bg-[var(--surface)] px-3 py-1.5">
+          <div className="flex flex-wrap items-center gap-1">
+            <button
+              type="button"
+              className={`tag ${groupMode === 'table' ? 'tag--info' : 'tag--muted'}`}
+              onClick={() => setGroupMode('table')}
+            >
+              By table
+            </button>
+            <button
+              type="button"
+              className={`tag ${groupMode === 'schema' ? 'tag--info' : 'tag--muted'}`}
+              onClick={() => setGroupMode('schema')}
+            >
+              By schema
+            </button>
+          </div>
+          <span className="text-foreground-muted">·</span>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 font-mono text-[10px]">
+            {heatRank.hottestWrite && (
+              <span className="rounded-[3px] border border-[#0a6e42]/30 bg-[#0a6e42]/8 px-2 py-0.5 text-[#0a6e42]">
+                Most written · {heatRank.hottestWrite.label} ·{' '}
+                {shortRate(heatRank.hottestWrite.rate, unit)}
+              </span>
+            )}
+            {heatRank.hottestRead && (
+              <span className="rounded-[3px] border border-[#005eb8]/30 bg-[#005eb8]/8 px-2 py-0.5 text-[#005eb8]">
+                Most read · {heatRank.hottestRead.label} · {shortRate(heatRank.hottestRead.rate, unit)}
+              </span>
+            )}
+            {heatRank.mostAttacked && (
+              <span className="rounded-[3px] border border-[#8a5a00]/35 bg-[#8a5a00]/10 px-2 py-0.5 text-[#8a5a00]">
+                Most attacked · {heatRank.mostAttacked.label} ·{' '}
+                {shortRate(heatRank.mostAttacked.rate, unit)}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {demoOn && (
+              <div className="pointer-events-none rounded-[3px] border border-amber-500/40 bg-amber-50 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-amber-900">
+                Demo · {DEMO_TABLE_COUNT}
+              </div>
+            )}
+            <button
+              type="button"
+              className="tag tag--muted"
+              onClick={() => setPantallaCompleta((v) => !v)}
+              aria-label={pantallaCompleta ? 'Exit fullscreen' : 'Enter fullscreen'}
+              title={pantallaCompleta ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+            >
+              {pantallaCompleta ? 'Exit fullscreen' : 'Fullscreen'}
+            </button>
+          </div>
+        </div>
+
+        <div className="relative min-h-0 flex-1">
+          <canvas
+            ref={canvasRef}
+            className="h-full w-full cursor-pointer"
+            onClick={alPinchar}
+          />
 
         {elegido && destinos.length > 0 && (
           <div className="absolute bottom-3 right-3 rounded-[3px] border border-border bg-[var(--surface)] px-3 py-2 text-[11px] shadow-sm">
             <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.08em] text-foreground-muted">
-              {elegido.depth === 0 ? 'traffic' : elegido.depth === 1 ? 'schema' : 'table'}
+              {elegido.depth === 0 ? 'application' : elegido.name.startsWith('schema:') ? 'schema' : 'table'}
             </div>
             <div className="mb-2 font-mono text-[12px] text-foreground">{elegido.label}</div>
             <div className="flex flex-col gap-1">
@@ -544,11 +1228,25 @@ export function LiveFlow({
               : 'Nothing moved in the last few minutes. Switch to Accumulated for history.'}
           </div>
         )}
+        </div>
       </div>
 
       <p className="mt-2 text-[11px] text-foreground-muted">
-        Particle density is <strong>log-scaled</strong> to the measured rate so hot instances stay
-        readable. Particles hop Writes/Reads → schema → table. Green = writes, blue = reads.
+        <strong>WRITE</strong> (green) Application → table; <strong>READ</strong> (blue) table →
+        Application. Comets only — write and read each keep a visible share. Crowns:{' '}
+        <span className="text-[#0a6e42]">W↑</span> most written,{' '}
+        <span className="text-[#005eb8]">R↑</span> most read,{' '}
+        <span className="text-[#8a5a00]">HOT</span> most attacked (W+R). Group by schema to roll up
+        tables.
+        {demoOn ? (
+          <>
+            {' '}
+            <span className="text-amber-800">
+              Temporary demo: {DEMO_TABLE_COUNT} tables packed into the viewport
+              (multi-column + “+N more”). Set DEMO_TABLE_COUNT=0 to restore.
+            </span>
+          </>
+        ) : null}
       </p>
     </div>
   );

@@ -8,6 +8,9 @@ import { query } from './db';
  * que no debería exigir editar un archivo en el servidor y reiniciar el
  * colector. El archivo sigue siendo el valor inicial; el store, si tiene una
  * fila, manda.
+ *
+ * Product floor: ~90 days of operable history on rollups / statements / checks.
+ * Raw samples stay short — they dominate store size.
  */
 
 export interface Retention {
@@ -17,19 +20,32 @@ export interface Retention {
   lockEpisodeDays: number;
   statementDays: number;
   planDays: number;
+  logDays: number;
+  checkResultDays: number;
+  collectorEventDays: number;
+  healthScoreDays: number;
+  unreachableAfterMinutes: number;
 }
 
 export const RETENTION_DEFAULTS: Retention = {
   rawDays: 7,
-  rollup5mDays: 30,
+  rollup5mDays: 90,
   rollup1hDays: 400,
-  lockEpisodeDays: 30,
-  statementDays: 14,
-  planDays: 60,
+  lockEpisodeDays: 90,
+  statementDays: 90,
+  planDays: 90,
+  logDays: 90,
+  checkResultDays: 90,
+  collectorEventDays: 90,
+  healthScoreDays: 90,
+  unreachableAfterMinutes: 5,
 };
 
 /** Topes de cordura: un valor de 0 borraría todo y uno enorme llena el disco. */
-export const RETENTION_LIMITS: Record<keyof Retention, { min: number; max: number; label: string; hint: string }> = {
+export const RETENTION_LIMITS: Record<
+  keyof Retention,
+  { min: number; max: number; label: string; hint: string }
+> = {
   rawDays: {
     min: 1,
     max: 90,
@@ -37,13 +53,13 @@ export const RETENTION_LIMITS: Record<keyof Retention, { min: number; max: numbe
     hint: '5–60 s resolution; the heaviest part of the store',
   },
   rollup5mDays: {
-    min: 7,
+    min: 90,
     max: 400,
     label: '5-minute rollup',
-    hint: 'what you see in hour-to-day windows',
+    hint: 'product floor 90 days — hour-to-week windows',
   },
   rollup1hDays: {
-    min: 30,
+    min: 90,
     max: 1_100,
     label: '1-hour rollup',
     hint: 'month-scale trends; very cheap to store',
@@ -55,8 +71,8 @@ export const RETENTION_LIMITS: Record<keyof Retention, { min: number; max: numbe
     hint: 'few rows, gold in a postmortem',
   },
   statementDays: {
-    min: 3,
-    max: 180,
+    min: 14,
+    max: 400,
     label: 'Per-query statistics',
     hint: 'pg_stat_statements deltas, partitioned by day',
   },
@@ -65,6 +81,36 @@ export const RETENTION_LIMITS: Record<keyof Retention, { min: number; max: numbe
     max: 400,
     label: 'Execution plans',
     hint: 'history to spot plan changes for a query',
+  },
+  logDays: {
+    min: 7,
+    max: 400,
+    label: 'Server log events',
+    hint: 'deadlocks and errors parsed from the engine log',
+  },
+  checkResultDays: {
+    min: 14,
+    max: 400,
+    label: 'Check findings',
+    hint: 'historical check_results rows',
+  },
+  collectorEventDays: {
+    min: 14,
+    max: 400,
+    label: 'Collector events',
+    hint: 'ops log for the Búho collector itself',
+  },
+  healthScoreDays: {
+    min: 14,
+    max: 400,
+    label: 'Health scores',
+    hint: 'score time series for fleet trends',
+  },
+  unreachableAfterMinutes: {
+    min: 2,
+    max: 120,
+    label: 'Unreachable after (minutes)',
+    hint: 'no samples → resolve zombie alerts and fire instance_unreachable',
   },
 };
 
@@ -84,7 +130,7 @@ export function validateRetention(input: Retention): string[] {
   ][]) {
     const value = input[field];
     if (!Number.isInteger(value) || value < limits.min || value > limits.max) {
-      problems.push(`${limits.label}: must be an integer between ${limits.min} and ${limits.max} days.`);
+      problems.push(`${limits.label}: must be an integer between ${limits.min} and ${limits.max}.`);
     }
   }
 

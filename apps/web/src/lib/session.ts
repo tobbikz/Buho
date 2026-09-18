@@ -35,3 +35,12 @@ export async function requireAdmin(): Promise<Session> {
   }
   return session;
 }
+
+/** Any signed-in console user (admin or viewer) — e.g. custom SQL alerts. */
+export async function requireUser(): Promise<Session> {
+  const session = await currentSession();
+  if (authConfigured() && (session.username === 'anonymous' || session.expiresAt === 0)) {
+    throw new Error('Sign in required.');
+  }
+  return session;
+}

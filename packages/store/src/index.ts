@@ -91,6 +91,12 @@ export interface RetentionConfig {
   statementDays: number;
   planDays: number;
   logDays: number;
+  /** Historical check findings (not partitioned). */
+  checkResultDays: number;
+  collectorEventDays: number;
+  healthScoreDays: number;
+  /** Minutes without samples before the instance is treated as unreachable. */
+  unreachableAfterMinutes: number;
 }
 
 /**
@@ -111,10 +117,13 @@ export class Store {
   private readonly pool: Pool;
 
   constructor(url: string) {
+    // Collector fans out many loops (samples, checks, plans, inventory, security).
+    // max:4 starved maintenance for hours when DELETE/rollup held a slot.
+    const poolMax = Number(process.env['BUHO_STORE_POOL_MAX'] ?? 24);
     this.pool = new Pool({
       connectionString: url,
       application_name: 'buho_store',
-      max: 4,
+      max: Number.isFinite(poolMax) && poolMax >= 8 ? Math.floor(poolMax) : 24,
       connectionTimeoutMillis: 10_000,
       options: `-c timezone=${storeTimeZone()}`,
     });
@@ -125,6 +134,7 @@ export class Store {
     await this.pool.query(schema);
     await this.pool.query(
       `select buho.ensure_partitions('metric_samples', $1),
+              buho.ensure_partitions('metric_rollup_5m', $1),
               buho.ensure_partitions('statement_stats', $1),
               buho.ensure_partitions('log_events', $1)`,
       [3],
@@ -138,14 +148,15 @@ export class Store {
   async upsertInstance(instance: InstanceConfig): Promise<number> {
     const result = await this.pool.query<{ instance_id: string }>(
       `insert into buho.instances (tenant, alias, host, port, database, environment, engine, last_seen_at)
-            values ($1, $2, $3, $4, $5, $6, $7, now())
+            values ($1, $2, $3, $4, $5, $6, $7, null)
        on conflict (tenant, alias) do update
               set host         = excluded.host,
                   port         = excluded.port,
                   database     = excluded.database,
                   environment  = excluded.environment,
-                  engine       = excluded.engine,
-                  last_seen_at = now()
+                  engine       = excluded.engine
+                  -- last_seen_at is only refreshed when samples land, so
+                  -- unreachable detection stays honest if the probe fails.
         returning instance_id`,
       [
         instance.tenant ?? 'default',
@@ -1422,94 +1433,285 @@ export class Store {
   async maintenance(
     retention: RetentionConfig,
   ): Promise<{ created: number; dropped: number; rolled: number; baselines: number }> {
-    // Partition creation per parent: one overlapping table must not abort
-    // rollups (24h charts read metric_rollup_5m and go empty when this stalls).
-    const parents = [
-      'metric_samples',
-      'statement_stats',
-      'query_actors',
-      'wait_samples',
-      'session_samples',
-      'log_events',
-    ] as const;
-    let created = 0;
-    for (const parent of parents) {
-      try {
-        const row = await this.pool.query<{ created: number }>(
-          `select buho.ensure_partitions($1, $2) as created`,
-          [parent, 3],
+    // Dedicated client + timeouts: a long DELETE must not hold the shared pool
+    // forever, and must not abort the whole Node process without releasing.
+    const client = await this.pool.connect();
+    const started = Date.now();
+    try {
+      await client.query('set local statement_timeout = 180000');
+      await client.query('set local lock_timeout = 30000');
+
+      const parents = [
+        'metric_samples',
+        'metric_rollup_5m',
+        'statement_stats',
+        'query_actors',
+        'wait_samples',
+        'session_samples',
+        'log_events',
+      ] as const;
+      let created = 0;
+      for (const parent of parents) {
+        try {
+          const row = await client.query<{ created: number }>(
+            `select buho.ensure_partitions($1, $2) as created`,
+            [parent, 3],
+          );
+          created += Number(row.rows[0]?.created ?? 0);
+        } catch (error) {
+          await this.logEvent(
+            null,
+            'error',
+            'maintenance',
+            `ensure_partitions(${parent}): ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+
+      const rolled = await client.query<{ build_rollups: number }>(
+        'select buho.build_rollups($1::interval)',
+        ['2 hours'],
+      );
+
+      const baselines = await client.query<{ build_baselines: number }>(
+        `select case
+                  when exists (
+                    select 1 from buho.metric_baselines
+                     where computed_at > now() - interval '1 hour'
+                  ) then 0
+                  else buho.build_baselines($1)
+                end as build_baselines`,
+        [4],
+      );
+
+      const dropped = await client.query<{ dropped: number }>(
+        `select buho.prune_partitions('metric_samples', $1)
+              + buho.prune_partitions('metric_rollup_5m', $2)
+              + buho.prune_partitions('statement_stats', $3)
+              + buho.prune_partitions('query_actors', $3)
+              + buho.prune_partitions('wait_samples', $3)
+              + buho.prune_partitions('session_samples', $1)
+              + buho.prune_partitions('log_events', $4) as dropped`,
+        [
+          retention.rawDays,
+          retention.rollup5mDays,
+          retention.statementDays,
+          retention.logDays ?? 90,
+        ],
+      );
+
+      // 1h rollups stay flat (cheap); batch delete so one cycle cannot hang.
+      await client.query(
+        `delete from buho.metric_rollup_1h
+          where ctid in (
+            select ctid from buho.metric_rollup_1h
+             where bucket < now() - ($1 || ' days')::interval
+             limit 50000
+          )`,
+        [retention.rollup1hDays],
+      );
+      await client.query(
+        `delete from buho.lock_episodes where last_seen_at < now() - ($1 || ' days')::interval`,
+        [retention.lockEpisodeDays],
+      );
+      await client.query(
+        `delete from buho.topology_edges where week_start < (current_date - ($1 || ' days')::interval)`,
+        [Math.max(retention.rollup1hDays, 180)],
+      );
+      await client.query(
+        `delete from buho.security_posture where captured_at < now() - ($1 || ' days')::interval`,
+        [retention.rollup1hDays],
+      );
+      await client.query(
+        `delete from buho.plan_requests where requested_at < now() - ($1 || ' days')::interval`,
+        [retention.planDays ?? 90],
+      );
+      await client.query(
+        `delete from buho.check_results where ts < now() - ($1 || ' days')::interval`,
+        [retention.checkResultDays ?? 90],
+      );
+      await client.query(
+        `delete from buho.collector_events where ts < now() - ($1 || ' days')::interval`,
+        [retention.collectorEventDays ?? 90],
+      );
+      await client.query(
+        `delete from buho.health_scores where ts < now() - ($1 || ' days')::interval`,
+        [retention.healthScoreDays ?? 90],
+      );
+      await client.query(
+        `delete from buho.statement_texts t
+          where not exists (select 1 from buho.statement_stats s
+                             where s.instance_id = t.instance_id and s.queryid = t.queryid)`,
+      );
+
+      await this.touchHeartbeat(
+        client,
+        'maintenance',
+        {
+          created,
+          dropped: Number(dropped.rows[0]?.dropped ?? 0),
+          rolled: Number(rolled.rows[0]?.build_rollups ?? 0),
+          baselines: Number(baselines.rows[0]?.build_baselines ?? 0),
+          durationMs: Date.now() - started,
+        },
+      );
+
+      return {
+        created,
+        dropped: Number(dropped.rows[0]?.dropped ?? 0),
+        rolled: Number(rolled.rows[0]?.build_rollups ?? 0),
+        baselines: Number(baselines.rows[0]?.build_baselines ?? 0),
+      };
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Records that a collector component finished successfully.
+   * Watchdog compares last_ok_at against the expected interval.
+   */
+  async touchHeartbeat(
+    client: { query: Pool['query'] } | null,
+    component: string,
+    detail: Record<string, unknown> = {},
+  ): Promise<void> {
+    const runner = client ?? this.pool;
+    await runner.query(
+      `insert into buho.collector_heartbeat (component, last_ok_at, detail, updated_at)
+            values ($1, now(), $2::jsonb, now())
+       on conflict (component) do update
+              set last_ok_at = now(),
+                  detail = excluded.detail,
+                  updated_at = now()`,
+      [component, JSON.stringify(detail)],
+    );
+  }
+
+  async heartbeatAgeSeconds(component: string): Promise<number | null> {
+    const result = await this.pool.query<{ age_seconds: number }>(
+      `select extract(epoch from (now() - last_ok_at))::float8 as age_seconds
+         from buho.collector_heartbeat
+        where component = $1`,
+      [component],
+    );
+    const age = result.rows[0]?.age_seconds;
+    return age === undefined || age === null ? null : Number(age);
+  }
+
+  /**
+   * Instances with no fresh samples: resolve zombie check alerts and keep a
+   * single `instance_unreachable` alert firing until data returns.
+   */
+  async reconcileUnreachableInstances(staleAfterMinutes: number): Promise<{
+    marked: number;
+    cleared: number;
+    resolvedZombies: number;
+  }> {
+    const minutes = Math.max(2, staleAfterMinutes);
+    const stale = await this.pool.query<{ instance_id: string; alias: string }>(
+      `select instance_id::text, alias
+         from buho.instances
+        where last_seen_at is null
+           or last_seen_at < now() - ($1 || ' minutes')::interval`,
+      [minutes],
+    );
+    const fresh = await this.pool.query<{ instance_id: string }>(
+      `select instance_id::text
+         from buho.instances
+        where last_seen_at is not null
+          and last_seen_at >= now() - ($1 || ' minutes')::interval`,
+      [minutes],
+    );
+
+    let resolvedZombies = 0;
+    let marked = 0;
+    for (const row of stale.rows) {
+      const instanceId = Number(row.instance_id);
+      const zombies = await this.pool.query<{ alert_id: string }>(
+        `update buho.alerts
+            set status = 'resolved',
+                resolved_at = now(),
+                updated_at = now(),
+                pending_count = 0,
+                message = message || ' (auto-resolved: instance unreachable)'
+          where instance_id = $1
+            and status in ('pending', 'firing')
+            and check_id <> 'instance_unreachable'
+        returning alert_id::text`,
+        [instanceId],
+      );
+      resolvedZombies += zombies.rowCount ?? 0;
+
+      const existing = await this.pool.query<{ alert_id: string; status: string }>(
+        `select alert_id::text, status
+           from buho.alerts
+          where instance_id = $1 and dedupe_key = 'instance_unreachable'`,
+        [instanceId],
+      );
+      const message =
+        `No telemetry from ${row.alias} for more than ${minutes} minutes ` +
+        `(last_seen stale or missing). Collector cannot reach the instance or is stuck.`;
+      if (!existing.rows[0]) {
+        const inserted = await this.pool.query<{ alert_id: string }>(
+          `insert into buho.alerts
+             (instance_id, dedupe_key, check_id, object, severity, title, message, remediation,
+              status, pending_count, fired_at, last_seen_at, updated_at)
+           values ($1, 'instance_unreachable', 'instance_unreachable', $2, 'critical',
+                   'Instance unreachable', $3,
+                   'Verify network/DNS, credentials, and collector logs. Silences do not apply until it is back.',
+                   'firing', 1, now(), now(), now())
+           returning alert_id::text`,
+          [instanceId, row.alias, message],
         );
-        created += Number(row.rows[0]?.created ?? 0);
-      } catch (error) {
-        await this.logEvent(
-          null,
-          'error',
-          'maintenance',
-          `ensure_partitions(${parent}): ${error instanceof Error ? error.message : String(error)}`,
+        await this.enqueueAlertDeliveries(Number(inserted.rows[0]!.alert_id), 'fired', null);
+        marked += 1;
+      } else if (existing.rows[0].status !== 'firing') {
+        await this.pool.query(
+          `update buho.alerts
+              set status = 'firing', pending_count = 1, fired_at = coalesce(fired_at, now()),
+                  resolved_at = null, message = $2, last_seen_at = now(), updated_at = now()
+            where alert_id = $1`,
+          [existing.rows[0].alert_id, message],
+        );
+        await this.enqueueAlertDeliveries(Number(existing.rows[0].alert_id), 'fired', null);
+        marked += 1;
+      } else {
+        await this.pool.query(
+          `update buho.alerts
+              set message = $2, last_seen_at = now(), updated_at = now()
+            where alert_id = $1`,
+          [existing.rows[0].alert_id, message],
         );
       }
     }
-    const rolled = await this.pool.query<{ build_rollups: number }>('select buho.build_rollups($1::interval)', [
-      '2 hours',
-    ]);
 
-    // Las líneas base se recalculan una vez por hora y no en cada vuelta de
-    // mantenimiento: describen semanas de historia, así que rehacerlas cada 15
-    // minutos gasta lo mismo y no cambia el resultado.
-    const baselines = await this.pool.query<{ build_baselines: number }>(
-      `select case
-                when exists (
-                  select 1 from buho.metric_baselines
-                   where computed_at > now() - interval '1 hour'
-                ) then 0
-                else buho.build_baselines($1)
-              end as build_baselines`,
-      [4],
-    );
-    const dropped = await this.pool.query<{ dropped: number }>(
-      `select buho.prune_partitions('metric_samples', $1)
-            + buho.prune_partitions('statement_stats', $2)
-            + buho.prune_partitions('query_actors', $2)
-            + buho.prune_partitions('wait_samples', $2)
-            + buho.prune_partitions('session_samples', $1)
-            + buho.prune_partitions('log_events', $3) as dropped`,
-      [retention.rawDays, retention.statementDays, retention.logDays],
-    );
+    let cleared = 0;
+    for (const row of fresh.rows) {
+      const open = await this.pool.query<{ alert_id: string; status: string }>(
+        `select alert_id::text, status
+           from buho.alerts
+          where instance_id = $1
+            and dedupe_key = 'instance_unreachable'
+            and status in ('pending', 'firing')`,
+        [row.instance_id],
+      );
+      for (const alert of open.rows) {
+        await this.pool.query(
+          `update buho.alerts
+              set status = 'resolved', resolved_at = now(), updated_at = now(), pending_count = 0,
+                  message = 'Instance is sending telemetry again.'
+            where alert_id = $1`,
+          [alert.alert_id],
+        );
+        if (alert.status === 'firing') {
+          await this.enqueueAlertDeliveries(Number(alert.alert_id), 'resolved', null);
+        }
+        cleared += 1;
+      }
+    }
 
-    await this.pool.query('delete from buho.metric_rollup_5m where bucket < now() - ($1 || \' days\')::interval', [
-      retention.rollup5mDays,
-    ]);
-    await this.pool.query('delete from buho.metric_rollup_1h where bucket < now() - ($1 || \' days\')::interval', [
-      retention.rollup1hDays,
-    ]);
-    await this.pool.query('delete from buho.lock_episodes where last_seen_at < now() - ($1 || \' days\')::interval', [
-      retention.lockEpisodeDays,
-    ]);
-    await this.pool.query(
-      `delete from buho.topology_edges where week_start < (current_date - ($1 || ' days')::interval)`,
-      [Math.max(retention.rollup1hDays, 180)],
-    );
-    await this.pool.query(
-      `delete from buho.security_posture where captured_at < now() - ($1 || ' days')::interval`,
-      [retention.rollup1hDays],
-    );
-    await this.pool.query(
-      `delete from buho.plan_requests where requested_at < now() - ($1 || ' days')::interval`,
-      [retention.planDays ?? 60],
-    );
-    // Un texto sin deltas ya no le sirve a nadie.
-    await this.pool.query(
-      `delete from buho.statement_texts t
-        where not exists (select 1 from buho.statement_stats s
-                           where s.instance_id = t.instance_id and s.queryid = t.queryid)`,
-    );
-
-    return {
-      created,
-      dropped: Number(dropped.rows[0]?.dropped ?? 0),
-      rolled: Number(rolled.rows[0]?.build_rollups ?? 0),
-      baselines: Number(baselines.rows[0]?.build_baselines ?? 0),
-    };
+    return { marked, cleared, resolvedZombies };
   }
 
   /**

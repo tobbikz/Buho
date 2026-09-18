@@ -6,7 +6,7 @@ import { FleetGrid } from '@/components/FleetGrid';
 import { FindingsModalList } from '@/components/FindingsModal';
 import { Modal } from '@/components/Modal';
 import { StatCard, toneForScore, type StatTone } from '@/components/StatCard';
-import { formatNumber, formatDuration } from '@/lib/format';
+import { formatCompactNumber, formatDuration } from '@/lib/format';
 import { postureHint } from '@/lib/health-posture';
 import type { Group } from '@/lib/grouping';
 import type { FleetFinding, FleetInstance, Severity } from '@/lib/queries';
@@ -109,13 +109,13 @@ export function FleetOverviewClient({
       <div className="stat-grid">
         <StatCard
           label="Instances"
-          value={formatNumber(stats.instanceCount)}
+          value={formatCompactNumber(stats.instanceCount)}
           hint={stats.stale > 0 ? `${stats.stale} without recent data` : 'all reporting'}
           tone={stats.stale > 0 ? 'warn' : 'ok'}
         />
         <ClickableStat
           label="With critical"
-          value={formatNumber(stats.withCritical)}
+          value={formatCompactNumber(stats.withCritical)}
           hint={stats.withCritical === 0 ? 'nothing to handle now' : 'click to view'}
           tone={stats.withCritical > 0 ? 'error' : 'ok'}
           onClick={() => setModal({ severity: 'critical' })}
@@ -123,7 +123,7 @@ export function FleetOverviewClient({
         />
         <ClickableStat
           label="Open warnings"
-          value={formatNumber(stats.warnings)}
+          value={formatCompactNumber(stats.warnings)}
           hint={stats.warnings === 0 ? undefined : 'click to view'}
           tone={stats.warnings > 0 ? 'warn' : 'ok'}
           onClick={() => setModal({ severity: 'warning' })}
@@ -131,7 +131,7 @@ export function FleetOverviewClient({
         />
         <StatCard
           label="Worst score"
-          value={stats.worstScore === null ? '—' : formatNumber(stats.worstScore)}
+          value={stats.worstScore === null ? '—' : formatCompactNumber(stats.worstScore)}
           unit={stats.worstScore === null ? undefined : '/100'}
           tone={toneForScore(stats.worstScore)}
           hint={

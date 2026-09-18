@@ -25,6 +25,7 @@ export function InstanceTabs({
           { href: `${base}/analysis`, label: 'Analysis' },
           { href: `${base}/queries`, label: 'Queries' },
           { href: `${base}/indexes`, label: 'Indexes' },
+          { href: `${base}/extensions`, label: 'Extensions' },
           { href: `${base}/flow`, label: 'Flow' },
           { href: `${base}/orm`, label: 'ORM' },
           { href: `${base}/topology`, label: 'Topology' },
@@ -57,6 +58,7 @@ export function InstanceTabs({
           // familias que PostgreSQL para que el gráfico se lea igual.
           { href: `${base}/sessions`, label: 'Sessions' },
           { href: `${base}/capacity`, label: 'Capacity' },
+          { href: `${base}/host`, label: 'Host' },
           { href: `${base}/replication`, label: 'Replication' },
           { href: `${base}/locks`, label: 'Locks', badge: blockedCount },
           { href: `${base}/logs`, label: 'Log' },

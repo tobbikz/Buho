@@ -4,7 +4,7 @@ import { ChannelTestButton } from '@/components/ChannelTestButton';
 import { AlertChannelForm } from '@/components/AlertChannelForm';
 import { StoreError } from '@/components/StoreError';
 import { formatAgo } from '@/lib/format';
-import { requireAdmin } from '@/lib/session';
+import { requireAdmin, requireUser, currentSession } from '@/lib/session';
 import { logConsoleEvent } from '@/lib/users';
 import {
   ALERT_PACK_META,
@@ -251,7 +251,7 @@ async function removeRule(formData: FormData) {
 
 async function saveDefinition(formData: FormData) {
   'use server';
-  const session = await requireAdmin();
+  const session = await requireUser();
   const name = String(formData.get('name') ?? '').trim();
   const sql = String(formData.get('sql') ?? '').trim();
   const messageTemplate = String(formData.get('messageTemplate') ?? '').trim();
@@ -316,7 +316,7 @@ async function saveDefinition(formData: FormData) {
 
 async function removeDefinition(formData: FormData) {
   'use server';
-  const session = await requireAdmin();
+  const session = await requireUser();
   const definitionId = Number(formData.get('definitionId'));
   await deleteAlertDefinition(definitionId);
   await logConsoleEvent(session.username, 'alert definition deleted', String(definitionId));
@@ -384,17 +384,22 @@ export default async function AdminAlertsPage({
     return <StoreError message={storeError instanceof Error ? storeError.message : String(storeError)} />;
   }
 
+  const session = await currentSession();
+  const isAdmin = session.role === 'admin' || session.username === 'no-auth';
+
   return (
     <div className="flex flex-col gap-[0.875rem]">
       <p className="text-[12px] text-foreground-secondary max-w-3xl">
-        Default system pack (CPU, memory, disk, connections…) with editable thresholds, then custom
-        SQL alerts, then routing rules. Channels: Slack, Teams, Discord, Google Chat, Mattermost,
-        Telegram, Rocket.Chat, PagerDuty, SMTP, generic webhook.
+        {isAdmin
+          ? 'Default system pack, custom SQL alerts, routing rules, and channels. Custom SQL alerts can also be edited by viewers.'
+          : 'Custom SQL alerts — scoped to an instance and/or engine. Channels and the system pack are admin-only.'}
       </p>
 
       {ok ? <p className="notice notice--ok">Saved.</p> : null}
       {error ? <p className="notice notice--error">{error}</p> : null}
 
+      {isAdmin ? (
+        <>
       <section className="panel">
         <div className="panel-header">
           <span className="panel-title">Global defaults</span>
@@ -718,6 +723,8 @@ export default async function AdminAlertsPage({
           </button>
         </form>
       </section>
+        </>
+      ) : null}
 
       <section className="panel">
         <div className="panel-header">
@@ -905,6 +912,7 @@ export default async function AdminAlertsPage({
         </form>
       </section>
 
+      {isAdmin ? (
       <section className="panel">
         <div className="panel-header">
           <span className="panel-title">Temporary silence</span>
@@ -965,6 +973,7 @@ export default async function AdminAlertsPage({
           </div>
         ) : null}
       </section>
+      ) : null}
     </div>
   );
 }

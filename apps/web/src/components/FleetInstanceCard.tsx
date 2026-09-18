@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { ENGINE_LABEL } from '@/lib/grouping';
-import { formatAgo, formatNumber, formatPct, formatVersion, formatDuration } from '@/lib/format';
+import { formatAgo, formatCompactNumber, formatNumber, formatPct, formatVersion, formatDuration } from '@/lib/format';
 import type { FleetCardDensity } from '@/components/FleetCardDensity';
 import type { FleetInstance, Severity } from '@/lib/queries';
 
@@ -45,21 +45,23 @@ function throughputValue(instance: FleetInstance): string {
     instance.queriesPerSec ??
     instance.mongoOpsPerSec;
   if (rate === null) return '—';
-  return `${formatNumber(rate, 1)}/s`;
+  return `${formatCompactNumber(rate, 1)}/s`;
 }
 
 function memoryValue(instance: FleetInstance): string {
   if (instance.memUsedPct !== null) return formatPct(instance.memUsedPct, 0);
-  if (instance.mongoMemResidentMb !== null) return `${formatNumber(instance.mongoMemResidentMb, 0)} MB`;
+  if (instance.mongoMemResidentMb !== null) {
+    return `${formatCompactNumber(instance.mongoMemResidentMb, 0)} MB`;
+  }
   return '—';
 }
 
 function connectionsValue(instance: FleetInstance): string {
   if (instance.connectionsUsedPct !== null) return formatPct(instance.connectionsUsedPct, 0);
   if (instance.connectionsTotal !== null && instance.connectionsMax !== null) {
-    return `${formatNumber(instance.connectionsTotal)}/${formatNumber(instance.connectionsMax)}`;
+    return `${formatCompactNumber(instance.connectionsTotal)}/${formatCompactNumber(instance.connectionsMax)}`;
   }
-  if (instance.connectionsTotal !== null) return formatNumber(instance.connectionsTotal);
+  if (instance.connectionsTotal !== null) return formatCompactNumber(instance.connectionsTotal);
   return '—';
 }
 

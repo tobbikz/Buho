@@ -5,9 +5,8 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { logout } from '@/app/logout/actions';
 
-const FLEET_LINKS = [
+const FLEET_LINKS_BASE = [
   { href: '/', label: 'Overview', match: (path: string) => path === '/' },
-  { href: '/get-started', label: 'Get started', match: (path: string) => path.startsWith('/get-started') },
   { href: '/checks', label: 'Checks', match: (path: string) => path.startsWith('/checks') },
   { href: '/alerts', label: 'Alerts', match: (path: string) => path.startsWith('/alerts') },
   { href: '/events', label: 'Events', match: (path: string) => path.startsWith('/events') },
@@ -16,6 +15,12 @@ const FLEET_LINKS = [
   { href: '/estate', label: 'Estate', match: (path: string) => path.startsWith('/estate') },
   { href: '/security', label: 'Security', match: (path: string) => path.startsWith('/security') },
 ] as const;
+
+const ADD_DATABASE_LINK = {
+  href: '/admin/instances',
+  label: 'Add database',
+  match: (path: string) => path.startsWith('/admin/instances'),
+} as const;
 
 const ADMIN_LINKS = [
   { href: '/admin/instances', label: 'Databases', hint: 'Monitored targets' },
@@ -51,6 +56,7 @@ export function Navbar({
   const pathname = usePathname();
   const [adminOpen, setAdminOpen] = useState(false);
   const adminRef = useRef<HTMLDivElement>(null);
+  const fleetLinks = isAdmin ? [ADD_DATABASE_LINK, ...FLEET_LINKS_BASE] : [...FLEET_LINKS_BASE];
 
   const onAdmin = pathname.startsWith('/admin');
   const activeAdmin = ADMIN_LINKS.find((link) => adminActive(pathname, link.href));
@@ -110,7 +116,7 @@ export function Navbar({
           </Link>
 
           <nav className="navbar__rail" aria-label="Main navigation">
-            {FLEET_LINKS.map((link) => {
+            {fleetLinks.map((link) => {
               const active = link.match(pathname);
               return (
                 <Link
@@ -128,8 +134,7 @@ export function Navbar({
         </div>
 
         <div className="navbar__end">
-          {isAdmin ? (
-            <div className="navbar__menu" ref={adminRef}>
+          <div className="navbar__menu" ref={adminRef}>
               <button
                 type="button"
                 className={`navbar__menu-trigger ${onAdmin ? 'is-active' : ''}`}
@@ -137,13 +142,18 @@ export function Navbar({
                 aria-haspopup="menu"
                 onClick={() => setAdminOpen((open) => !open)}
               >
-                <span className="navbar__menu-value">{activeAdmin?.label ?? 'Admin'}</span>
+                <span className="navbar__menu-value">
+                  {activeAdmin?.label ?? (isAdmin ? 'Admin' : 'Alert setup')}
+                </span>
                 <span className={`navbar__chevron ${adminOpen ? 'is-open' : ''}`} aria-hidden />
               </button>
 
               {adminOpen ? (
                 <div className="navbar__dropdown" role="menu">
-                  {ADMIN_LINKS.map((link) => {
+                  {(isAdmin
+                    ? ADMIN_LINKS
+                    : ADMIN_LINKS.filter((link) => link.href === '/admin/alerts')
+                  ).map((link) => {
                     const active = adminActive(pathname, link.href);
                     return (
                       <Link
@@ -157,14 +167,15 @@ export function Navbar({
                         }}
                       >
                         <span className="navbar__dropdown-label">{link.label}</span>
-                        <span className="navbar__dropdown-hint">{link.hint}</span>
+                        <span className="navbar__dropdown-hint">
+                          {isAdmin ? link.hint : 'Custom SQL alerts'}
+                        </span>
                       </Link>
                     );
                   })}
                 </div>
               ) : null}
             </div>
-          ) : null}
 
           <div className="navbar__account">
             {username ? (
@@ -196,7 +207,7 @@ export function Navbar({
 
       {/* Compact primary nav for phone — rail is hidden; this strip scrolls. */}
       <nav className="navbar__mobile-rail" aria-label="Sections">
-        {FLEET_LINKS.map((link) => {
+        {fleetLinks.map((link) => {
           const active = link.match(pathname);
           return (
             <Link

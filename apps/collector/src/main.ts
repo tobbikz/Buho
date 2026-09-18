@@ -94,6 +94,9 @@ const INVENTORY_INTERVAL_MS = 3_600_000;
 // La postura de seguridad cambia por una edición manual, no de forma continua.
 const SECURITY_INTERVAL_MS = 21_600_000;
 const MAINTENANCE_INTERVAL_MS = 900_000;
+/** Watchdog: complain if maintenance heartbeat is older than 2× interval. */
+const MAINTENANCE_WATCHDOG_MS = 60_000;
+const UNREACHABLE_RECONCILE_MS = 60_000;
 // La cola de EXPLAIN se revisa cada segundo: es una consulta a un índice parcial
 // que sólo contiene los pendientes, y del otro lado hay una persona esperando
 // que el plan aparezca en la pantalla.
@@ -568,9 +571,10 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
 
   const statements = new ForeignStatementTracker();
   startLoop(`${instance.alias}/statements`, STATEMENTS_INTERVAL_MS, async () => {
-    if (!caps.features.statementDigests) return;
+    // Digests preferred; MariaDB without performance_schema uses PROCESSLIST sampling.
+    if (!caps.features.statementDigests && caps.engine !== 'mariadb') return;
 
-    const rows = await sampleForeignStatements(client, caps);
+    const rows = await sampleForeignStatements(client, caps, statements);
     const { deltas: activity, discarded } = statements.deltas(rows, caps);
     if (discarded > 0) {
       log('info', `${instance.alias}/statements: ${discarded} consulta(s) descartada(s) por reset de estadísticas`);
@@ -579,11 +583,25 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
 
     const written = await store.saveStatements(instanceId, activity);
     const totalMs = activity.reduce((sum, delta) => sum + delta.execMs, 0);
+    const mode = caps.features.statementDigests ? 'digests' : 'processlist';
     log(
       'info',
-      `${instance.alias}/statements: ${written} consulta(s) con actividad, ${totalMs.toFixed(0)} ms de ejecución`,
+      `${instance.alias}/statements: ${written} consulta(s) con actividad (${mode}), ${totalMs.toFixed(0)} ms de ejecución`,
     );
   });
+
+  // Host CPU/RAM via /proc — same as PostgreSQL when declared on the target.
+  const hostConfig = instance.hostMetrics;
+  if (hostConfig && hostConfig.source && hostConfig.source !== 'none') {
+    const host = new HostTracker();
+    startLoop(`${instance.alias}/host`, HOST_INTERVAL_MS, async () => {
+      const snapshot = await readHostSnapshot(hostConfig);
+      const samples = host.samples(snapshot);
+      if (samples.length === 0) return;
+      await store.insertSamples(instanceId, samples);
+      log('info', `${instance.alias}/host: ${samples.length} muestras (${hostConfig.source})`);
+    });
+  }
 
     startLoop(`${instance.alias}/checks`, CHECKS_INTERVAL_MS, async () => {
       const summary = await runForeignChecks(client, caps);
@@ -930,6 +948,39 @@ startLoop('mantenimiento', MAINTENANCE_INTERVAL_MS, async () => {
       (result.baselines > 0 ? `, ${result.baselines} baseline cells` : '') +
       ` (raw ${retention.rawDays}d, 5m ${retention.rollup5mDays}d, 1h ${retention.rollup1hDays}d)`,
   );
+});
+
+startLoop('mantenimiento/watchdog', MAINTENANCE_WATCHDOG_MS, async () => {
+  const age = await store.heartbeatAgeSeconds('maintenance');
+  const limitSec = (MAINTENANCE_INTERVAL_MS / 1000) * 2;
+  if (age === null) {
+    log('warn', `maintenance/watchdog: no heartbeat yet (limit ${limitSec}s)`);
+    return;
+  }
+  if (age > limitSec) {
+    log(
+      'error',
+      `maintenance/watchdog: last success ${Math.round(age)}s ago (limit ${limitSec}s) — rollups/retention stalled`,
+    );
+    await store.logEvent(
+      null,
+      'error',
+      'maintenance:watchdog',
+      `Maintenance heartbeat is ${Math.round(age)}s old (expected ≤${limitSec}s). Charts and retention may be stale.`,
+    );
+  }
+});
+
+startLoop('unreachable', UNREACHABLE_RECONCILE_MS, async () => {
+  const retention = await store.effectiveRetention(config.collector.retention);
+  const minutes = retention.unreachableAfterMinutes ?? 5;
+  const result = await store.reconcileUnreachableInstances(minutes);
+  if (result.marked > 0 || result.cleared > 0 || result.resolvedZombies > 0) {
+    log(
+      'info',
+      `unreachable: marked ${result.marked}, cleared ${result.cleared}, zombie alerts resolved ${result.resolvedZombies}`,
+    );
+  }
 });
 
 startLoop('alerts/deliver', 15_000, async () => {

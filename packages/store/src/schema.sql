@@ -77,6 +77,20 @@ create index if not exists metric_samples_ts_brin
 create index if not exists metric_samples_lookup
   on buho.metric_samples (instance_id, metric, ts desc);
 
+-- 5-minute rollups used to be a flat table. DELETE retention on ~200 MB with a
+-- jsonb PK starved the store pool for hours. Same pattern as statement_stats:
+-- rename flat → recreate partitioned → copy → drop.
+do $$
+begin
+  if exists (
+    select 1 from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'buho' and c.relname = 'metric_rollup_5m' and c.relkind = 'r'
+  ) then
+    alter table buho.metric_rollup_5m rename to metric_rollup_5m_flat;
+  end if;
+end $$;
+
 create table if not exists buho.metric_rollup_5m (
   instance_id bigint           not null references buho.instances (instance_id) on delete cascade,
   bucket      timestamptz      not null,
@@ -87,7 +101,66 @@ create table if not exists buho.metric_rollup_5m (
   min_value   double precision not null,
   max_value   double precision not null,
   primary key (instance_id, metric, labels, bucket)
-);
+) partition by range (bucket);
+
+create table if not exists buho.metric_rollup_5m_default
+  partition of buho.metric_rollup_5m default;
+
+create index if not exists metric_rollup_5m_bucket_brin
+  on buho.metric_rollup_5m using brin (bucket);
+create index if not exists metric_rollup_5m_lookup
+  on buho.metric_rollup_5m (instance_id, metric, bucket desc);
+
+do $$
+declare
+  d          date;
+  day_from   timestamptz;
+  day_to     timestamptz;
+  part_name  text;
+  lo         date;
+  hi         date;
+begin
+  if exists (
+    select 1 from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'buho' and c.relname = 'metric_rollup_5m_flat'
+  ) then
+    select min(bucket)::date, max(bucket)::date into lo, hi from buho.metric_rollup_5m_flat;
+    if lo is not null then
+      for d in select generate_series(lo, hi, interval '1 day')::date
+      loop
+        part_name := format('metric_rollup_5m_%s', to_char(d, 'YYYYMMDD'));
+        continue when exists (
+          select 1 from pg_class c
+            join pg_namespace n on n.oid = c.relnamespace
+           where n.nspname = 'buho' and c.relname = part_name
+        );
+        day_from := d::timestamp AT TIME ZONE 'UTC';
+        day_to   := (d + 1)::timestamp AT TIME ZONE 'UTC';
+        begin
+          execute format(
+            'create table buho.%I partition of buho.metric_rollup_5m for values from (%L::timestamptz) to (%L::timestamptz)',
+            part_name, day_from, day_to
+          );
+        exception
+          when others then
+            -- Overlap with default: detach → create → reattach (same as ensure_partitions).
+            execute 'alter table buho.metric_rollup_5m detach partition buho.metric_rollup_5m_default';
+            execute format(
+              'create table buho.%I partition of buho.metric_rollup_5m for values from (%L::timestamptz) to (%L::timestamptz)',
+              part_name, day_from, day_to
+            );
+            execute 'alter table buho.metric_rollup_5m attach partition buho.metric_rollup_5m_default default';
+        end;
+      end loop;
+    end if;
+
+    insert into buho.metric_rollup_5m
+    select * from buho.metric_rollup_5m_flat
+    on conflict do nothing;
+    drop table buho.metric_rollup_5m_flat;
+  end if;
+end $$;
 
 create table if not exists buho.metric_rollup_1h (
   instance_id bigint           not null references buho.instances (instance_id) on delete cascade,
@@ -1391,4 +1464,49 @@ create table if not exists buho.alert_definitions (
 
 create index if not exists alert_definitions_scope
   on buho.alert_definitions (enabled, match_engine, match_instance_id);
+
+-- ---------------------------------------------------------------- heartbeats
+--
+-- Collector components write last_ok_at here. The watchdog loop alerts when
+-- maintenance (or another critical loop) falls more than 2× its interval behind.
+
+create table if not exists buho.collector_heartbeat (
+  component   text        primary key,
+  last_ok_at  timestamptz not null,
+  detail      jsonb       not null default '{}',
+  updated_at  timestamptz not null default now()
+);
+
+-- FK columns PostgreSQL does not index automatically. Deletes on instances /
+-- alerts / channels otherwise take sequential scans under load.
+create index if not exists collector_events_instance_idx
+  on buho.collector_events (instance_id);
+create index if not exists alert_silences_instance_idx
+  on buho.alert_silences (instance_id);
+create index if not exists alert_deliveries_alert_idx
+  on buho.alert_deliveries (alert_id);
+create index if not exists alert_deliveries_channel_idx
+  on buho.alert_deliveries (channel_id);
+create index if not exists alert_rules_instance_idx
+  on buho.alert_rules (match_instance_id);
+create index if not exists alert_definitions_instance_idx
+  on buho.alert_definitions (match_instance_id);
+create index if not exists check_results_ts_idx
+  on buho.check_results (ts);
+
+-- Product default: keep operable history ≥ 90 days on rollups/statements.
+-- Merges into existing retention JSON without wiping a shorter rawDays choice.
+insert into buho.settings (key, value, updated_at, updated_by)
+values (
+  'retention',
+  '{"rawDays":7,"rollup5mDays":90,"rollup1hDays":400,"lockEpisodeDays":90,"statementDays":90,"planDays":90,"logDays":90,"checkResultDays":90,"collectorEventDays":90,"healthScoreDays":90,"unreachableAfterMinutes":5}'::jsonb,
+  now(),
+  'schema-migrate'
+)
+on conflict (key) do update
+   set value = buho.settings.value || excluded.value,
+       updated_at = now(),
+       updated_by = excluded.updated_by
+ where buho.settings.value->>'rollup5mDays' is null
+    or (buho.settings.value->>'rollup5mDays')::int < 90;
 

@@ -15,6 +15,7 @@ import {
   formatAgo,
   formatBytes,
   formatClock,
+  formatCompactNumber,
   formatDuration,
   formatNumber,
   formatPct,
@@ -427,20 +428,20 @@ export default async function InstancePage({
             hint={
               instance.connectionsTotal === null
                 ? undefined
-                : `${formatNumber(instance.connectionsTotal)} of ${formatNumber(instance.connectionsMax)}`
+                : `${formatCompactNumber(instance.connectionsTotal)} of ${formatCompactNumber(instance.connectionsMax)}`
             }
             tone={toneForPct(instance.connectionsUsedPct, 70, 90)}
           />
           <StatCard
             label="DML throughput"
-            value={dmlPerSec === null ? '—' : formatNumber(dmlPerSec, 0)}
+            value={dmlPerSec === null ? '—' : formatCompactNumber(dmlPerSec, 0)}
             unit={dmlPerSec === null ? undefined : '/s'}
             hint="insert + update + delete tuples"
             tone="accent"
           />
           <StatCard
             label="Commits/s"
-            value={formatNumber(instance.commitsPerSec, 1)}
+            value={formatCompactNumber(instance.commitsPerSec, 1)}
             tone="accent"
             hint="from transaction counters"
           />

@@ -128,7 +128,7 @@ export function TopologyBubbles({
       const paso = h / (list.length + 1);
       return {
         ...seed,
-        x: colX + (Math.random() - 0.5) * 24,
+        x: colX + ((index % 3) - 1) * 8,
         y: paso * (index + 1),
         vx: 0,
         vy: 0,
@@ -137,6 +137,7 @@ export function TopologyBubbles({
     });
 
     viewportRef.current = { scale: 1, tx: 0, ty: 0 };
+    let settledFrames = 0;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -201,6 +202,7 @@ export function TopologyBubbles({
         }
       }
 
+      let movement = 0;
       for (const n of nodes) {
         if (n.pinned) {
           n.vx = 0;
@@ -213,13 +215,22 @@ export function TopologyBubbles({
         n.y += n.vy;
         n.x = Math.min(w - 20, Math.max(20, n.x));
         n.y = Math.min(h - 20, Math.max(20, n.y));
+        movement += Math.abs(n.vx) + Math.abs(n.vy);
+      }
+      settledFrames = movement < 0.45 ? settledFrames + 1 : 0;
+      if (settledFrames >= 60) {
+        for (const n of nodes) {
+          n.pinned = true;
+          n.vx = 0;
+          n.vy = 0;
+        }
       }
     };
 
     const draw = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      simulate(dt);
+      if (settledFrames < 60) simulate(dt);
 
       const width = canvas.clientWidth || w;
       const tall = canvas.clientHeight || h;

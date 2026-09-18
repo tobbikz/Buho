@@ -12,6 +12,11 @@ export interface RetentionConfig {
   /** Planes de ejecución pedidos desde la consola; son pocos y ligeros. */
   planDays: number;
   logDays: number;
+  checkResultDays: number;
+  collectorEventDays: number;
+  healthScoreDays: number;
+  /** Sin muestras durante este tiempo → instancia unreachable (resuelve alertas zombie). */
+  unreachableAfterMinutes: number;
 }
 
 export interface CollectorConfig {
@@ -32,13 +37,19 @@ const DEFAULT_COLLECTOR: CollectorConfig = {
   connectTimeoutMs: 5_000,
   instanceCycleBudgetMs: 20_000,
   retention: {
+    // Product floor: ~90 days of operable history (rollups / statements).
+    // Raw samples stay short — they are the expensive part of the store.
     rawDays: 7,
-    rollup5mDays: 30,
+    rollup5mDays: 90,
     rollup1hDays: 400,
-    lockEpisodeDays: 30,
-    statementDays: 14,
-    planDays: 60,
-    logDays: 30,
+    lockEpisodeDays: 90,
+    statementDays: 90,
+    planDays: 90,
+    logDays: 90,
+    checkResultDays: 90,
+    collectorEventDays: 90,
+    healthScoreDays: 90,
+    unreachableAfterMinutes: 5,
   },
 };
 
@@ -50,15 +61,16 @@ export async function loadConfig(path = process.env['BUHO_CONFIG'] ?? 'config.js
   if (!storeUrl) {
     throw new Error('Falta la URL del store: definir store.url en el config o BUHO_STORE_URL.');
   }
-  if (!parsed.instances?.length) {
-    throw new Error('El config no tiene instancias que monitorear.');
-  }
+  // Instances are optional in config.json: production installs add targets from
+  // the console (buho.monitor_targets). File-based instances remain supported
+  // for labs and air-gapped bootstrap.
+  const instances = parsed.instances ?? [];
 
   // Un motor mal escrito ("postgresql", "sqlserver") tiene que fallar en el
   // arranque con el nombre del alias, no convertirse en un intento silencioso de
   // hablar PostgreSQL con un SQL Server.
   const engines = new Set(['postgres', 'mariadb', 'mssql', 'mongodb']);
-  for (const instance of parsed.instances) {
+  for (const instance of instances) {
     const engine = instance.engine ?? 'postgres';
     if (!engines.has(engine)) {
       throw new Error(
@@ -105,7 +117,7 @@ export async function loadConfig(path = process.env['BUHO_CONFIG'] ?? 'config.js
       ...parsed.collector,
       retention: { ...DEFAULT_COLLECTOR.retention, ...parsed.collector?.retention },
     },
-    instances: parsed.instances,
+    instances,
   };
 }
 

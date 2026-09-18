@@ -1,7 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import type { TargetProbeResult } from '@/lib/test-target';
+type TargetProbeResult = {
+  database: { ok?: boolean; message: string; detail?: string };
+  host: { ok?: boolean; message: string; detail?: string };
+};
 
 const ENGINE_OPTIONS = [
   { value: 'postgres', label: 'PostgreSQL' },
@@ -19,6 +22,14 @@ const HOST_SOURCE_OPTIONS = [
 function resultClass(ok: boolean | undefined): string {
   if (ok === undefined) return 'tag tag--muted';
   return ok ? 'tag tag--ok' : 'tag tag--error';
+}
+
+function forceUpper(event: React.FormEvent<HTMLInputElement>) {
+  const input = event.currentTarget;
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  input.value = input.value.toUpperCase();
+  if (start !== null && end !== null) input.setSelectionRange(start, end);
 }
 
 export function AddDatabaseForm({ action }: { action: (formData: FormData) => Promise<void> }) {
@@ -50,6 +61,8 @@ export function AddDatabaseForm({ action }: { action: (formData: FormData) => Pr
     }
   }
 
+  const showHostMetrics = engine === 'postgres' || engine === 'mariadb' || engine === 'mssql';
+
   return (
     <form action={action} className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
@@ -73,7 +86,14 @@ export function AddDatabaseForm({ action }: { action: (formData: FormData) => Pr
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Environment
-        <input name="environment" className="input" defaultValue="prod" placeholder="prod" />
+        <input
+          name="environment"
+          className="input font-mono uppercase"
+          defaultValue="PROD"
+          placeholder="PROD"
+          onInput={forceUpper}
+          style={{ textTransform: 'uppercase' }}
+        />
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Host
@@ -103,7 +123,13 @@ export function AddDatabaseForm({ action }: { action: (formData: FormData) => Pr
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Tag key (optional)
-        <input name="tagKey" className="input font-mono" placeholder="team" />
+        <input
+          name="tagKey"
+          className="input font-mono uppercase"
+          placeholder="TEAM"
+          onInput={forceUpper}
+          style={{ textTransform: 'uppercase' }}
+        />
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Tag value
@@ -115,11 +141,27 @@ export function AddDatabaseForm({ action }: { action: (formData: FormData) => Pr
       </label>
 
       {engine === 'postgres' ? (
+        <label className="flex items-start gap-2 text-[12px] text-foreground-secondary md:col-span-2 xl:col-span-3">
+          <input
+            type="checkbox"
+            name="expandAllDatabases"
+            className="mt-0.5 accent-[var(--accent)]"
+            defaultChecked
+          />
+          <span>
+            Monitor <strong>every connectable database</strong> on this PostgreSQL host (one Búho
+            target per database). Licensing is still one server = host+port. Uncheck to monitor only
+            the database named above.
+          </span>
+        </label>
+      ) : null}
+
+      {showHostMetrics ? (
         <div className="md:col-span-2 xl:col-span-3 rounded border border-[var(--border)] p-3">
           <p className="mb-2 text-[12px] font-semibold text-foreground">Host metrics (CPU / memory)</p>
           <p className="mb-3 text-[11px] text-foreground-secondary">
-            PostgreSQL does not expose host CPU or RAM. Búho reads <span className="font-mono">/proc</span>{' '}
-            locally or over SSH (agentless, read-only).
+            The engine does not expose host CPU or RAM. Búho reads{' '}
+            <span className="font-mono">/proc</span> locally or over SSH (agentless, read-only).
           </p>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
@@ -142,8 +184,12 @@ export function AddDatabaseForm({ action }: { action: (formData: FormData) => Pr
               <input
                 name="dataDirectory"
                 className="input font-mono"
-                placeholder="/var/lib/postgresql/data"
-                defaultValue="/var/lib/postgresql/data"
+                placeholder={
+                  engine === 'mariadb' ? '/var/lib/mysql' : '/var/lib/postgresql/data'
+                }
+                defaultValue={
+                  engine === 'mariadb' ? '/var/lib/mysql' : '/var/lib/postgresql/data'
+                }
               />
             </label>
             {hostSource === 'ssh' ? (

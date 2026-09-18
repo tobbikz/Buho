@@ -83,6 +83,17 @@ export default async function CapacityPage({ params }: { params: Promise<{ id: s
 
         <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
 
+        {visible.every((f) => f.history.length === 0) ? (
+          <section className="panel">
+            <div className="panel-body text-[13px] leading-relaxed text-foreground-secondary">
+              No capacity history yet. Disk size comes from engine collectors
+              (<code>database_size_bytes</code>); CPU/RAM need <code>hostMetrics</code> on the
+              target (Host tab). The first daily rollup appears after the collector has been
+              writing samples for an hour.
+            </div>
+          </section>
+        ) : null}
+
         <div className="grid grid-cols-2 gap-[0.875rem] xl:grid-cols-4">
           {visible.map((f) => (
             <StatCard

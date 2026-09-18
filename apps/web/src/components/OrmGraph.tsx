@@ -238,7 +238,9 @@ export function OrmGraph({
               b.vy += fy;
             }
           }
-          const repulse = (a.kind === 'schema' || b.kind === 'schema' ? 820 : 360) / (dist * dist);
+          const repulse =
+            (a.kind === 'schema' || b.kind === 'schema' ? 420 : 180) /
+            (dist * dist * Math.max(1, Math.sqrt(nodes.length / 8)));
           const fx = (dx / dist) * repulse * alpha;
           const fy = (dy / dist) * repulse * alpha;
           if (!a.pinned) {
@@ -295,7 +297,14 @@ export function OrmGraph({
         n.y += n.vy * alpha;
         movement += Math.abs(n.vx) + Math.abs(n.vy);
       }
-      settledRef.current = movement < 0.35 ? settledRef.current + 1 : 0;
+      settledRef.current = movement < 0.5 ? settledRef.current + 1 : 0;
+      if (settledRef.current >= 90) {
+        for (const n of nodes) {
+          n.pinned = true;
+          n.vx = 0;
+          n.vy = 0;
+        }
+      }
     };
 
     const drawTrafficBand = (
@@ -327,7 +336,7 @@ export function OrmGraph({
       const dt = Math.min((now - last) / 16, 2);
       last = now;
 
-      if (settledRef.current < 180) simulate(dt);
+      if (settledRef.current < 90) simulate(dt);
 
       const ancho = canvas.clientWidth;
       const alto = canvas.clientHeight;
@@ -577,8 +586,8 @@ export function OrmGraph({
     viewportRef.current = { scale: 1, tx: 0, ty: 0 };
     for (const n of nodesRef.current) {
       n.pinned = false;
-      n.vx = (Math.random() - 0.5) * 2;
-      n.vy = (Math.random() - 0.5) * 2;
+      n.vx = 0;
+      n.vy = 0;
     }
     settledRef.current = 0;
   };

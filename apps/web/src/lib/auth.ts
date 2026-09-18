@@ -163,5 +163,10 @@ export function sharedPasswordMatches(candidate: string): boolean {
 
 /** Rutas que exigen rol admin. El middleware las bloquea antes de renderizar. */
 export function requiresAdmin(pathname: string): boolean {
+  // Custom SQL alerts are for every console user (DBA / sysadmin / devops).
+  // Channel/pack/rule mutations still call requireAdmin in their server actions.
+  if (pathname === '/admin/alerts' || pathname.startsWith('/admin/alerts/')) {
+    return false;
+  }
   return pathname.startsWith('/admin');
 }

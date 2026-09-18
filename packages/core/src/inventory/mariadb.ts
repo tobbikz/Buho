@@ -73,97 +73,132 @@ export async function collectMariadb(client: EngineClient): Promise<InventorySna
     eolDate: eolFor('mariadb', versionText),
   });
 
+  const notes: InventoryNote[] = [];
+
   // ----------------------------------------------------------- configuración
   // information_schema.system_variables trae el valor global y el default en la
   // misma fila, así que se sabe si alguien lo tocó — el equivalente del
   // `source = 'default'` de PostgreSQL.
-  const settings = await client.query(
-    `select variable_name, global_value, default_value, variable_comment, variable_scope
-       from information_schema.system_variables
-      where lower(variable_name) in (${quoted(AUDITED)})
-      order by variable_name`,
-  );
-  snapshot.settings = settings.map(
-    (row): SettingRow => ({
-      name: String(row['variable_name']).toLowerCase(),
-      value: String(row['global_value'] ?? ''),
-      category: text(row['variable_scope']),
-      isDefault: String(row['global_value'] ?? '') === String(row['default_value'] ?? ''),
-      // En MariaDB el scope GLOBAL sin SESSION suele requerir reinicio para
-      // variables como innodb_log_file_size; se marca por scope.
-      requiresRestart: String(row['variable_scope'] ?? '').toUpperCase() === 'GLOBAL',
-    }),
-  );
+  try {
+    const settings = await client.query(
+      `select variable_name, global_value, default_value, variable_comment, variable_scope
+         from information_schema.system_variables
+        where lower(variable_name) in (${quoted(AUDITED)})
+        order by variable_name`,
+    );
+    snapshot.settings = settings.map(
+      (row): SettingRow => ({
+        name: String(row['variable_name']).toLowerCase(),
+        value: String(row['global_value'] ?? ''),
+        category: text(row['variable_scope']),
+        isDefault: String(row['global_value'] ?? '') === String(row['default_value'] ?? ''),
+        // En MariaDB el scope GLOBAL sin SESSION suele requerir reinicio para
+        // variables como innodb_log_file_size; se marca por scope.
+        requiresRestart: String(row['variable_scope'] ?? '').toUpperCase() === 'GLOBAL',
+      }),
+    );
+  } catch (error) {
+    notes.push({
+      domain: 'settings',
+      level: 'warn',
+      message: `Could not read system_variables: ${
+        error instanceof Error ? error.message : String(error)
+      }. Grant PROCESS or use a privileged monitor user.`,
+    });
+  }
 
   // ------------------------------------------------------------------ disco
-  const schemas = await client.query(
-    `select table_schema as name,
-            sum(coalesce(data_length, 0)) as data_bytes,
-            sum(coalesce(index_length, 0)) as index_bytes,
-            sum(coalesce(data_free, 0)) as free_bytes,
-            count(*) as tables
-       from information_schema.tables
-      where table_schema not in ('information_schema', 'performance_schema', 'mysql', 'sys')
-      group by table_schema
-      order by 2 desc`,
-  );
-  snapshot.disks = schemas.map((row): DiskObject => {
-    const data = num(row['data_bytes']) ?? 0;
-    const index = num(row['index_bytes']) ?? 0;
-    return {
-      kind: 'database',
-      name: String(row['name']),
-      sizeBytes: data + index,
-      // data_free es espacio reclamable dentro de los archivos, no espacio en
-      // disco: es lo que devolvería un OPTIMIZE TABLE.
-      freeBytes: num(row['free_bytes']),
-      detail: { data_bytes: data, index_bytes: index, tables: num(row['tables']) },
-    };
-  });
-
-  const notes: InventoryNote[] = [
-    {
+  try {
+    const schemas = await client.query(
+      `select table_schema as name,
+              sum(coalesce(data_length, 0)) as data_bytes,
+              sum(coalesce(index_length, 0)) as index_bytes,
+              sum(coalesce(data_free, 0)) as free_bytes,
+              count(*) as tables
+         from information_schema.tables
+        where table_schema not in ('information_schema', 'performance_schema', 'mysql', 'sys')
+        group by table_schema
+        order by 2 desc`,
+    );
+    snapshot.disks = schemas.map((row): DiskObject => {
+      const data = num(row['data_bytes']) ?? 0;
+      const index = num(row['index_bytes']) ?? 0;
+      return {
+        kind: 'database',
+        name: String(row['name']),
+        sizeBytes: data + index,
+        // data_free es espacio reclamable dentro de los archivos, no espacio en
+        // disco: es lo que devolvería un OPTIMIZE TABLE.
+        freeBytes: num(row['free_bytes']),
+        detail: { data_bytes: data, index_bytes: index, tables: num(row['tables']) },
+      };
+    });
+  } catch (error) {
+    notes.push({
       domain: 'disk',
-      level: 'info',
-      message:
-        'Los tamaños vienen de information_schema y son de datos e índices dentro de los archivos, no del espacio ocupado en disco. El espacio libre del volumen se ve en Host cuando la instancia tiene métricas de sistema configuradas.',
-    },
-  ];
+      level: 'warn',
+      message: `Could not read table sizes: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    });
+  }
+
+  notes.push({
+    domain: 'disk',
+    level: 'info',
+    message:
+      'Los tamaños vienen de information_schema y son de datos e índices dentro de los archivos, no del espacio ocupado en disco. El espacio libre del volumen se ve en Host cuando la instancia tiene métricas de sistema configuradas.',
+  });
 
   // ------------------------------------------------------------ replicación
   const replication: ReplicationRow[] = [];
-  const replica = await client.query('show replica status');
-  for (const row of replica) {
-    const io = String(row['Slave_IO_Running'] ?? row['Replica_IO_Running'] ?? 'Unknown');
-    const sql = String(row['Slave_SQL_Running'] ?? row['Replica_SQL_Running'] ?? 'Unknown');
-    replication.push({
-      role: 'replica',
-      peer: `${row['Source_Host'] ?? row['Master_Host'] ?? 'unknown'}:${
-        row['Source_Port'] ?? row['Master_Port'] ?? ''
-      }`,
-      state: io === 'Yes' && sql === 'Yes' ? 'Yes' : `IO=${io} SQL=${sql}`,
-      lagSeconds: num(row['Seconds_Behind_Master'] ?? row['Seconds_Behind_Source']),
-      detail: {
-        kind: 'async_replica',
-        sql_running: sql,
-        io_running: io,
-        last_error: text(row['Last_Error'] || row['Last_IO_Error'] || row['Last_SQL_Error']),
-        gtid: text(row['Gtid_IO_Pos']),
-        using_gtid: text(row['Using_Gtid']),
-        source_log_file: text(row['Master_Log_File'] ?? row['Source_Log_File']),
-      },
+  try {
+    const replica = await client.query('show replica status');
+    for (const row of replica) {
+      const io = String(row['Slave_IO_Running'] ?? row['Replica_IO_Running'] ?? 'Unknown');
+      const sql = String(row['Slave_SQL_Running'] ?? row['Replica_SQL_Running'] ?? 'Unknown');
+      replication.push({
+        role: 'replica',
+        peer: `${row['Source_Host'] ?? row['Master_Host'] ?? 'unknown'}:${
+          row['Source_Port'] ?? row['Master_Port'] ?? ''
+        }`,
+        state: io === 'Yes' && sql === 'Yes' ? 'Yes' : `IO=${io} SQL=${sql}`,
+        lagSeconds: num(row['Seconds_Behind_Master'] ?? row['Seconds_Behind_Source']),
+        detail: {
+          kind: 'async_replica',
+          sql_running: sql,
+          io_running: io,
+          last_error: text(row['Last_Error'] || row['Last_IO_Error'] || row['Last_SQL_Error']),
+          gtid: text(row['Gtid_IO_Pos']),
+          using_gtid: text(row['Using_Gtid']),
+          source_log_file: text(row['Master_Log_File'] ?? row['Source_Log_File']),
+        },
+      });
+    }
+  } catch (error) {
+    notes.push({
+      domain: 'replication',
+      level: 'warn',
+      message: `Could not read SHOW REPLICA STATUS: ${
+        error instanceof Error ? error.message : String(error)
+      }. Grant REPLICATION CLIENT to the monitor user.`,
     });
   }
 
   // Connected replicas registered against this primary (needs REPLICATION MASTER ADMIN).
   try {
-    const hosts = await client.query('show replica hosts');
+    let hosts: Record<string, unknown>[] = [];
+    try {
+      hosts = await client.query('show replica hosts');
+    } catch {
+      hosts = await client.query('show slave hosts');
+    }
     for (const row of hosts) {
       replication.push({
         role: 'standby',
-        peer: `${row['Host'] ?? 'unknown'}:${row['Port'] ?? ''}`,
+        peer: `${row['Host'] ?? row['host'] ?? 'unknown'}:${row['Port'] ?? row['port'] ?? ''}`,
         state: 'connected',
-        detail: { kind: 'registered_replica', server_id: text(row['Server_id']) },
+        detail: { kind: 'registered_replica', server_id: text(row['Server_id'] ?? row['Server_Id']) },
       });
     }
   } catch (error) {
@@ -173,18 +208,54 @@ export async function collectMariadb(client: EngineClient): Promise<InventorySna
       message:
         `Could not list connected replicas (SHOW REPLICA HOSTS): ${
           error instanceof Error ? error.message : String(error)
-        }. Grant REPLICATION MASTER ADMIN to the monitor user to enable this.`,
+        }. Replicas must set report_host; grant REPLICATION MASTER ADMIN to list them.`,
     });
   }
 
-  const [binlog] = await client.query(
-    `select @@log_bin as log_bin,
-            @@gtid_binlog_pos as gtid_pos,
-            @@server_id as server_id,
-            @@read_only as read_only,
-            @@binlog_format as binlog_format,
-            @@log_bin_basename as log_bin_basename`,
-  );
+  // Also surface Binlog Dump threads in PROCESSLIST — works for ring topologies
+  // even when report_host is unset.
+  try {
+    const dumpers = await client.query(`
+      select id, user, host, command, state
+        from information_schema.processlist
+       where command in ('Binlog Dump', 'Binlog Dump GTID')`);
+    for (const row of dumpers) {
+      const peer = String(row['host'] ?? 'unknown');
+      if (replication.some((r) => (r.peer ?? '').includes(peer.split(':')[0] ?? peer))) continue;
+      replication.push({
+        role: 'standby',
+        peer,
+        state: String(row['state'] ?? 'binlog dump'),
+        detail: {
+          kind: 'binlog_dump_thread',
+          thread_id: text(row['id']),
+          user: text(row['user']),
+        },
+      });
+    }
+  } catch {
+    // PROCESS privilege may be missing; sessions note already covers that.
+  }
+
+  let binlog: Record<string, unknown> | undefined;
+  try {
+    [binlog] = await client.query(
+      `select @@log_bin as log_bin,
+              @@gtid_binlog_pos as gtid_pos,
+              @@server_id as server_id,
+              @@read_only as read_only,
+              @@binlog_format as binlog_format,
+              @@log_bin_basename as log_bin_basename`,
+    );
+  } catch (error) {
+    notes.push({
+      domain: 'replication',
+      level: 'warn',
+      message: `Could not read binlog settings: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    });
+  }
   const logBin = String(binlog?.['log_bin'] ?? '0') === '1';
   const isReplica = replication.some((row) => row.role === 'replica');
   const connectedReplicas = replication.filter((row) => row.role === 'standby').length;
@@ -225,7 +296,7 @@ export async function collectMariadb(client: EngineClient): Promise<InventorySna
       domain: 'replication',
       level: 'info',
       message:
-        'This instance can be a primary (binlog on) but no replicas are registered via SHOW REPLICA HOSTS. When a replica connects with report_host set, it appears here.',
+        'This instance can be a primary (binlog on) but no replicas are registered via SHOW REPLICA HOSTS / dump threads. For ring topologies, add each node as a Búho target, or set report_host on replicas.',
     });
   }
   snapshot.replication = replication;
@@ -264,38 +335,48 @@ export async function collectMariadb(client: EngineClient): Promise<InventorySna
   }
 
   // ------------------------------------------------------------------- jobs
-  const [sched] = await client.query('select @@event_scheduler as scheduler');
-  const schedulerOn = String(sched?.['scheduler'] ?? 'OFF').toUpperCase() === 'ON';
+  try {
+    const [sched] = await client.query('select @@event_scheduler as scheduler');
+    const schedulerOn = String(sched?.['scheduler'] ?? 'OFF').toUpperCase() === 'ON';
 
-  const events = await client.query(
-    `select event_schema, event_name, status, last_executed, starts, ends,
-            interval_value, interval_field, event_type, on_completion
-       from information_schema.events
-      order by event_schema, event_name`,
-  );
-  snapshot.jobs = events.map(
-    (row): JobRow => ({
-      scope: String(row['event_schema'] ?? ''),
-      name: String(row['event_name']),
-      enabled: String(row['status'] ?? '').toUpperCase() === 'ENABLED',
-      lastRunAt: date(row['last_executed']),
-      lastStatus: text(row['status']),
-      detail: {
-        type: text(row['event_type']),
-        every: `${row['interval_value'] ?? ''} ${row['interval_field'] ?? ''}`.trim(),
-        on_completion: text(row['on_completion']),
-      },
-    }),
-  );
+    const events = await client.query(
+      `select event_schema, event_name, status, last_executed, starts, ends,
+              interval_value, interval_field, event_type, on_completion
+         from information_schema.events
+        order by event_schema, event_name`,
+    );
+    snapshot.jobs = events.map(
+      (row): JobRow => ({
+        scope: String(row['event_schema'] ?? ''),
+        name: String(row['event_name']),
+        enabled: String(row['status'] ?? '').toUpperCase() === 'ENABLED',
+        lastRunAt: date(row['last_executed']),
+        lastStatus: text(row['status']),
+        detail: {
+          type: text(row['event_type']),
+          every: `${row['interval_value'] ?? ''} ${row['interval_field'] ?? ''}`.trim(),
+          on_completion: text(row['on_completion']),
+        },
+      }),
+    );
 
-  if (!schedulerOn) {
+    if (!schedulerOn) {
+      notes.push({
+        domain: 'jobs',
+        level: events.length > 0 ? 'warn' : 'info',
+        message:
+          events.length > 0
+            ? `event_scheduler está en OFF: los ${events.length} eventos definidos no se están ejecutando.`
+            : 'event_scheduler está en OFF y no hay eventos definidos. En MariaDB las tareas suelen vivir en el cron del sistema, que el motor no puede ver.',
+      });
+    }
+  } catch (error) {
     notes.push({
       domain: 'jobs',
-      level: events.length > 0 ? 'warn' : 'info',
-      message:
-        events.length > 0
-          ? `event_scheduler está en OFF: los ${events.length} eventos definidos no se están ejecutando.`
-          : 'event_scheduler está en OFF y no hay eventos definidos. En MariaDB las tareas suelen vivir en el cron del sistema, que el motor no puede ver.',
+      level: 'warn',
+      message: `Could not read events: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
     });
   }
 

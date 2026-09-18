@@ -6,12 +6,15 @@ export function Modal({
   open,
   title,
   subtitle,
+  size = 'default',
   onClose,
   children,
 }: {
   open: boolean;
   title: string;
   subtitle?: string;
+  /** Compact = narrow card for short copy (extension blurbs, confirms). */
+  size?: 'default' | 'compact';
   onClose: () => void;
   children: React.ReactNode;
 }) {
@@ -35,14 +38,14 @@ export function Modal({
   return (
     <div className="modal-backdrop" onClick={onClose} role="presentation">
       <div
-        className="modal"
+        className={`modal ${size === 'compact' ? 'modal--compact' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         onClick={(event) => event.stopPropagation()}
       >
         <header className="modal__header">
-          <div>
+          <div className="min-w-0">
             <h2 id={titleId} className="modal__title">
               {title}
             </h2>

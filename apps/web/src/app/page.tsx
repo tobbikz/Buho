@@ -83,12 +83,20 @@ export default async function FleetPage({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/get-started" className="btn btn--primary">
-              Get started
-            </Link>
-            <Link href="/admin/instances" className="btn">
-              Add database
-            </Link>
+            {visible.length === 0 ? (
+              <Link href="/get-started" className="btn btn--primary">
+                Get started
+              </Link>
+            ) : (
+              <Link href="/admin/instances" className="btn btn--primary">
+                Add database
+              </Link>
+            )}
+            {visible.length === 0 ? (
+              <Link href="/admin/instances" className="btn">
+                Add database
+              </Link>
+            ) : null}
             {filter ? (
               <Link href={`/?agrupar=${encodeURIComponent(groupKey)}`} className="tag tag--info">
                 {filter.key}: {filter.value} ×
@@ -108,12 +116,13 @@ export default async function FleetPage({
         {instances.length === 0 ? (
           <div className="panel">
             <div className="empty">
-              No instances yet. Use{' '}
-              <Link href="/get-started" className="link">
-                Get started
+              No instances yet.{' '}
+              <Link href="/admin/instances" className="link">
+                Add database
               </Link>{' '}
-              (add database → first check → test alert), or start the collector with{' '}
-              <code>npm run collector</code>.
+              from the console (targets persist in the store volume — do not use{' '}
+              <code>docker compose down -v</code>), or bootstrap from{' '}
+              <code>config.json</code> for labs.
             </div>
           </div>
         ) : (

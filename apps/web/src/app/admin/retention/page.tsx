@@ -108,7 +108,9 @@ export default async function RetentionPage({
                       defaultValue={retention[field]}
                       className="w-[5rem] border border-border bg-surface px-2 py-1 font-mono text-[12px] outline-none focus:border-accent"
                     />
-                    <span className="text-[11px] text-foreground-muted">days</span>
+                    <span className="text-[11px] text-foreground-muted">
+                      {field === 'unreachableAfterMinutes' ? 'min' : 'days'}
+                    </span>
                   </div>
                   <span className="text-[10.5px] text-foreground-muted">{limits.hint}</span>
                 </label>
@@ -135,14 +137,19 @@ export default async function RetentionPage({
         </div>
         <div className="panel-body flex flex-col gap-2 text-[12px] text-foreground-secondary">
           <p>
-            Raw samples and per-query statistics are partitioned by day: they are removed with{' '}
-            <span className="font-mono">DROP TABLE</span> of the whole partition, which leaves no dead rows and does not need
-            vacuum. Lowering those two numbers frees space on the next maintenance cycle.
+            Raw samples, 5-minute rollups, and per-query statistics are partitioned by day: they are
+            removed with <span className="font-mono">DROP TABLE</span> of the whole partition, which
+            leaves no dead rows and does not need vacuum. Lowering those numbers frees space on the
+            next maintenance cycle.
           </p>
           <p>
-            Rollups and lock episodes are deleted with <span className="font-mono">DELETE</span>, so
-            their space becomes reusable for the store itself but the file does not shrink. That is the cost of not having
-            an hourly partition for something that is already small.
+            1-hour rollups and lock episodes use batched <span className="font-mono">DELETE</span>, so
+            their space becomes reusable for the store itself but the file does not shrink immediately.
+          </p>
+          <p>
+            Product floor is <strong>90 days</strong> of operable history (5m/1h rollups, statements,
+            checks). Raw samples stay short on purpose — they dominate disk. Unreachable instances
+            auto-resolve zombie alerts after the configured minutes without samples.
           </p>
           <p>
             Lowering a value <strong>deletes data irreversibly</strong> on the next cycle. Búho does not keep

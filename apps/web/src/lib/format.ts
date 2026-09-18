@@ -23,6 +23,18 @@ export function formatNumber(value: number | null, digits = 0): string {
   return value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
+/** Compact notation for dashboard cards (1.2K, 3.4M) so large counters fit. */
+export function formatCompactNumber(value: number | null, digits = 1): string {
+  if (value === null) return '—';
+  const abs = Math.abs(value);
+  if (abs < 1_000) return formatNumber(value, Number.isInteger(value) ? 0 : digits);
+  return value.toLocaleString('en-US', {
+    notation: 'compact',
+    compactDisplay: 'short',
+    maximumFractionDigits: digits,
+  });
+}
+
 export function formatPct(value: number | null, digits = 1): string {
   if (value === null) return '—';
   return `${value.toFixed(digits)}%`;

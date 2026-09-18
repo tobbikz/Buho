@@ -681,23 +681,44 @@ export default async function IndexesPage({
               <span className="panel-title">Check findings</span>
               <span className="font-mono text-[10px] text-foreground-muted">last 24h</span>
             </div>
-            <div className="panel-body">
-              {findings.length > 0 ? (
-                <ul className="list-disc pl-5 text-[12px]">
-                  {findings.map((finding) => (
-                    <li key={`${finding.checkId}-${finding.object}`}>
-                      <span className="font-mono text-[11px]">{finding.object}</span> ·{' '}
-                      {finding.message}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
+            {findings.length > 0 ? (
+              <div>
+                {findings.map((finding) => (
+                  <article
+                    key={`${finding.checkId}-${finding.object}`}
+                    className={`finding finding--${
+                      finding.checkId === 'unused_indexes' ? 'warning' : 'info'
+                    }`}
+                  >
+                    <div>
+                      <span
+                        className={`tag ${
+                          finding.checkId === 'unused_indexes' ? 'tag--warn' : 'tag--info'
+                        }`}
+                      >
+                        {finding.checkId === 'unused_indexes' ? 'Unused' : 'Redundant'}
+                      </span>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="finding__title">
+                        {finding.checkId === 'unused_indexes'
+                          ? 'Unused index'
+                          : 'Redundant index prefix'}
+                      </div>
+                      <div className="finding__object font-mono">{finding.object}</div>
+                      <div className="finding__message">{finding.message}</div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="panel-body">
                 <p className="text-[12px] text-foreground-muted">
                   Automated checks have not reported index issues in the last day. The inventory
                   above is refreshed every vacuum cycle and may flag objects before checks run.
                 </p>
-              )}
-            </div>
+              </div>
+            )}
           </section>
         )}
       </div>

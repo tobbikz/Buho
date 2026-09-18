@@ -44,7 +44,7 @@ export function pool(): Pool {
   if (!globalForPool.buhoPool) {
     globalForPool.buhoPool = new Pool({
       connectionString: storeUrl(),
-      max: 4,
+      max: Number(process.env['BUHO_WEB_POOL_MAX'] ?? 12),
       application_name: 'buho_web',
       statement_timeout: 5_000,
       connectionTimeoutMillis: 5_000,

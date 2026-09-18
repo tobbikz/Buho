@@ -3,7 +3,7 @@ import { FindingsPanel } from '@/components/FindingsPanel';
 import { LabeledBars, type BarRow } from '@/components/LabeledBars';
 import { StatCard, toneForMinimum, toneForPct } from '@/components/StatCard';
 import { TimeseriesPanel } from '@/components/TimeseriesPanel';
-import { formatBytes, formatClock, formatDuration, formatNumber, formatPct } from '@/lib/format';
+import { formatBytes, formatClock, formatCompactNumber, formatDuration, formatNumber, formatPct } from '@/lib/format';
 import { getEvents, getFindings, getLabeled, getLabeledPair, getSeries, getSeriesByLabel } from '@/lib/queries';
 
 /**
@@ -158,7 +158,7 @@ export async function ForeignSummary({
   return (
     <>
       <div className="stat-grid stat-grid--5">
-        <StatCard label="Connections" value={connectionsAhora === null ? '—' : formatNumber(connectionsAhora)} />
+        <StatCard label="Connections" value={connectionsAhora === null ? '—' : formatCompactNumber(connectionsAhora)} />
         <StatCard
           label="Saturation"
           value={saturacion === null ? '—' : formatPct(saturacion, 1)}
@@ -173,7 +173,7 @@ export async function ForeignSummary({
         />
         <StatCard
           label="DML per second"
-          value={dmlPorSegundo === null ? '—' : formatNumber(dmlPorSegundo, 1)}
+          value={dmlPorSegundo === null ? '—' : formatCompactNumber(dmlPorSegundo, 1)}
           hint="insert + update + delete"
         />
         <StatCard

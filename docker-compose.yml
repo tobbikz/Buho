@@ -73,9 +73,9 @@ services:
       - "127.0.0.1:${BUHO_WEB_PORT:-3100}:3000"
     restart: unless-stopped
 
-  # El único dato que no se reconstruye es la historia del store: las instancias
-  # salen de config.json. Por eso el respaldo es un servicio y no una nota en la
-  # documentación que nadie leyó.
+  # El único dato que no se reconstruye es la historia del store — incluidas las
+  # bases añadidas desde la consola (buho.monitor_targets). Nunca uses
+  # `docker compose down -v` en un piloto: eso borra el volumen buho_store.
   backup:
     image: postgres:18-alpine
     depends_on:

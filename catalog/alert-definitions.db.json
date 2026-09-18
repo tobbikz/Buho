@@ -70,7 +70,7 @@
       "display_columns": ["session_id", "blocking_session_id", "wait_time_ms", "wait_type"],
       "message_template": "MSSQL: {rows} blocked session(s).\n\n{all_rows}",
       "remediation": "Identify the blocker head and the object; kill only if safe.",
-      "sql": "select session_id, blocking_session_id, wait_time_ms, wait_type from sys.dm_exec_requests where blocking_session_id <> 0 and wait_time_ms >= 5000"
+      "sql": "select session_id, blocking_session_id, wait_time as wait_time_ms, wait_type from sys.dm_exec_requests where blocking_session_id <> 0 and wait_time >= 5000"
     },
     {
       "name": "mariadb_replica_io_not_running",

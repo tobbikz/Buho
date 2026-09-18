@@ -122,6 +122,11 @@ const ESTADO_TTL_MS = 30 * 60_000;
  */
 export class ForeignStatementTracker {
   private readonly estado = new Map<string, Estado>();
+  /** PROCESSLIST fallback totals — per tracker so multi-instance does not mix. */
+  private readonly processlistTotals = new Map<
+    string,
+    { calls: number; execMs: number; query: string; db: string | null }
+  >();
 
   deltas(
     rows: Record<string, unknown>[],
@@ -190,15 +195,96 @@ export class ForeignStatementTracker {
     return { deltas, discarded };
   }
 
+  /**
+   * Sample PROCESSLIST and fold into cumulative counters owned by this tracker.
+   * Used when performance_schema digests are unavailable.
+   */
+  async sampleProcesslist(client: EngineClient): Promise<Record<string, unknown>[]> {
+    const rows = await client.query(`
+      select id, user, db, command, time, state, info
+        from information_schema.processlist
+       where info is not null
+         and info <> ''
+         and command not in ('Sleep', 'Binlog Dump', 'Binlog Dump GTID', 'Daemon')
+         and info not like '%${QUERY_TAG_LIKE}%'
+       limit 150`);
+
+    for (const row of rows) {
+      const info = str(row['info'], '').trim();
+      if (!info) continue;
+      const digest = fingerprintSql(info);
+      const prev = this.processlistTotals.get(digest) ?? {
+        calls: 0,
+        execMs: 0,
+        query: info.slice(0, 4000),
+        db: (row['db'] as string | null) ?? null,
+      };
+      prev.calls += 1;
+      prev.execMs += Math.max(num(row['time']), 1) * 1000;
+      prev.query = info.slice(0, 4000);
+      prev.db = (row['db'] as string | null) ?? prev.db;
+      this.processlistTotals.set(digest, prev);
+    }
+
+    return [...this.processlistTotals.entries()].map(([digest, value]) => ({
+      digest,
+      db: value.db,
+      query: value.query,
+      truncated: value.query.length >= 4000,
+      calls: value.calls,
+      exec_ms: value.execMs,
+      rows_sent: 0,
+      rows_examined: 0,
+      tmp_disk_tables: 0,
+      no_index_used: 0,
+      full_joins: 0,
+    }));
+  }
+
   reset(): void {
     this.estado.clear();
+    this.processlistTotals.clear();
   }
 }
 
 export async function sampleForeignStatements(
   client: EngineClient,
   caps: ForeignCaps,
+  tracker?: ForeignStatementTracker,
 ): Promise<Record<string, unknown>[]> {
-  if (!caps.features.statementDigests) return [];
-  return client.query(caps.engine === 'mariadb' ? MARIADB_SQL : MSSQL_SQL);
+  if (caps.features.statementDigests) {
+    return client.query(caps.engine === 'mariadb' ? MARIADB_SQL : MSSQL_SQL);
+  }
+  // Degraded path: MariaDB without performance_schema — sample PROCESSLIST.
+  if (caps.engine === 'mariadb' && tracker) {
+    return tracker.sampleProcesslist(client);
+  }
+  if (caps.engine === 'mariadb') {
+    // Fallback for callers that have not wired a tracker yet.
+    const ephemeral = new ForeignStatementTracker();
+    return ephemeral.sampleProcesslist(client);
+  }
+  return [];
+}
+
+/**
+ * Normalize SQL enough that "SELECT 1" and "select  1" share a fingerprint.
+ * Then fold into a stable 64-bit digest string for ForeignStatementTracker.
+ */
+function fingerprintSql(sql: string): string {
+  const normalized = sql
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/'([^']|'')*'/g, '?')
+    .replace(/"[^"]*"/g, '?')
+    .replace(/\b\d+\b/g, '?')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .slice(0, 500);
+  let hash = 0xcbf29ce484222325n;
+  for (let i = 0; i < normalized.length; i += 1) {
+    hash ^= BigInt(normalized.charCodeAt(i));
+    hash = (hash * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  return hash.toString(16).padStart(16, '0');
 }

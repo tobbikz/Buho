@@ -69,8 +69,7 @@ async function probeMariadb(client: EngineClient): Promise<ForeignCaps> {
   const limitations: string[] = [];
   if (!performanceSchema) {
     limitations.push(
-      'performance_schema está apagado: no hay analítica de consultas ni digests. ' +
-        'Se enciende con performance_schema=ON en my.cnf y requiere reiniciar el servidor.',
+      'performance_schema is OFF: digests are unavailable. Búho falls back to sampling INFORMATION_SCHEMA.PROCESSLIST for the Queries tab (lossy for short queries). Prefer performance_schema=ON + restart for full analytics.',
     );
   }
   if (!seesAllSessions) {

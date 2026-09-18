@@ -51,13 +51,14 @@ export default async function TopologyPage({
     if (!instance) notFound();
 
     weeks = await listTopologyWeeks(instanceId);
-    const thisWeek = weekStartOf();
-    const hasThis = weeks.some((w) => w.getTime() === thisWeek.getTime());
-    if (!hasThis || snap === '1') {
+    // Auto-snapshot on every visit was blocking the page for large statement
+    // histories. Only refresh when the user asks (`?snap=1`).
+    if (snap === '1') {
       await snapshotTopologyWeek(instanceId, engine, 'aplicacion');
       weeks = await listTopologyWeeks(instanceId);
     }
 
+    const thisWeek = weekStartOf();
     const newer = weeks[0] ?? thisWeek;
     const older = weeks[1] ?? null;
     current = await getTopologyWeek(instanceId, newer, direction);
@@ -146,6 +147,26 @@ export default async function TopologyPage({
         </header>
 
         <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
+
+        {weeks.length === 0 ? (
+          <section className="panel">
+            <div className="panel-body text-[13px] leading-relaxed text-foreground-secondary">
+              <p>
+                No weekly topology snapshot yet. Topology is built from attributed queries in{' '}
+                <Link href={`/instances/${instanceId}/flow`} className="underline">
+                  Flow
+                </Link>
+                . On MariaDB without <code>performance_schema</code>, wait until PROCESSLIST sampling
+                fills the Queries tab, then click <strong>refresh week</strong>.
+              </p>
+              <p className="mt-2">
+                <Link href={href({ snap: '1' })} className="tag tag--info">
+                  refresh week
+                </Link>
+              </p>
+            </div>
+          </section>
+        ) : null}
 
         <div className="grid grid-cols-3 gap-[0.875rem]">
           <div className="stat">
