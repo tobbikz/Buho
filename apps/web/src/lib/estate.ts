@@ -19,7 +19,15 @@ import { query } from './db';
  * `distinct on (host, port, ...)` que se repite en estas consultas.
  */
 
-export type EngineKind = 'postgres' | 'mariadb' | 'mssql' | 'mongodb' | 'redis' | 'oracle';
+export type EngineKind =
+  | 'postgres'
+  | 'mariadb'
+  | 'mssql'
+  | 'mongodb'
+  | 'redis'
+  | 'oracle'
+  | 'cassandra'
+  | 'elasticsearch';
 
 export const ENGINE_LABEL: Record<string, string> = {
   postgres: 'PostgreSQL',
@@ -28,6 +36,8 @@ export const ENGINE_LABEL: Record<string, string> = {
   mongodb: 'MongoDB',
   redis: 'Redis',
   oracle: 'Oracle',
+  cassandra: 'Cassandra',
+  elasticsearch: 'Elasticsearch',
 };
 
 export interface EstateInstance {

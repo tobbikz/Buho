@@ -32,6 +32,8 @@ const FAMILIES: { prefix: string; family: string; labelKeys: string[] }[] = [
   { prefix: 'mongo_', family: 'MongoDB', labelKeys: ['database'] },
   { prefix: 'redis_', family: 'Redis', labelKeys: ['database'] },
   { prefix: 'oracle_', family: 'Oracle', labelKeys: ['database'] },
+  { prefix: 'cassandra_', family: 'Cassandra', labelKeys: ['database', 'pool', 'cache'] },
+  { prefix: 'es_', family: 'Elasticsearch', labelKeys: ['node', 'database'] },
   { prefix: 'buffer_pool_', family: 'InnoDB / buffer', labelKeys: [] },
   { prefix: 'innodb_', family: 'InnoDB / buffer', labelKeys: [] },
   { prefix: 'page_life_', family: 'SQL Server', labelKeys: [] },
@@ -123,6 +125,19 @@ const LABELS: Record<string, string> = {
   oracle_sga_bytes: 'Oracle SGA',
   oracle_pga_bytes: 'Oracle PGA',
   oracle_user_commits: 'Oracle commits',
+  cassandra_clients: 'Cassandra clients',
+  cassandra_pools_active: 'Cassandra pool active',
+  cassandra_pools_pending: 'Cassandra pool pending',
+  cassandra_cluster_nodes: 'Cassandra nodes',
+  cassandra_sstable_tasks: 'Cassandra SSTable tasks',
+  cassandra_total_data_bytes: 'Cassandra data bytes',
+  es_cluster_status: 'ES cluster status',
+  es_unassigned_shards: 'ES unassigned shards',
+  es_jvm_heap_used_pct_avg: 'ES JVM heap %',
+  es_store_bytes: 'ES store bytes',
+  es_docs_count: 'ES docs',
+  es_search_query_total: 'ES search queries',
+  es_indexing_index_total: 'ES index ops',
   mongo_ops_longest_seconds: 'Longest op (s)',
   mongo_asserts_regular: 'Asserts regular',
   mongo_asserts_warning: 'Asserts warning',
@@ -438,6 +453,24 @@ export function defaultMetricsForEngine(engine: string): string[] {
         'oracle_sga_bytes',
         'blocked_sessions',
         'oracle_physical_reads_per_sec',
+      ];
+    case 'cassandra':
+      return [
+        'connections_total',
+        'cassandra_pools_active',
+        'cassandra_pools_pending',
+        'db_cache_hit_pct',
+        'cassandra_cluster_nodes',
+        'cassandra_sstable_tasks',
+      ];
+    case 'elasticsearch':
+      return [
+        'es_cluster_status',
+        'es_jvm_heap_used_pct_avg',
+        'es_unassigned_shards',
+        'es_store_bytes',
+        'es_search_query_total_per_sec',
+        'connections_total',
       ];
     default:
       return DEFAULT_METRICS;

@@ -149,8 +149,21 @@ export default async function HostPage({
   const engineKind = (await getInstanceEngine(instanceId)) ?? 'postgres';
   const esMssql = engineKind === 'mssql';
   const esMaria = engineKind === 'mariadb';
-  const esMongo = engineKind === 'mongodb' || engineKind === 'redis';
-  if (engineKind !== 'postgres' && engineKind !== 'mssql' && engineKind !== 'mariadb' && engineKind !== 'mongodb' && engineKind !== 'redis' && engineKind !== 'oracle') {
+  const esMongo =
+    engineKind === 'mongodb' ||
+    engineKind === 'redis' ||
+    engineKind === 'cassandra' ||
+    engineKind === 'elasticsearch';
+  if (
+    engineKind !== 'postgres' &&
+    engineKind !== 'mssql' &&
+    engineKind !== 'mariadb' &&
+    engineKind !== 'mongodb' &&
+    engineKind !== 'redis' &&
+    engineKind !== 'oracle' &&
+    engineKind !== 'cassandra' &&
+    engineKind !== 'elasticsearch'
+  ) {
     redirect(`/instances/${instanceId}`);
   }
 

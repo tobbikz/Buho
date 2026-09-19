@@ -3,6 +3,8 @@ import type { BlockedSession } from '../blocking';
 import { sampleMongoBlocking } from './mongodb-ops';
 import { sampleRedisBlocking } from './redis-ops';
 import { sampleOracleBlocking } from './oracle-ops';
+import { sampleCassandraBlocking } from './cassandra-ops';
+import { sampleElasticsearchBlocking } from './elasticsearch-ops';
 import type { ForeignCaps } from './types';
 import { num, str } from './types';
 
@@ -110,6 +112,12 @@ export async function sampleForeignBlocking(
   if (caps.engine === 'oracle') {
     if (!caps.features.lockWaits) return [];
     return sampleOracleBlocking(client);
+  }
+  if (caps.engine === 'cassandra') {
+    return sampleCassandraBlocking(client);
+  }
+  if (caps.engine === 'elasticsearch') {
+    return sampleElasticsearchBlocking(client);
   }
   if (!caps.features.lockWaits) return [];
 

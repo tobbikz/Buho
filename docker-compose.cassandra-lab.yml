@@ -1,0 +1,35 @@
+# Lab Cassandra for Búho — single node on buho_default.
+# Host: 127.0.0.1:9042 → container 9042
+# Auth: none (username ignored by driver if empty password + no authProvider path —
+# use username "cassandra" and password "cassandra" for form compatibility; lab has no auth).
+services:
+  cassandra-lab:
+    image: cassandra:4.1
+    container_name: buho-cassandra-lab
+    restart: unless-stopped
+    environment:
+      CASSANDRA_CLUSTER_NAME: buho_lab
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: SimpleSnitch
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+    ports:
+      - "127.0.0.1:9042:9042"
+    volumes:
+      - buho_cassandra_lab_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'SELECT release_version FROM system.local' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+    networks:
+      - default
+
+volumes:
+  buho_cassandra_lab_data:
+
+networks:
+  default:
+    name: buho_default
+    external: true

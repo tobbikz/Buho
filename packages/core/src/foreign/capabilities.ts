@@ -215,6 +215,8 @@ export async function probeForeign(client: EngineClient): Promise<ForeignCaps> {
   if (client.kind === 'mongodb') return probeMongodb(client);
   if (client.kind === 'redis') return probeRedis(client);
   if (client.kind === 'oracle') return probeOracle(client);
+  if (client.kind === 'cassandra') return probeCassandra(client);
+  if (client.kind === 'elasticsearch') return probeElasticsearch(client);
   throw new Error(`probeForeign no aplica a ${client.kind}`);
 }
 
@@ -331,3 +333,80 @@ async function probeOracle(client: EngineClient): Promise<ForeignCaps> {
     limitations,
   };
 }
+
+async function probeCassandra(client: EngineClient): Promise<ForeignCaps> {
+  const [local] = await client.query(`
+    SELECT cluster_name, data_center, release_version, bootstrapped
+      FROM system.local`);
+  const peers = await client.query(`SELECT peer FROM system.peers`).catch(() => []);
+  const versionText = str(local?.['release_version'], 'desconocida');
+  const limitations: string[] = [];
+  if (peers.length === 0) {
+    limitations.push('Single-node Cassandra: peer/repair metrics idle until more nodes join.');
+  }
+  let seesClients = false;
+  try {
+    await client.query(`SELECT count(*) AS c FROM system_views.clients LIMIT 1`);
+    seesClients = true;
+  } catch {
+    limitations.push('system_views.clients unavailable — upgrade to Cassandra 4+ for Sessions.');
+  }
+  return {
+    engine: 'cassandra',
+    versionText,
+    versionNum: parseVersion(versionText),
+    flavor: 'Apache Cassandra',
+    startedAt: null,
+    serverName: str(local?.['cluster_name'], 'cassandra'),
+    role: 'primary',
+    features: {
+      statementDigests: false,
+      lockWaits: seesClients,
+      seesAllSessions: seesClients,
+      queryStore: false,
+      alwaysOn: peers.length > 0,
+      slowLog: false,
+      binlog: false,
+    },
+    limitations,
+  };
+}
+
+async function probeElasticsearch(client: EngineClient): Promise<ForeignCaps> {
+  if (!client.command) throw new Error('cliente Elasticsearch sin command()');
+  const info = await client.command({ es: 'info' });
+  const health = await client.command({ es: 'cluster.health' });
+  const versionText = str(
+    (info['version'] as Record<string, unknown> | undefined)?.['number'],
+    'desconocida',
+  );
+  const nodes = num(health['number_of_nodes']);
+  const limitations: string[] = [];
+  if (nodes <= 1) {
+    limitations.push('Single-node Elasticsearch: replica allocation will stay yellow with replicas>0.');
+  }
+  const status = str(health['status'], 'unknown');
+  if (status === 'yellow') {
+    limitations.push('Cluster yellow: some replicas unassigned (common on single-node labs).');
+  }
+  return {
+    engine: 'elasticsearch',
+    versionText,
+    versionNum: parseVersion(versionText),
+    flavor: 'Elasticsearch',
+    startedAt: null,
+    serverName: str(health['cluster_name'], 'elasticsearch'),
+    role: 'primary',
+    features: {
+      statementDigests: false,
+      lockWaits: true,
+      seesAllSessions: true,
+      queryStore: false,
+      alwaysOn: nodes > 1,
+      slowLog: false,
+      binlog: false,
+    },
+    limitations,
+  };
+}
+

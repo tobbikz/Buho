@@ -740,7 +740,7 @@ export async function sendChannelTest(channelId: number): Promise<void> {
     // Dev fallback mirrors db.ts without importing its private helper.
     const { readFileSync } = await import('node:fs');
     const { resolve } = await import('node:path');
-    const configPath = resolve(process.env['BUHO_CONFIG'] ?? '../../config.json');
+    const configPath = resolve(/* turbopackIgnore: true */ process.env['BUHO_CONFIG'] ?? '../../config.json');
     const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as { store?: { url?: string } };
     if (!parsed.store?.url) throw new Error('BUHO_STORE_URL missing');
     const store = new Store(parsed.store.url);

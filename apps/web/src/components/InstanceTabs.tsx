@@ -38,7 +38,10 @@ export function InstanceTabs({
           { href: `${base}/locks`, label: 'Locks', badge: blockedCount },
           { href: `${base}/logs`, label: 'Log' },
         ]
-      : engine === 'mongodb' || engine === 'redis'
+      : engine === 'mongodb' ||
+          engine === 'redis' ||
+          engine === 'cassandra' ||
+          engine === 'elasticsearch'
         ? [
             { href: base, label: 'Overview' },
             { href: `${base}/analysis`, label: 'Analysis' },

@@ -39,6 +39,7 @@ function defaultDatabase(engine: string): string {
   if (engine === 'oracle') return 'FREEPDB1';
   if (engine === 'redis') return '0';
   if (engine === 'mssql') return 'master';
+  if (engine === 'cassandra' || engine === 'elasticsearch') return '';
   return 'postgres';
 }
 
@@ -200,7 +201,23 @@ export function hostMetricsFromForm(form: FormData): Record<string, unknown> {
 export function probeInputFromForm(form: FormData): TargetProbeInput {
   const engine = String(form.get('engine') ?? 'postgres');
   const portField = String(form.get('port') ?? '').trim();
-  const port = portField ? Number(portField) : engine === 'mongodb' ? 27017 : engine === 'mssql' ? 1433 : engine === 'mariadb' ? 3306 : engine === 'redis' ? 6379 : engine === 'oracle' ? 1521 : 5432;
+  const port = portField
+    ? Number(portField)
+    : engine === 'mongodb'
+      ? 27017
+      : engine === 'mssql'
+        ? 1433
+        : engine === 'mariadb'
+          ? 3306
+          : engine === 'redis'
+            ? 6379
+            : engine === 'oracle'
+              ? 1521
+              : engine === 'cassandra'
+                ? 9042
+                : engine === 'elasticsearch'
+                  ? 9200
+                  : 5432;
 
   return {
     engine,

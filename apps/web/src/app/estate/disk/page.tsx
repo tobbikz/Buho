@@ -28,6 +28,8 @@ const ENGINE_COLORS: Record<string, string> = {
   mongodb: '#7c3aed',
   redis: '#dc382c',
   oracle: '#f80000',
+  cassandra: '#1287b1',
+  elasticsearch: '#fec33d',
 };
 const ENGINE_LABEL: Record<string, string> = {
   postgres: 'PostgreSQL',
@@ -36,6 +38,8 @@ const ENGINE_LABEL: Record<string, string> = {
   mongodb: 'MongoDB',
   redis: 'Redis',
   oracle: 'Oracle',
+  cassandra: 'Cassandra',
+  elasticsearch: 'Elasticsearch',
 };
 
 function forecastTone(f: CapacityForecast): 'ok' | 'warn' | 'error' | 'neutral' {

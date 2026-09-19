@@ -11,7 +11,15 @@ import { hostMetricsFromForm } from './test-target';
  * store the same way they already live in config.json on-prem.
  */
 
-export type TargetEngine = 'postgres' | 'mariadb' | 'mssql' | 'mongodb' | 'redis' | 'oracle';
+export type TargetEngine =
+  | 'postgres'
+  | 'mariadb'
+  | 'mssql'
+  | 'mongodb'
+  | 'redis'
+  | 'oracle'
+  | 'cassandra'
+  | 'elasticsearch';
 
 export interface MonitorTarget {
   targetId: number;
@@ -48,7 +56,16 @@ export interface MonitorTargetInput {
   expandAllDatabases?: boolean;
 }
 
-const ENGINES = new Set(['postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle']);
+const ENGINES = new Set([
+  'postgres',
+  'mariadb',
+  'mssql',
+  'mongodb',
+  'redis',
+  'oracle',
+  'cassandra',
+  'elasticsearch',
+]);
 
 const DEFAULT_PORTS: Record<TargetEngine, number> = {
   postgres: 5432,
@@ -57,6 +74,8 @@ const DEFAULT_PORTS: Record<TargetEngine, number> = {
   mongodb: 27017,
   redis: 6379,
   oracle: 1521,
+  cassandra: 9042,
+  elasticsearch: 9200,
 };
 
 export function defaultPort(engine: TargetEngine): number {
@@ -137,13 +156,27 @@ export function parseTargetForm(form: FormData): MonitorTargetInput {
 
 export async function saveMonitorTarget(input: MonitorTargetInput): Promise<number> {
   const session = await requireAdmin();
-  if (!input.password) {
+  if (
+    !input.password &&
+    input.engine !== 'cassandra' &&
+    input.engine !== 'elasticsearch'
+  ) {
     throw new Error('Password is required for a new target.');
   }
 
   const seedDatabase =
     input.database ||
-    (input.engine === 'mongodb' ? 'admin' : input.engine === 'mssql' ? 'master' : input.engine === 'oracle' ? 'FREEPDB1' : input.engine === 'redis' ? '0' : 'postgres');
+    (input.engine === 'mongodb'
+      ? 'admin'
+      : input.engine === 'mssql'
+        ? 'master'
+        : input.engine === 'oracle'
+          ? 'FREEPDB1'
+          : input.engine === 'redis'
+            ? '0'
+            : input.engine === 'cassandra' || input.engine === 'elasticsearch'
+              ? ''
+              : 'postgres');
 
   let databases = [seedDatabase];
   if (input.engine === 'postgres' && input.expandAllDatabases) {

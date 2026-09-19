@@ -13,6 +13,8 @@ const ENGINE_OPTIONS = [
   { value: 'mongodb', label: 'MongoDB' },
   { value: 'redis', label: 'Redis' },
   { value: 'oracle', label: 'Oracle' },
+  { value: 'cassandra', label: 'Cassandra' },
+  { value: 'elasticsearch', label: 'Elasticsearch' },
 ] as const;
 
 const HOST_SOURCE_OPTIONS = [
@@ -107,20 +109,46 @@ export function AddDatabaseForm({ action }: { action: (formData: FormData) => Pr
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Database
-        <input name="database" className="input font-mono" placeholder="postgres / master / admin" />
+        <input
+          name="database"
+          className="input font-mono"
+          placeholder={
+            engine === 'cassandra'
+              ? 'keyspace (optional)'
+              : engine === 'elasticsearch'
+                ? '(optional)'
+                : engine === 'redis'
+                  ? '0'
+                  : 'postgres / master / admin'
+          }
+        />
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Username
-        <input name="username" required className="input font-mono" placeholder="buho_monitor" />
+        <input
+          name="username"
+          required
+          className="input font-mono"
+          placeholder={
+            engine === 'cassandra' || engine === 'elasticsearch'
+              ? 'monitor (ignored if no password)'
+              : 'buho_monitor'
+          }
+        />
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Password
         <input
           name="password"
           type="password"
-          required
+          required={engine !== 'cassandra' && engine !== 'elasticsearch'}
           className="input font-mono"
           autoComplete="new-password"
+          placeholder={
+            engine === 'cassandra' || engine === 'elasticsearch'
+              ? 'leave empty if auth disabled'
+              : undefined
+          }
         />
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">

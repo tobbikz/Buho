@@ -59,6 +59,15 @@ const EOL: Record<EngineKind, Record<string, string>> = {
     '21': '2027-04-30',
     '23': '2032-12-31',
   },
+  cassandra: {
+    '4': '2026-12-31',
+    '5': '2028-12-31',
+  },
+  elasticsearch: {
+    '7': '2025-04-15',
+    '8': '2027-08-15',
+    '9': '2028-12-31',
+  },
 };
 
 const PRODUCT_NAME: Record<string, string> = {

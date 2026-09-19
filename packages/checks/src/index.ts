@@ -109,6 +109,8 @@ import { MSSQL_CHECKS } from './mssql';
 import { MONGODB_CHECKS } from './mongodb';
 import { REDIS_CHECKS } from './redis';
 import { ORACLE_CHECKS } from './oracle';
+import { CASSANDRA_CHECKS } from './cassandra';
+import { ELASTICSEARCH_CHECKS } from './elasticsearch';
 import type { ForeignCheckDefinition } from './mariadb';
 
 export { MARIADB_CHECKS } from './mariadb';
@@ -116,6 +118,8 @@ export { MSSQL_CHECKS, MSSQL_PARITY_CHECKS, MSSQL_PARITY_MAP, assertMssqlParity 
 export { MONGODB_CHECKS } from './mongodb';
 export { REDIS_CHECKS } from './redis';
 export { ORACLE_CHECKS } from './oracle';
+export { CASSANDRA_CHECKS } from './cassandra';
+export { ELASTICSEARCH_CHECKS } from './elasticsearch';
 export {
   MARIADB_PARITY_CHECKS,
   MARIADB_PARITY_MAP,
@@ -125,10 +129,6 @@ export type { ForeignCheckDefinition } from './mariadb';
 
 /**
  * Corre el catálogo del motor que corresponda.
- *
- * Misma forma que `runChecks` y mismo puntaje: un hallazgo de MariaDB pesa lo
- * mismo que uno de PostgreSQL, así que la pantalla de flota puede ordenar
- * instancias de los tres motores por salud sin corregir nada.
  */
 export async function runForeignChecks(client: EngineClient, caps: ForeignCaps): Promise<CheckRunSummary> {
   const catalogo: ForeignCheckDefinition[] =
@@ -142,7 +142,11 @@ export async function runForeignChecks(client: EngineClient, caps: ForeignCaps):
             ? REDIS_CHECKS
             : caps.engine === 'oracle'
               ? ORACLE_CHECKS
-              : [];
+              : caps.engine === 'cassandra'
+                ? CASSANDRA_CHECKS
+                : caps.engine === 'elasticsearch'
+                  ? ELASTICSEARCH_CHECKS
+                  : [];
 
   const results: CheckResult[] = [];
   const errors: CheckRunError[] = [];

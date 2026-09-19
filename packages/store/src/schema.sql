@@ -495,7 +495,7 @@ alter table buho.instances
 alter table buho.instances drop constraint if exists instances_engine_check;
 alter table buho.instances
   add constraint instances_engine_check
-  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle'));
+  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch'));
 
 create table if not exists buho.engine_info (
   instance_id      bigint      primary key references buho.instances (instance_id) on delete cascade,
@@ -1052,7 +1052,7 @@ create table if not exists buho.monitor_targets (
   tenant       text        not null default 'default',
   alias        text        not null,
   engine       text        not null
-               check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle')),
+               check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch')),
   host         text        not null,
   port         integer     not null,
   database     text        not null default '',
@@ -1078,7 +1078,7 @@ alter table buho.monitor_targets add column if not exists host_metrics jsonb not
 alter table buho.instances drop constraint if exists instances_engine_check;
 alter table buho.instances
   add constraint instances_engine_check
-  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle'));
+  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch'));
 
 -- --------------------------------------------------- registro de operaciones
 

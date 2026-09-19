@@ -483,7 +483,12 @@ function startLogLoop(instance: InstanceConfig, instanceId: number, pool: Pool):
  * justificar ante el DBA del cliente que un pool que abre y cierra.
  */
 function isDocumentEngine(engine: string): boolean {
-  return engine === 'mongodb' || engine === 'redis';
+  return (
+    engine === 'mongodb' ||
+    engine === 'redis' ||
+    engine === 'cassandra' ||
+    engine === 'elasticsearch'
+  );
 }
 
 async function monitorForeign(instance: InstanceConfig): Promise<void> {

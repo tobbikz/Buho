@@ -8,6 +8,8 @@ import { ForeignSummary } from '@/components/ForeignSummary';
 import { MongoSummary } from '@/components/MongoSummary';
 import { RedisSummary } from '@/components/RedisSummary';
 import { OracleSummary } from '@/components/OracleSummary';
+import { CassandraSummary } from '@/components/CassandraSummary';
+import { ElasticsearchSummary } from '@/components/ElasticsearchSummary';
 import { LabeledBars, type BarRow } from '@/components/LabeledBars';
 import { StatCard, toneForMinimum, toneForPct, toneForScore } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
@@ -108,7 +110,15 @@ export default async function InstancePage({
   // los indicadores que cada motor sí puede contestar. El inventario, que antes
   // era toda su pantalla, ahora es una pestaña más.
   const engine = await getInstanceEngine(instanceId);
-  if (engine === 'mariadb' || engine === 'mssql' || engine === 'mongodb' || engine === 'redis' || engine === 'oracle') {
+  if (
+    engine === 'mariadb' ||
+    engine === 'mssql' ||
+    engine === 'mongodb' ||
+    engine === 'redis' ||
+    engine === 'oracle' ||
+    engine === 'cassandra' ||
+    engine === 'elasticsearch'
+  ) {
     return (
       <>
         <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: instance.alias }]} />
@@ -161,6 +171,20 @@ export default async function InstancePage({
             />
           ) : engine === 'oracle' ? (
             <OracleSummary
+              instanceId={instanceId}
+              windowMinutes={window.minutes}
+              bucketSeconds={window.bucketSeconds}
+              windowHint={windowHint}
+            />
+          ) : engine === 'cassandra' ? (
+            <CassandraSummary
+              instanceId={instanceId}
+              windowMinutes={window.minutes}
+              bucketSeconds={window.bucketSeconds}
+              windowHint={windowHint}
+            />
+          ) : engine === 'elasticsearch' ? (
+            <ElasticsearchSummary
               instanceId={instanceId}
               windowMinutes={window.minutes}
               bucketSeconds={window.bucketSeconds}

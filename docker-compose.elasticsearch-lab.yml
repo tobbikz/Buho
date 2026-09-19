@@ -1,0 +1,39 @@
+# Lab Elasticsearch for Búho — single node on buho_default.
+# Host: 127.0.0.1:9200 → container 9200
+# Security disabled; cluster often yellow with default replicas on 1 node.
+services:
+  elasticsearch-lab:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    container_name: buho-elasticsearch-lab
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.http.ssl.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+      cluster.name: buho-lab
+      bootstrap.memory_lock: "true"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - buho_elasticsearch_lab_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    networks:
+      - default
+
+volumes:
+  buho_elasticsearch_lab_data:
+
+networks:
+  default:
+    name: buho_default
+    external: true

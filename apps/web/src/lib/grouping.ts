@@ -25,6 +25,8 @@ export const ENGINE_LABEL: Record<string, string> = {
   mongodb: 'MongoDB',
   redis: 'Redis',
   oracle: 'Oracle',
+  cassandra: 'Cassandra',
+  elasticsearch: 'Elasticsearch',
 };
 
 export const NO_GROUP = 'sin-agrupar';

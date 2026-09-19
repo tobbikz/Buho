@@ -18,7 +18,7 @@ import { tagged } from './tag';
  * ("¿esta versión tiene soporte?", "¿cuándo fue el último backup?") y no de
  * implementación.
  */
-export type EngineKind = 'postgres' | 'mariadb' | 'mssql' | 'mongodb' | 'redis' | 'oracle';
+export type EngineKind = 'postgres' | 'mariadb' | 'mssql' | 'mongodb' | 'redis' | 'oracle' | 'cassandra' | 'elasticsearch';
 
 export const ENGINE_LABEL: Record<EngineKind, string> = {
   postgres: 'PostgreSQL',
@@ -27,6 +27,8 @@ export const ENGINE_LABEL: Record<EngineKind, string> = {
   mongodb: 'MongoDB',
   redis: 'Redis',
   oracle: 'Oracle',
+  cassandra: 'Cassandra',
+  elasticsearch: 'Elasticsearch',
 };
 
 export const DEFAULT_PORT: Record<EngineKind, number> = {
@@ -36,6 +38,8 @@ export const DEFAULT_PORT: Record<EngineKind, number> = {
   mongodb: 27017,
   redis: 6379,
   oracle: 1521,
+  cassandra: 9042,
+  elasticsearch: 9200,
 };
 
 /**
@@ -249,6 +253,49 @@ export async function openEngine(
       connectTimeout: Math.ceil(connectTimeout / 1000),
     });
     return new OracleClient(pool, statementTimeout, oracledb.OUT_FORMAT_OBJECT);
+  }
+
+
+  if (kind === 'cassandra') {
+    const cassandra = await import('cassandra-driver');
+    const datacenter =
+      instance.tags?.['datacenter'] ||
+      instance.tags?.['dc'] ||
+      'datacenter1';
+    const options: Record<string, unknown> = {
+      contactPoints: [instance.host],
+      localDataCenter: datacenter,
+      protocolOptions: { port: instance.port },
+      socketOptions: { connectTimeout: connectTimeout },
+    };
+    // Many labs / on-prem clusters run AllowAllAuthenticator. Only attach
+    // credentials when a password is present so a dummy form username works.
+    if (instance.user && instance.password) {
+      options.authProvider = new cassandra.auth.PlainTextAuthProvider(
+        instance.user,
+        instance.password,
+      );
+    }
+    if (instance.database) options.keyspace = instance.database;
+    const client = new cassandra.Client(options);
+    await client.connect();
+    return new CassandraClient(client);
+  }
+
+  if (kind === 'elasticsearch') {
+    const { Client } = await import('@elastic/elasticsearch');
+    const protocol = instance.ssl ? 'https' : 'http';
+    const auth =
+      instance.user && instance.password
+        ? `${encodeURIComponent(instance.user)}:${encodeURIComponent(instance.password)}@`
+        : '';
+    const node = `${protocol}://${auth}${instance.host}:${instance.port}`;
+    const client = new Client({
+      node,
+      tls: instance.ssl ? { rejectUnauthorized: false } : undefined,
+      requestTimeout: statementTimeout,
+    });
+    return new ElasticsearchClient(client as never);
   }
 
   // `mssql` es CommonJS: bajo import() dinámico sus exportaciones quedan en
@@ -466,5 +513,90 @@ class OracleClient implements EngineClient {
 
   async close(): Promise<void> {
     await this.pool.close(0);
+  }
+}
+
+class CassandraClient implements EngineClient {
+  readonly kind = 'cassandra' as const;
+
+  constructor(
+    private readonly client: {
+      execute: (query: string) => Promise<{ rows: Record<string, unknown>[] }>;
+      shutdown: () => Promise<void>;
+    },
+  ) {}
+
+  async query(sql: string): Promise<Record<string, unknown>[]> {
+    const result = await this.client.execute(sql);
+    return (result.rows as Record<string, unknown>[]) ?? [];
+  }
+
+  async close(): Promise<void> {
+    await this.client.shutdown();
+  }
+}
+
+class ElasticsearchClient implements EngineClient {
+  readonly kind = 'elasticsearch' as const;
+
+  constructor(
+    private readonly client: {
+      info: () => Promise<Record<string, unknown>>;
+      cluster: {
+        health: () => Promise<Record<string, unknown>>;
+        stats: () => Promise<Record<string, unknown>>;
+        pendingTasks: () => Promise<Record<string, unknown>>;
+      };
+      nodes: { stats: (opts?: Record<string, unknown>) => Promise<Record<string, unknown>> };
+      cat: {
+        indices: (opts?: Record<string, unknown>) => Promise<unknown>;
+      };
+      tasks: { list: (opts?: Record<string, unknown>) => Promise<Record<string, unknown>> };
+      close: () => Promise<void>;
+    },
+  ) {}
+
+  async query(sql: string): Promise<Record<string, unknown>[]> {
+    const trimmed = sql.trim();
+    if (!trimmed.startsWith('{')) {
+      throw new Error('Elasticsearch no acepta SQL; usar command() o JSON');
+    }
+    return [await this.command(JSON.parse(trimmed) as Record<string, unknown>)];
+  }
+
+  async command(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const op = String(cmd['es'] ?? '');
+    if (op === 'info') return (await this.client.info()) as Record<string, unknown>;
+    if (op === 'cluster.health') return (await this.client.cluster.health()) as Record<string, unknown>;
+    if (op === 'cluster.stats') return (await this.client.cluster.stats()) as Record<string, unknown>;
+    if (op === 'cluster.pending_tasks') {
+      return (await this.client.cluster.pendingTasks()) as Record<string, unknown>;
+    }
+    if (op === 'nodes.stats') {
+      return (await this.client.nodes.stats({
+        metric: ['jvm', 'indices', 'os', 'fs', 'http', 'process'],
+      })) as Record<string, unknown>;
+    }
+    if (op === 'cat.indices') {
+      const raw = await this.client.cat.indices({ format: 'json', bytes: 'b' });
+      const list = Array.isArray(raw) ? raw : [];
+      return {
+        indices: list.map((row: Record<string, unknown>) => ({
+          index: row['index'],
+          docs: row['docs.count'],
+          store_bytes: Number(row['store.size'] ?? row['pri.store.size'] ?? 0),
+          health: row['health'],
+          status: row['status'],
+        })),
+      };
+    }
+    if (op === 'tasks.list') {
+      return (await this.client.tasks.list({ detailed: true })) as Record<string, unknown>;
+    }
+    throw new Error(`comando Elasticsearch desconocido: ${op}`);
+  }
+
+  async close(): Promise<void> {
+    await this.client.close();
   }
 }

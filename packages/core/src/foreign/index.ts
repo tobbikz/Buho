@@ -26,6 +26,13 @@ export { REDIS_COLLECTORS } from './redis';
 export { sampleRedisSessions, sampleRedisBlocking, sampleRedisSlowlog, sampleRedisCommandstats } from './redis-ops';
 export { ORACLE_COLLECTORS } from './oracle';
 export { sampleOracleSessions, sampleOracleBlocking } from './oracle-ops';
+export { CASSANDRA_COLLECTORS } from './cassandra';
+export { sampleCassandraSessions, sampleCassandraBlocking } from './cassandra-ops';
+export { ELASTICSEARCH_COLLECTORS } from './elasticsearch';
+export {
+  sampleElasticsearchSessions,
+  sampleElasticsearchBlocking,
+} from './elasticsearch-ops';
 export { runForeignCollectors } from './types';
 export type { ForeignCaps, ForeignCollector, ForeignRunResult } from './types';
 export {
@@ -59,6 +66,8 @@ import { MSSQL_COLLECTORS } from './mssql';
 import { MONGODB_COLLECTORS } from './mongodb';
 import { REDIS_COLLECTORS } from './redis';
 import { ORACLE_COLLECTORS } from './oracle';
+import { CASSANDRA_COLLECTORS } from './cassandra';
+import { ELASTICSEARCH_COLLECTORS } from './elasticsearch';
 import type { ForeignCaps, ForeignCollector } from './types';
 
 export function foreignCollectorsFor(caps: ForeignCaps, tier?: string): ForeignCollector[] {
@@ -68,6 +77,8 @@ export function foreignCollectorsFor(caps: ForeignCaps, tier?: string): ForeignC
     mongodb: MONGODB_COLLECTORS,
     redis: REDIS_COLLECTORS,
     oracle: ORACLE_COLLECTORS,
+    cassandra: CASSANDRA_COLLECTORS,
+    elasticsearch: ELASTICSEARCH_COLLECTORS,
   };
   const lista = caps.engine === 'postgres' ? [] : catalogo[caps.engine];
   return lista.filter(

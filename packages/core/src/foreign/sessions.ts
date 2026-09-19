@@ -3,6 +3,8 @@ import type { SessionSample } from '../sessions';
 import { sampleMongoSessions } from './mongodb-ops';
 import { sampleRedisSessions } from './redis-ops';
 import { sampleOracleSessions } from './oracle-ops';
+import { sampleCassandraSessions } from './cassandra-ops';
+import { sampleElasticsearchSessions } from './elasticsearch-ops';
 import type { ForeignCaps } from './types';
 import { num, str } from './types';
 
@@ -239,6 +241,14 @@ export async function sampleForeignSessions(
 
   if (caps.engine === 'oracle') {
     return sampleOracleSessions(client);
+  }
+
+  if (caps.engine === 'cassandra') {
+    return sampleCassandraSessions(client);
+  }
+
+  if (caps.engine === 'elasticsearch') {
+    return sampleElasticsearchSessions(client);
   }
 
   return [];
