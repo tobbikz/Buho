@@ -350,7 +350,45 @@ class RedisClient implements EngineClient {
       const raw = String(await this.client.sendCommand(['CLIENT', 'LIST']));
       return { raw };
     }
-    const section = cmd['info'] != null ? String(cmd['info']) : cmd['section'] != null ? String(cmd['section']) : 'default';
+    if (cmd['slowlogLen'] != null) {
+      const len = Number(await this.client.sendCommand(['SLOWLOG', 'LEN']));
+      return { len: Number.isFinite(len) ? len : 0 };
+    }
+    if (cmd['slowlogGet'] != null) {
+      const count = Math.min(Math.max(Number(cmd['count'] ?? 32), 1), 128);
+      const raw = (await this.client.sendCommand(['SLOWLOG', 'GET', String(count)])) as unknown[];
+      const entries = (Array.isArray(raw) ? raw : []).map((entry) => {
+        const row = Array.isArray(entry) ? entry : [];
+        const id = Number(row[0] ?? 0);
+        const ts = Number(row[1] ?? 0);
+        const durationUs = Number(row[2] ?? 0);
+        const argv = Array.isArray(row[3]) ? (row[3] as unknown[]).map(String) : [];
+        return {
+          id,
+          ts,
+          duration_us: durationUs,
+          command: argv.join(' ').slice(0, 2000),
+        };
+      });
+      return { entries };
+    }
+    if (cmd['latencyLatest'] != null) {
+      const raw = (await this.client.sendCommand(['LATENCY', 'LATEST'])) as unknown[];
+      const events = (Array.isArray(raw) ? raw : []).map((entry) => {
+        const row = Array.isArray(entry) ? entry : [];
+        return {
+          event: String(row[0] ?? 'unknown'),
+          time_ms: Number(row[2] ?? 0),
+        };
+      });
+      return { events };
+    }
+    const section =
+      cmd['info'] != null
+        ? String(cmd['info'])
+        : cmd['section'] != null
+          ? String(cmd['section'])
+          : 'default';
     const text =
       section === 'all' || section === '1' || section === 'default'
         ? await this.client.info()

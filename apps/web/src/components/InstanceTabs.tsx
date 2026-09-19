@@ -42,6 +42,12 @@ export function InstanceTabs({
         ? [
             { href: base, label: 'Overview' },
             { href: `${base}/analysis`, label: 'Analysis' },
+            ...(engine === 'redis'
+              ? [
+                  { href: `${base}/queries`, label: 'Queries' },
+                  { href: `${base}/slow-queries`, label: 'Slow queries' },
+                ]
+              : []),
             { href: `${base}/sessions`, label: 'Sessions' },
             { href: `${base}/capacity`, label: 'Capacity' },
             { href: `${base}/host`, label: 'Host' },
@@ -55,10 +61,10 @@ export function InstanceTabs({
           { href: `${base}/analysis`, label: 'Analysis' },
           { href: `${base}/queries`, label: 'Queries' },
           ...(engine === 'mssql' ? [{ href: `${base}/procedures`, label: 'Procedures' }] : []),
-          ...(engine === 'mariadb'
+          ...(engine === 'mariadb' || engine === 'oracle'
             ? [
                 { href: `${base}/slow-queries`, label: 'Slow queries' },
-                { href: `${base}/indexes`, label: 'Indexes' },
+                ...(engine === 'mariadb' ? [{ href: `${base}/indexes`, label: 'Indexes' }] : []),
               ]
             : []),
           { href: `${base}/flow`, label: 'Flow' },

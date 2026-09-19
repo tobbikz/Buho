@@ -30,7 +30,7 @@ export async function OracleSummary({
   bucketSeconds: number;
   windowHint: string;
 }) {
-  const [connections, activity, memory, cache, waits, sizes] = await Promise.all([
+  const [connections, activity, memory, cache, waits, sizes, pressure, slow] = await Promise.all([
     getSeries(
       instanceId,
       ['connections_total', 'connections_active', 'connections_used_pct', 'blocked_sessions'],
@@ -43,6 +43,7 @@ export async function OracleSummary({
         'oracle_execute_count_per_sec',
         'oracle_user_commits_per_sec',
         'oracle_parse_count_per_sec',
+        'oracle_hard_parse_count_per_sec',
         'oracle_physical_reads_per_sec',
       ],
       windowMinutes,
@@ -50,13 +51,25 @@ export async function OracleSummary({
     ),
     getSeries(
       instanceId,
-      ['oracle_sga_bytes', 'oracle_pga_bytes', 'oracle_pga_used_pct'],
+      ['oracle_sga_bytes', 'oracle_pga_bytes', 'oracle_pga_used_pct', 'oracle_library_hit_pct'],
       windowMinutes,
       bucketSeconds,
     ),
     getSeries(instanceId, ['db_cache_hit_pct'], windowMinutes, bucketSeconds),
     getLabeled(instanceId, 'wait_event_sessions', 12, windowMinutes),
     getLabeled(instanceId, 'database_size_bytes', 12, windowMinutes),
+    getSeries(
+      instanceId,
+      ['oracle_temp_used_pct', 'oracle_undo_used_pct', 'oracle_hard_parse_pct'],
+      windowMinutes,
+      bucketSeconds,
+    ),
+    getSeries(
+      instanceId,
+      ['oracle_slow_sql_count', 'slow_digest_count'],
+      windowMinutes,
+      bucketSeconds,
+    ),
   ]);
 
   const connPct = ultimo(connections, 'connections_used_pct');
@@ -64,6 +77,7 @@ export async function OracleSummary({
   const blocked = ultimo(connections, 'blocked_sessions');
   const sga = ultimo(memory, 'oracle_sga_bytes');
   const pga = ultimo(memory, 'oracle_pga_bytes');
+  const libHit = ultimo(memory, 'oracle_library_hit_pct');
 
   return (
     <div className="stack gap-4">
@@ -85,8 +99,19 @@ export async function OracleSummary({
           value={hitPct != null ? formatPct(hitPct) : '—'}
           tone={toneForMinimum(hitPct, 95, 90)}
         />
-        <StatCard label="SGA" value={sga != null ? formatBytes(sga) : '—'} />
-        <StatCard label="PGA" value={pga != null ? formatBytes(pga) : '—'} />
+        <StatCard label="SGA" value={sga != null ? formatBytes(sga) : '—'} hint={pga != null ? `PGA ${formatBytes(pga)}` : undefined} />
+        <StatCard
+          label="Lib hit"
+          value={libHit != null ? formatPct(libHit) : '—'}
+          tone={toneForMinimum(libHit, 95, 90)}
+        />
+        <StatCard
+          label="Slow SQL"
+          value={formatNumber(ultimo(slow, 'oracle_slow_sql_count'))}
+          tone={
+            (ultimo(slow, 'oracle_slow_sql_count') ?? 0) > 0 ? 'warn' : 'ok'
+          }
+        />
       </div>
 
       <TimeseriesPanel
@@ -107,19 +132,33 @@ export async function OracleSummary({
           { metric: 'oracle_execute_count_per_sec', label: 'Executes/s', color: COLOR.accent },
           { metric: 'oracle_user_commits_per_sec', label: 'Commits/s', color: COLOR.success },
           { metric: 'oracle_parse_count_per_sec', label: 'Parses/s', color: COLOR.warning },
+          { metric: 'oracle_hard_parse_count_per_sec', label: 'Hard parses/s', color: COLOR.error },
           { metric: 'oracle_physical_reads_per_sec', label: 'Phys reads/s', color: COLOR.muted },
         ]}
       />
       <div className="grid gap-4 lg:grid-cols-2">
         <TimeseriesPanel
-          title="Memory"
+          title="Memory & library cache"
           hint={windowHint}
           data={memory}
           series={[
             { metric: 'oracle_sga_bytes', label: 'SGA', color: COLOR.accent },
             { metric: 'oracle_pga_bytes', label: 'PGA', color: COLOR.success },
+            { metric: 'oracle_library_hit_pct', label: 'Lib hit %', color: COLOR.warning },
           ]}
         />
+        <TimeseriesPanel
+          title="Temp / undo / hard parse %"
+          hint={windowHint}
+          data={pressure}
+          series={[
+            { metric: 'oracle_temp_used_pct', label: 'Temp %', color: COLOR.warning },
+            { metric: 'oracle_undo_used_pct', label: 'Undo %', color: COLOR.accent },
+            { metric: 'oracle_hard_parse_pct', label: 'Hard parse %', color: COLOR.error },
+          ]}
+        />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
         <div className="card">
           <h3 className="card-title">Current waits</h3>
           <p className="page-sub text-xs mb-2">{windowHint}</p>

@@ -23,11 +23,12 @@ const SOURCE_LABEL: Record<string, string> = {
   digest: 'digest',
   slow_log: 'slow_log',
   processlist: 'processlist',
+  slowlog: 'slowlog',
 };
 
 /**
- * Slow queries — MariaDB counterpart to MSSQL Procedures (timeline of ≥1s events).
- * Sources: performance_schema digests, mysql.slow_log, or PROCESSLIST when P_S is off.
+ * Slow queries — MariaDB / Redis / Oracle (≥1s events).
+ * Maria: digests / slow_log / PROCESSLIST · Redis: SLOWLOG · Oracle: v$sql avg ≥1s.
  */
 export default async function SlowQueriesPage({
   params,
@@ -42,7 +43,7 @@ export default async function SlowQueriesPage({
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
 
   const engine = (await getInstanceEngine(instanceId)) ?? 'postgres';
-  if (engine !== 'mariadb') notFound();
+  if (engine !== 'mariadb' && engine !== 'redis' && engine !== 'oracle') notFound();
 
   const window = WINDOWS.find((candidate) => candidate.key === w) ?? WINDOWS[1]!;
 
@@ -102,7 +103,13 @@ export default async function SlowQueriesPage({
           <div>
             <h1 className="page-title">Slow queries</h1>
             <p className="page-sub">
-              {ENGINE_LABEL[engine]} · digests / slow_log / PROCESSLIST · ≥1 s · last {window.key}
+              {ENGINE_LABEL[engine]} ·{' '}
+              {engine === 'redis'
+                ? 'SLOWLOG'
+                : engine === 'oracle'
+                  ? 'v$sql avg ≥1s'
+                  : 'digests / slow_log / PROCESSLIST'}{' '}
+              · ≥1 s · last {window.key}
             </p>
           </div>
           <div className="flex items-center gap-1">

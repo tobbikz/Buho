@@ -57,8 +57,12 @@ import {
   MariadbSlowEventTracker,
   sampleMariadbSlowEvents,
   sampleMariadbSlowStatements,
+  sampleOracleSlowStatements,
+  sampleRedisSlowlog,
+  sampleRedisCommandstats,
   sampleMariadbIndexes,
   runMariadbExplain,
+  digestToQueryid,
   ForeignProcedureTracker,
   sampleForeignProcedures,
   sampleMssqlCatalog,
@@ -616,12 +620,40 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
         { metric: 'slow_digest_count', value: slowDigests },
       ]);
     }
+    if (caps.engine === 'oracle' && caps.features.statementDigests) {
+      await store.insertSamples(instanceId, [
+        { metric: 'slow_digest_count', value: slowDigests },
+      ]);
+    }
     log(
       'info',
       `${instance.alias}/statements: ${written} consulta(s) con actividad (${mode}), ${totalMs.toFixed(0)} ms de ejecución` +
         (slowDigests > 0 ? `, ${slowDigests} lenta(s) por media` : ''),
     );
   });
+
+  if (caps.engine === 'oracle') {
+    startLoop(`${instance.alias}/slow-events`, STATEMENTS_INTERVAL_MS, async () => {
+      const rows = await sampleOracleSlowStatements(client, caps);
+      if (rows.length === 0) return;
+      const events = rows
+        .map((row) => ({
+          queryid: digestToQueryid(String(row['digest'] ?? '')),
+          database: row['db'] == null ? null : String(row['db']),
+          username: null,
+          query: String(row['query'] ?? ''),
+          truncated: row['truncated'] === true || row['truncated'] === 1,
+          durationSec: Number(row['avg_ms'] ?? 0) / 1000,
+          rowsSent: Number(row['rows_sent'] ?? 0),
+          rowsExamined: Number(row['logical_reads'] ?? 0),
+          source: 'digest',
+        }))
+        .filter((e) => e.queryid && e.durationSec >= 1);
+      if (events.length === 0) return;
+      const written = await store.saveStatementSlowEvents(instanceId, events);
+      log('info', `${instance.alias}/slow-events: ${written} SQL ≥1s avg`);
+    });
+  }
 
   if (caps.engine === 'mariadb') {
     const slowTracker = new MariadbSlowEventTracker();
@@ -710,6 +742,28 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
     });
   }
   } // end !isDocumentEngine (SQL digests / SP / indexes / ORM)
+
+  // Redis: commandstats → Queries deltas; SLOWLOG → Slow queries events.
+  if (engine === 'redis') {
+    const statements = new ForeignStatementTracker();
+    startLoop(`${instance.alias}/statements`, STATEMENTS_INTERVAL_MS, async () => {
+      const rows = await sampleRedisCommandstats(client);
+      const { deltas: activity, discarded } = statements.deltas(rows, caps);
+      if (discarded > 0) {
+        log('info', `${instance.alias}/statements: ${discarded} cmdstat reset(s)`);
+      }
+      if (activity.length === 0) return;
+      const written = await store.saveStatements(instanceId, activity);
+      log('info', `${instance.alias}/statements: ${written} comando(s) con actividad (commandstats)`);
+    });
+
+    startLoop(`${instance.alias}/slow-events`, STATEMENTS_INTERVAL_MS, async () => {
+      const events = await sampleRedisSlowlog(client, 1_000_000);
+      if (events.length === 0) return;
+      const written = await store.saveStatementSlowEvents(instanceId, events);
+      log('info', `${instance.alias}/slow-events: ${written} SLOWLOG ≥1s`);
+    });
+  }
 
   // Host CPU/RAM via /proc — same as PostgreSQL when declared on the target.
   const hostConfig = instance.hostMetrics;

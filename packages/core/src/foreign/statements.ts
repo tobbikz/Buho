@@ -28,10 +28,25 @@ import { num, str } from './types';
  * acomodar un motor.
  */
 export function digestToQueryid(digest: string): string {
-  const limpio = digest.replace(/^0x/i, '').padEnd(16, '0').slice(0, 16);
-  const sinSigno = BigInt(`0x${limpio}`);
-  // El bigint de PostgreSQL tiene signo: se envuelve en vez de desbordar.
-  const conSigno = sinSigno >= 1n << 63n ? sinSigno - (1n << 64n) : sinSigno;
+  const limpio = digest.replace(/^0x/i, '').trim();
+  // Hex digests (Maria / MSSQL / Redis fingerprint). Oracle sql_id is base-32-ish — hash it.
+  const hexish = limpio.slice(0, 16).padEnd(16, '0');
+  if (/^[0-9a-fA-F]{16}$/.test(hexish) && /^[0-9a-fA-F]+$/.test(limpio.replace(/0+$/, '') || '0')) {
+    try {
+      const sinSigno = BigInt(`0x${hexish}`);
+      const conSigno = sinSigno >= 1n << 63n ? sinSigno - (1n << 64n) : sinSigno;
+      return conSigno.toString();
+    } catch {
+      // fall through to hash
+    }
+  }
+  let hash = 0xcbf29ce484222325n;
+  const src = limpio.toLowerCase().slice(0, 64) || 'empty';
+  for (let i = 0; i < src.length; i += 1) {
+    hash ^= BigInt(src.charCodeAt(i));
+    hash = (hash * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  const conSigno = hash >= 1n << 63n ? hash - (1n << 64n) : hash;
   return conSigno.toString();
 }
 
@@ -110,9 +125,6 @@ const MSSQL_SQL = `
          sum(q.execution_count)                                as calls,
          sum(q.total_elapsed_time) / 1000.0                    as exec_ms,
          sum(q.total_worker_time)  / 1000.0                    as cpu_ms,
-         -- Sólo filas devueltas: SQL Server no acumula filas afectadas por
-         -- consulta en esta vista, así que el DML aporta cero aquí y su volumen
-         -- hay que mirarlo por tiempo o por llamadas.
          sum(q.total_rows)                                     as rows_sent,
          sum(q.total_logical_reads)                            as logical_reads,
          sum(q.total_physical_reads)                           as physical_reads,
@@ -125,6 +137,49 @@ const MSSQL_SQL = `
      and t.text not like '%${QUERY_TAG_LIKE}%'
    group by q.query_hash
    order by sum(q.total_elapsed_time) desc`;
+
+/** Oracle top SQL from v$sql — sql_id as digest. */
+const ORACLE_SQL = `
+  select * from (
+    select s.sql_id as digest,
+           s.parsing_schema_name as db,
+           substr(s.sql_text, 1, 4000) as query,
+           case when length(s.sql_fulltext) > 4000 then 1 else 0 end as truncated,
+           s.executions as calls,
+           s.elapsed_time / 1000 as exec_ms,
+           s.cpu_time / 1000 as cpu_ms,
+           s.rows_processed as rows_sent,
+           s.buffer_gets as logical_reads,
+           s.disk_reads as physical_reads,
+           s.sorts as spills,
+           1 as planes
+      from v$sql s
+     where s.executions > 0
+       and s.parsing_schema_name not in ('SYS', 'SYSTEM')
+       and s.sql_text not like '%${QUERY_TAG_LIKE}%'
+     order by s.elapsed_time desc
+  ) where rownum <= 200`;
+
+const ORACLE_SLOW_SQL = `
+  select * from (
+    select s.sql_id as digest,
+           s.parsing_schema_name as db,
+           substr(s.sql_text, 1, 4000) as query,
+           case when length(s.sql_fulltext) > 4000 then 1 else 0 end as truncated,
+           s.executions as calls,
+           s.elapsed_time / 1000 as exec_ms,
+           s.elapsed_time / nullif(s.executions, 0) / 1000 as avg_ms,
+           s.cpu_time / 1000 as cpu_ms,
+           s.rows_processed as rows_sent,
+           s.buffer_gets as logical_reads,
+           s.disk_reads as physical_reads,
+           s.sorts as spills
+      from v$sql s
+     where s.executions > 0
+       and s.elapsed_time / nullif(s.executions, 0) / 1e6 >= 1
+       and s.parsing_schema_name not in ('SYS', 'SYSTEM')
+     order by s.elapsed_time / nullif(s.executions, 0) desc
+  ) where rownum <= 50`;
 
 interface Estado {
   calls: number;
@@ -173,11 +228,17 @@ export class ForeignStatementTracker {
         execMs: num(row['exec_ms']),
         rows: num(row['rows_sent']),
         sharedHit:
-          caps.engine === 'mssql'
+          caps.engine === 'mssql' || caps.engine === 'oracle'
             ? Math.max(0, num(row['logical_reads']) - num(row['physical_reads']))
             : Math.max(0, num(row['rows_examined']) - num(row['rows_sent'])),
-        sharedRead: caps.engine === 'mssql' ? num(row['physical_reads']) : num(row['no_index_used']),
-        tempWritten: caps.engine === 'mssql' ? num(row['spills']) : num(row['tmp_disk_tables']),
+        sharedRead:
+          caps.engine === 'mssql' || caps.engine === 'oracle'
+            ? num(row['physical_reads'])
+            : num(row['no_index_used']),
+        tempWritten:
+          caps.engine === 'mssql' || caps.engine === 'oracle'
+            ? num(row['spills'])
+            : num(row['tmp_disk_tables']),
         at: now,
       };
 
@@ -281,8 +342,19 @@ export async function sampleForeignStatements(
 ): Promise<Record<string, unknown>[]> {
   if (caps.features.statementDigests) {
     if (caps.engine === 'mssql') return client.query(MSSQL_SQL);
-    // Top by total time + digests that are slow by average (long_query_time),
-    // so rare-but-slow statements still land in the Queries / Slow panel.
+    if (caps.engine === 'oracle') {
+      const [top, slow] = await Promise.all([
+        client.query(ORACLE_SQL),
+        client.query(ORACLE_SLOW_SQL).catch(() => [] as Record<string, unknown>[]),
+      ]);
+      const byDigest = new Map<string, Record<string, unknown>>();
+      for (const row of [...top, ...slow]) {
+        const digest = str(row['digest'], '');
+        if (digest) byDigest.set(digest, row);
+      }
+      return [...byDigest.values()];
+    }
+    // MariaDB digests
     const [top, slow] = await Promise.all([
       client.query(MARIADB_SQL),
       client.query(MARIADB_SLOW_SQL).catch(() => [] as Record<string, unknown>[]),
@@ -299,11 +371,23 @@ export async function sampleForeignStatements(
     return tracker.sampleProcesslist(client);
   }
   if (caps.engine === 'mariadb') {
-    // Fallback for callers that have not wired a tracker yet.
     const ephemeral = new ForeignStatementTracker();
     return ephemeral.sampleProcesslist(client);
   }
   return [];
+}
+
+/** Oracle SQL with avg elapsed ≥1s — for Slow queries tab events. */
+export async function sampleOracleSlowStatements(
+  client: EngineClient,
+  caps: ForeignCaps,
+): Promise<Record<string, unknown>[]> {
+  if (caps.engine !== 'oracle' || !caps.features.statementDigests) return [];
+  try {
+    return await client.query(ORACLE_SLOW_SQL);
+  } catch {
+    return [];
+  }
 }
 
 /**

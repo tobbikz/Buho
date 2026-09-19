@@ -2,7 +2,7 @@ import type { Finding } from './types';
 import type { ForeignCheckDefinition } from './mariadb';
 
 /**
- * Oracle checks against V$ / DBA views.
+ * Oracle DBA checks — sessions, tablespace, blocking, parse, temp/undo, library cache.
  */
 
 function num(value: unknown): number {
@@ -33,6 +33,31 @@ export const ORACLE_CHECKS: ForeignCheckDefinition[] = [
           object: 'sessions',
           message: `Sessions at ${pct.toFixed(0)}% (${used}/${max}).`,
           remediation: 'Kill idle sessions or raise SESSIONS / PROCESSES.',
+          value: pct,
+        } satisfies Finding,
+      ];
+    },
+  },
+  {
+    id: 'oracle_processes',
+    title: 'Process usage',
+    description: 'v$process vs processes parameter',
+    sql: () => `
+      select (select count(*) from v$process) as used,
+             (select to_number(value) from v$parameter where name = 'processes') as max_proc
+        from dual`,
+    evaluate: (rows) => {
+      const used = num(rows[0]?.['used']);
+      const max = num(rows[0]?.['max_proc']);
+      if (max <= 0) return [];
+      const pct = (used / max) * 100;
+      if (pct < 80) return [];
+      return [
+        {
+          severity: pct >= 95 ? 'critical' : 'warning',
+          object: 'processes',
+          message: `Processes at ${pct.toFixed(0)}% (${used}/${max}).`,
+          remediation: 'Raise PROCESSES or investigate session leaks.',
           value: pct,
         } satisfies Finding,
       ];
@@ -89,6 +114,81 @@ export const ORACLE_CHECKS: ForeignCheckDefinition[] = [
           message: `${blocked} session(s) waiting on a blocker.`,
           remediation: 'Open Locks tab; kill or commit the blocker if safe.',
           value: blocked,
+        } satisfies Finding,
+      ];
+    },
+  },
+  {
+    id: 'oracle_temp',
+    title: 'Temp tablespace pressure',
+    description: 'v$temp_extent_pool vs temp files',
+    sql: () => `
+      select nvl((select sum(bytes) from dba_temp_files), 0) as temp_size,
+             nvl((select sum(bytes_used) from v$temp_extent_pool), 0) as temp_used
+        from dual`,
+    evaluate: (rows) => {
+      const size = num(rows[0]?.['temp_size']);
+      const used = num(rows[0]?.['temp_used']);
+      if (size <= 0) return [];
+      const pct = (used / size) * 100;
+      if (pct < 80) return [];
+      return [
+        {
+          severity: pct >= 95 ? 'critical' : 'warning',
+          object: 'temp',
+          message: `Temp at ${pct.toFixed(0)}% (${Math.round(used / 1e6)}MB / ${Math.round(size / 1e6)}MB).`,
+          remediation: 'Find large sorts/hashes; raise TEMP or tune PGA.',
+          value: pct,
+        } satisfies Finding,
+      ];
+    },
+  },
+  {
+    id: 'oracle_hard_parse',
+    title: 'Hard parse ratio',
+    description: 'Hard parses vs total parses',
+    sql: () => `
+      select
+        (select value from v$sysstat where name = 'parse count (hard)') as hard,
+        (select value from v$sysstat where name = 'parse count (total)') as total
+      from dual`,
+    evaluate: (rows) => {
+      const hard = num(rows[0]?.['hard']);
+      const total = num(rows[0]?.['total']);
+      if (total < 1000) return [];
+      const pct = (hard / total) * 100;
+      if (pct < 20) return [];
+      return [
+        {
+          severity: pct >= 40 ? 'warning' : 'info',
+          object: 'parse',
+          message: `Hard parse ratio ${pct.toFixed(0)}%.`,
+          remediation: 'Use bind variables; review shared pool / cursor sharing.',
+          value: pct,
+        } satisfies Finding,
+      ];
+    },
+  },
+  {
+    id: 'oracle_library_cache',
+    title: 'Library cache hit ratio',
+    description: 'v$librarycache pins/pinhits',
+    sql: () => `
+      select sum(pins) as pins, sum(pinhits) as hits
+        from v$librarycache`,
+    evaluate: (rows) => {
+      const pins = num(rows[0]?.['pins']);
+      const hits = num(rows[0]?.['hits']);
+      if (pins < 1000) return [];
+      const pct = (hits / pins) * 100;
+      if (pct >= 95) return [];
+      return [
+        {
+          severity: pct < 90 ? 'warning' : 'info',
+          object: 'library_cache',
+          message: `Library cache hit ${pct.toFixed(1)}%.`,
+          remediation: 'Increase SHARED_POOL_SIZE or reduce hard parses.',
+          value: pct,
         } satisfies Finding,
       ];
     },

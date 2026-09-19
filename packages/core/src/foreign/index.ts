@@ -23,12 +23,18 @@ export {
   sampleMongoTop,
 } from './mongodb-ops';
 export { REDIS_COLLECTORS } from './redis';
-export { sampleRedisSessions, sampleRedisBlocking } from './redis-ops';
+export { sampleRedisSessions, sampleRedisBlocking, sampleRedisSlowlog, sampleRedisCommandstats } from './redis-ops';
 export { ORACLE_COLLECTORS } from './oracle';
 export { sampleOracleSessions, sampleOracleBlocking } from './oracle-ops';
 export { runForeignCollectors } from './types';
 export type { ForeignCaps, ForeignCollector, ForeignRunResult } from './types';
-export { ForeignStatementTracker, sampleForeignStatements, sampleMariadbSlowStatements, digestToQueryid } from './statements';
+export {
+  ForeignStatementTracker,
+  sampleForeignStatements,
+  sampleMariadbSlowStatements,
+  sampleOracleSlowStatements,
+  digestToQueryid,
+} from './statements';
 export {
   MariadbSlowEventTracker,
   sampleMariadbSlowEvents,

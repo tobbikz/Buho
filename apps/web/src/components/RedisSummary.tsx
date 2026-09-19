@@ -31,7 +31,7 @@ export async function RedisSummary({
   bucketSeconds: number;
   windowHint: string;
 }) {
-  const [connections, ops, mem, hit, net, keys] = await Promise.all([
+  const [connections, ops, mem, hit, net, keys, persist, slow] = await Promise.all([
     getSeries(
       instanceId,
       ['connections_total', 'connections_used_pct', 'redis_blocked_clients'],
@@ -63,6 +63,18 @@ export async function RedisSummary({
       windowMinutes,
       bucketSeconds,
     ),
+    getSeries(
+      instanceId,
+      [
+        'redis_rdb_last_bgsave_status',
+        'redis_aof_enabled',
+        'redis_rdb_changes_since_last_save',
+        'redis_connected_slaves',
+      ],
+      windowMinutes,
+      bucketSeconds,
+    ),
+    getSeries(instanceId, ['redis_slowlog_len'], windowMinutes, bucketSeconds),
   ]);
 
   const connPct = ultimo(connections, 'connections_used_pct');
@@ -163,6 +175,24 @@ export async function RedisSummary({
           { metric: 'redis_expired_keys_per_sec', label: 'Expired/s', color: COLOR.muted },
         ]}
       />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <TimeseriesPanel
+          title="Persistence & replicas"
+          hint={windowHint}
+          data={persist}
+          series={[
+            { metric: 'redis_rdb_last_bgsave_status', label: 'RDB ok', color: COLOR.success },
+            { metric: 'redis_aof_enabled', label: 'AOF on', color: COLOR.accent },
+            { metric: 'redis_connected_slaves', label: 'Slaves', color: COLOR.warning },
+          ]}
+        />
+        <TimeseriesPanel
+          title="SLOWLOG length"
+          hint={windowHint}
+          data={slow}
+          series={[{ metric: 'redis_slowlog_len', label: 'Entries', color: COLOR.error }]}
+        />
+      </div>
     </div>
   );
 }
