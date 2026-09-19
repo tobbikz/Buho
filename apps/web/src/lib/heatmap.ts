@@ -158,6 +158,13 @@ export function busiestHour(
  */
 export const HEAT_OPTIONS: HeatOption[] = [
   {
+    key: 'batch',
+    label: 'Batch requests',
+    metrics: ['queries_total_per_sec'],
+    unit: 'rate',
+    hint: 'Batch Requests/sec (SQL Server) or QUESTIONS (MariaDB) / query rate',
+  },
+  {
     key: 'escrituras',
     label: 'Writes',
     metrics: ['db_tup_inserted_per_sec', 'db_tup_updated_per_sec', 'db_tup_deleted_per_sec'],
@@ -177,6 +184,13 @@ export const HEAT_OPTIONS: HeatOption[] = [
     metrics: ['connections_total'],
     unit: 'count',
     hint: 'open sessions, active or not',
+  },
+  {
+    key: 'cpu',
+    label: 'CPU',
+    metrics: ['host_cpu_pct'],
+    unit: 'count',
+    hint: 'host or SQL Server process CPU percent',
   },
   {
     key: 'lecturas',

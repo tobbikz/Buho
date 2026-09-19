@@ -1,0 +1,32 @@
+# Lab Oracle Free (gvenzl) for Búho — Thin-mode compatible.
+# Host: 127.0.0.1:1522 → container 1521. Service FREEPDB1.
+# Image is large (~2GB); first start can take several minutes.
+services:
+  oracle-lab:
+    image: gvenzl/oracle-free:23-slim-faststart
+    container_name: buho-oracle-lab
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1522:1521"
+    environment:
+      ORACLE_PASSWORD: Buho_Oracle_Lab1!
+      APP_USER: buho
+      APP_USER_PASSWORD: Buho_Oracle_Lab1!
+    volumes:
+      - buho_oracle_lab_data:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 40
+      start_period: 120s
+    networks:
+      - default
+
+volumes:
+  buho_oracle_lab_data:
+
+networks:
+  default:
+    name: buho_default
+    external: true

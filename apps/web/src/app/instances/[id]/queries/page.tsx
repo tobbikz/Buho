@@ -9,6 +9,7 @@ import { Topbar } from '@/components/Topbar';
 import { formatNumber } from '@/lib/format';
 import {
   getInstance,
+  getSeries,
   getStatementLoad,
   getStatementSeries,
   getTopStatements,
@@ -106,26 +107,26 @@ function ForeignQueriesNotice({ engine, instanceId }: { engine: string; instance
     <section className="panel" style={{ borderLeft: '3px solid var(--warning)' }}>
       <div className="panel-header">
         <span className="panel-title">
-          {esMaria ? 'performance_schema may be off' : 'no queries recorded yet'}
+          {esMaria ? 'waiting for query samples' : 'no queries recorded yet'}
         </span>
       </div>
       <div className="panel-body text-[12px]">
         {esMaria ? (
           <>
             <p>
-              MariaDB agrupa las consultas por digest en{' '}
-              <span className="font-mono">performance_schema.events_statements_summary_by_digest</span>, y esa vista
-              está vacía si <span className="font-mono">performance_schema</span> está apagado. Es el valor por
-              omisión en varias distribuciones.
+              With <span className="font-mono">performance_schema=ON</span>, Búho reads digests from{' '}
+              <span className="font-mono">events_statements_summary_by_digest</span>. Without it, the collector
+              samples <span className="font-mono">INFORMATION_SCHEMA.PROCESSLIST</span> (lossy for sub-second
+              queries — leave a longer statement running or wait a cycle).
             </p>
             <div className="query-block mt-2">{'[mysqld]\nperformance_schema = ON'}</div>
             <p className="mt-2">
-              Requiere reiniciar el servidor; el costo typical es de un 5 % de CPU. El colector deja escrito el motivo
-              exacto en los{' '}
+              Enabling P_S needs a restart (~5% CPU typical) and unlocks digests, wait instruments, stages, and
+              table I/O. See instance{' '}
               <Link href={`/instances/${instanceId}`} className="text-accent">
-                eventos de la instancia
-              </Link>
-              .
+                events
+              </Link>{' '}
+              for the exact probe limitation.
             </p>
           </>
         ) : (
@@ -197,6 +198,8 @@ export default async function QueriesPage({
   let statements: TopStatement[] = [];
   let load: Awaited<ReturnType<typeof getStatementLoad>> = [];
   let trends: Map<string, StatementPoint[]> = new Map();
+  let slow: TopStatement[] = [];
+  let slowSeries: Awaited<ReturnType<typeof getSeries>> = [];
   let failure: string | null = null;
   try {
     [statements, load] = await Promise.all([
@@ -211,6 +214,23 @@ export default async function QueriesPage({
       window.minutes,
       window.bucketSeconds,
     );
+    if (engine === 'mariadb') {
+      const byMean = await getTopStatements(
+        instanceId,
+        window.minutes,
+        'mean',
+        !showMonitorQueries,
+        40,
+        filtro,
+      );
+      slow = byMean.filter((row) => row.meanMs >= 500).slice(0, 15);
+      slowSeries = await getSeries(
+        instanceId,
+        ['slow_queries_per_sec', 'slow_digest_count'],
+        window.minutes,
+        window.bucketSeconds,
+      );
+    }
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
   }
@@ -328,6 +348,87 @@ export default async function QueriesPage({
               />
             </div>
 
+            {engine === 'mariadb' ? (
+              <>
+                <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+                  <TimeseriesPanel
+                    title="Slow queries /s"
+                    hint={`${window.key} · SLOW_QUERIES counter (long_query_time)`}
+                    data={slowSeries}
+                    unit="rate"
+                    height={160}
+                    series={[
+                      {
+                        metric: 'slow_queries_per_sec',
+                        label: 'Slow queries/s',
+                        color: '#b01818',
+                        filled: true,
+                      },
+                    ]}
+                  />
+                  <TimeseriesPanel
+                    title="Slow digests"
+                    hint="digests with avg ≥ long_query_time (performance_schema)"
+                    data={slowSeries}
+                    unit="count"
+                    height={160}
+                    series={[
+                      {
+                        metric: 'slow_digest_count',
+                        label: 'Slow digests',
+                        color: '#9a4a00',
+                        filled: true,
+                      },
+                    ]}
+                  />
+                </div>
+                <section className="panel">
+                  <div className="panel-header">
+                    <span className="panel-title">Slow queries · mean ≥ 500 ms</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[10px] text-foreground-muted">
+                        {slow.length} in window {window.key}
+                      </span>
+                      <Link
+                        href={`/instances/${instanceId}/slow-queries?w=${window.key}`}
+                        className="tag tag--info"
+                      >
+                        Full Slow queries tab →
+                      </Link>
+                    </div>
+                  </div>
+                  {slow.length === 0 ? (
+                    <div className="panel-body empty text-[12px]">
+                      No digests with mean ≥ 500 ms in this window. Lower{' '}
+                      <span className="font-mono">long_query_time</span> or wait for slower traffic. Without
+                      performance_schema, sort Top queries by Media after PROCESSLIST sampling catches a long
+                      statement.
+                    </div>
+                  ) : (
+                    <StatementsTable
+                      instanceId={instanceId}
+                      explainable={true}
+                      totalExecMs={slow.reduce((sum, row) => sum + row.execMs, 0)}
+                      rows={slow.map((row) => ({
+                        queryid: row.queryid,
+                        query: row.query,
+                        username: row.username,
+                        calls: row.calls,
+                        execMs: row.execMs,
+                        meanMs: row.meanMs,
+                        rows: row.rows,
+                        tempWritten: row.tempWritten,
+                        walBytes: row.walBytes,
+                        hitPct: row.hitPct,
+                        trend: [],
+                        callsTrend: [],
+                      }))}
+                    />
+                  )}
+                </section>
+              </>
+            ) : null}
+
             <section className="panel">
               <div className="panel-header">
                 <span className="panel-title">Top queries</span>
@@ -355,7 +456,7 @@ export default async function QueriesPage({
               </div>
               <StatementsTable
                 instanceId={instanceId}
-                explainable={engine === 'postgres'}
+                explainable={engine === 'postgres' || engine === 'mariadb'}
                 totalExecMs={totalExecMs}
                 rows={statements.map((row) => {
                   const points = trends.get(row.queryid) ?? [];

@@ -51,9 +51,9 @@ export default async function TopologyPage({
     if (!instance) notFound();
 
     weeks = await listTopologyWeeks(instanceId);
-    // Auto-snapshot on every visit was blocking the page for large statement
-    // histories. Only refresh when the user asks (`?snap=1`).
-    if (snap === '1') {
+    // Auto-snapshot when empty so MSSQL/Maria don't land on a blank page after
+    // Flow already has attributed traffic. Manual refresh still via `?snap=1`.
+    if (snap === '1' || weeks.length === 0) {
       await snapshotTopologyWeek(instanceId, engine, 'aplicacion');
       weeks = await listTopologyWeeks(instanceId);
     }
@@ -148,21 +148,57 @@ export default async function TopologyPage({
 
         <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
 
-        {weeks.length === 0 ? (
+        {weeks.length === 0 || current.edges.length === 0 ? (
           <section className="panel">
             <div className="panel-body text-[13px] leading-relaxed text-foreground-secondary">
               <p>
-                No weekly topology snapshot yet. Topology is built from attributed queries in{' '}
+                {weeks.length === 0
+                  ? 'No weekly topology snapshot yet.'
+                  : 'Snapshot exists but has no app ↔ table edges yet.'}{' '}
+                Topology is built from attributed queries in{' '}
                 <Link href={`/instances/${instanceId}/flow`} className="underline">
                   Flow
+                </Link>{' '}
+                /{' '}
+                <Link href={`/instances/${instanceId}/queries`} className="underline">
+                  Queries
                 </Link>
-                . On MariaDB without <code>performance_schema</code>, wait until PROCESSLIST sampling
-                fills the Queries tab, then click <strong>refresh week</strong>.
+                .
+                {engine === 'mssql' ? (
+                  <>
+                    {' '}
+                    For SQL Server, digests need table names in the SQL text (Query Store / statement
+                    capture). HA peers live on{' '}
+                    <Link href={`/instances/${instanceId}/replication`} className="underline">
+                      Replication
+                    </Link>
+                    ; schema FKs on{' '}
+                    <Link href={`/instances/${instanceId}/orm`} className="underline">
+                      ORM
+                    </Link>
+                    .
+                  </>
+                ) : null}
+                {engine === 'mariadb' ? (
+                  <>
+                    {' '}
+                    On MariaDB without <code>performance_schema</code>, wait until PROCESSLIST
+                    sampling fills Queries, then refresh.
+                  </>
+                ) : null}
               </p>
-              <p className="mt-2">
+              <p className="mt-2 flex flex-wrap gap-2">
                 <Link href={href({ snap: '1' })} className="tag tag--info">
                   refresh week
                 </Link>
+                <Link href={`/instances/${instanceId}/flow`} className="tag tag--muted">
+                  open Flow
+                </Link>
+                {engine === 'mssql' ? (
+                  <Link href={`/instances/${instanceId}/replication`} className="tag tag--muted">
+                    Always On / HA →
+                  </Link>
+                ) : null}
               </p>
             </div>
           </section>

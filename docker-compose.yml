@@ -37,6 +37,8 @@ services:
       TZ: ${BUHO_TZ:-UTC}
     volumes:
       - ./config.json:/app/config.json:ro
+      # Lab: read /proc inside Maria containers via docker exec (hostMetrics.source=docker)
+      - /var/run/docker.sock:/var/run/docker.sock
     # Para monitorear instancias que corren en el host.
     extra_hosts:
       - "host.docker.internal:host-gateway"

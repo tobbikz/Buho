@@ -155,6 +155,58 @@ export async function getPosture(): Promise<Posture[]> {
     .sort((a, b) => a.score - b.score || a.alias.localeCompare(b.alias));
 }
 
+/** Score history per instance for sparklines (oldest → newest). */
+export async function getPostureScoreSeries(
+  days = 30,
+): Promise<Record<number, number[]>> {
+  const rows = await query<{ instance_id: string; score: string; captured_at: Date }>(
+    `select instance_id, score::text as score, captured_at
+       from buho.security_posture
+      where captured_at >= now() - ($1 || ' days')::interval
+      order by instance_id, captured_at`,
+    [days],
+  );
+  const out: Record<number, number[]> = {};
+  for (const row of rows) {
+    const id = Number(row.instance_id);
+    const list = out[id] ?? [];
+    list.push(Number(row.score));
+    out[id] = list;
+  }
+  return out;
+}
+
+/** Fleet critical+high findings per calendar day (sum of latest scorecard that day). */
+export async function getSecurityFindingHeat(days = 14): Promise<
+  Array<{ day: string; critical: number; high: number }>
+> {
+  const rows = await query<{ day: Date; critical: string; high: string }>(
+    `with daily as (
+       select date_trunc('day', captured_at) as day,
+              instance_id,
+              critical,
+              high,
+              row_number() over (
+                partition by instance_id, date_trunc('day', captured_at)
+                order by captured_at desc
+              ) as rn
+         from buho.security_posture
+        where captured_at >= now() - ($1 || ' days')::interval
+     )
+     select day, sum(critical)::text as critical, sum(high)::text as high
+       from daily
+      where rn = 1
+      group by 1
+      order by 1`,
+    [days],
+  );
+  return rows.map((row) => ({
+    day: row.day.toISOString().slice(0, 10),
+    critical: Number(row.critical),
+    high: Number(row.high),
+  }));
+}
+
 export async function getPrincipals(): Promise<Principal[]> {
   const rows = await query(
     `select ${INSTANCE_COLUMNS}, s.name, s.host as principal_host, s.kind, s.can_login,

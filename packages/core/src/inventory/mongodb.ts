@@ -75,8 +75,8 @@ export async function collectMongodb(client: EngineClient): Promise<InventorySna
     domain: 'engine',
     level: 'info',
     message:
-      'MongoDB en Búho v0.4: inventario + métricas de serverStatus. ' +
-      'No hay analítica de consultas ni captura de bloqueos todavía.',
+      'MongoDB: serverStatus, dbStats, currentOp (Sessions/Locks), top namespaces. ' +
+      'No SQL query profiler (by design — use currentOp slow ops and Atlas/profiler externally if needed).',
   });
 
   return {

@@ -47,6 +47,10 @@ const connections: ForeignCollector = {
            (select count(*) from sys.dm_exec_sessions
              where is_user_process = 1 and status = 'sleeping')                         as idle,
            (select count(*) from sys.dm_exec_sessions
+             where is_user_process = 1 and status = N'running')                         as running,
+           (select count(*) from sys.dm_exec_sessions
+             where is_user_process = 1 and status = N'runnable')                        as runnable,
+           (select count(*) from sys.dm_exec_sessions
              where is_user_process = 1 and open_transaction_count > 0
                and status = 'sleeping')                                                 as idle_in_transaction,
            (select count(*) from sys.dm_exec_requests where blocking_session_id <> 0)    as blocked,
@@ -78,6 +82,9 @@ const connections: ForeignCollector = {
       { metric: 'connections_total', value: total },
       { metric: 'connections_active', value: num(row['active']) },
       { metric: 'connections_idle', value: num(row['idle']) },
+      { metric: 'sessions_running', value: num(row['running']) },
+      { metric: 'sessions_runnable', value: num(row['runnable']) },
+      { metric: 'sessions_sleeping', value: num(row['idle']) },
       { metric: 'connections_idle_in_transaction', value: num(row['idle_in_transaction']) },
       { metric: 'connections_used_pct', value: (total / max) * 100 },
       { metric: 'oldest_xact_seconds', value: num(row['oldest_xact_seconds']) },
@@ -105,22 +112,31 @@ const waits: ForeignCollector = {
   appliesTo: (caps) => caps.features.seesAllSessions,
   sql: () => `
     select isnull(nullif(r.wait_type, ''), 'CPU') as wait_event,
-           count(*)                               as sesiones
+           count(*)                               as sesiones,
+           sum(cast(r.wait_time as bigint))       as wait_ms
       from sys.dm_exec_requests r
       join sys.dm_exec_sessions s on s.session_id = r.session_id
      where s.is_user_process = 1
      group by isnull(nullif(r.wait_type, ''), 'CPU')`,
-  toSamples: (rows) =>
-    rows.map((row) => {
+  toSamples: (rows) => {
+    const samples: Sample[] = [];
+    for (const row of rows) {
       const evento = str(row['wait_event'], 'CPU');
-      return {
+      const family = waitFamily(evento);
+      const labels = { wait_event_type: family, wait_event: evento };
+      samples.push({
         metric: 'wait_event_sessions',
         value: num(row['sesiones']),
-        // La familia se deriva del prefijo, que es la convención de SQL Server:
-        // PAGEIOLATCH_* es disco, LCK_* es bloqueo, WRITELOG es log.
-        labels: { wait_event_type: waitFamily(evento), wait_event: evento },
-      };
-    }),
+        labels,
+      });
+      samples.push({
+        metric: 'wait_event_ms',
+        value: num(row['wait_ms']),
+        labels,
+      });
+    }
+    return samples;
+  },
 };
 
 /** Familia de una espera de SQL Server a partir de su prefijo. */
@@ -286,7 +302,7 @@ const dml: ForeignCollector = {
  */
 const memory: ForeignCollector = {
   id: 'mssql_memory',
-  tier: 'normal',
+  tier: 'fast',
   description: 'Memoria física de la máquina y consumo del motor',
   sql: () => `
     select m.total_physical_memory_kb     * 1024 as total_bytes,
@@ -317,6 +333,13 @@ const memory: ForeignCollector = {
     if (total > 0) {
       samples.push({ metric: 'host_mem_used_pct', value: ((total - disponible) / total) * 100 });
     }
+    const processBytes = num(row['process_bytes']);
+    if (total > 0 && processBytes > 0) {
+      samples.push({
+        metric: 'mssql_process_memory_pct',
+        value: (processBytes / total) * 100,
+      });
+    }
     return samples;
   },
 };
@@ -337,7 +360,7 @@ const memory: ForeignCollector = {
  */
 const cpu: ForeignCollector = {
   id: 'mssql_cpu',
-  tier: 'normal',
+  tier: 'fast',
   description: 'CPU consumida por el motor',
   sql: () => `
     select process_kernel_time_ms + process_user_time_ms as cpu_ms,
@@ -534,6 +557,111 @@ const alwaysOn: ForeignCollector = {
   },
 };
 
+/**
+ * Worker threads y cola de trabajo por scheduler visible.
+ *
+ * Cuando `work_queue` crece, el pool de workers está saturado aunque haya
+ * CPU idle en el OS — es el equivalente honesto de "threads_running" en Maria.
+ */
+const workers: ForeignCollector = {
+  id: 'mssql_workers',
+  tier: 'fast',
+  description: 'Workers activos, cola y load factor por scheduler',
+  sql: () => `
+    select sum(current_workers_count) as current_workers,
+           sum(active_workers_count)  as active_workers,
+           sum(work_queue_count)      as work_queue,
+           max(load_factor)           as max_load_factor,
+           count(*)                   as online_schedulers
+      from sys.dm_os_schedulers
+     where status = N'VISIBLE ONLINE'`,
+  toSamples: (rows) => {
+    const row = rows[0];
+    if (!row) return [];
+    return [
+      { metric: 'worker_threads_current', value: num(row['current_workers']) },
+      { metric: 'worker_threads_active', value: num(row['active_workers']) },
+      { metric: 'worker_work_queue', value: num(row['work_queue']) },
+      { metric: 'worker_max_load_factor', value: num(row['max_load_factor']) },
+      { metric: 'worker_schedulers_online', value: num(row['online_schedulers']) },
+    ];
+  },
+};
+
+/**
+ * Resource Governor workload groups (lite).
+ *
+ * Sin classifier detail: basta ver qué grupos tienen requests activos o
+ * throttling (reduced memgrant / OOM) para saber si RG está en juego.
+ */
+const resourceGovernor: ForeignCollector = {
+  id: 'mssql_resource_governor',
+  tier: 'normal',
+  description: 'Workload groups + resource pools',
+  // Pools no tienen active/total_request_count (sí workload_groups).
+  // Usamos active_memgrant_count + total_cpu_usage_ms + OOM como proxy de presión.
+  sql: () => `
+    select N'group' as kind, name,
+           active_request_count as active_requests,
+           total_request_count as total_requests,
+           total_cpu_usage_ms as cpu_ms,
+           total_reduced_memgrant_count as reduced_memgrant
+      from sys.dm_resource_governor_workload_groups
+    union all
+    select N'pool' as kind, name,
+           active_memgrant_count as active_requests,
+           cast(0 as bigint) as total_requests,
+           total_cpu_usage_ms as cpu_ms,
+           out_of_memory_count as reduced_memgrant
+      from sys.dm_resource_governor_resource_pools`,
+  toSamples: (rows) => {
+    const samples: Sample[] = [];
+    for (const row of rows) {
+      const kind = str(row['kind'], 'group');
+      if (kind === 'pool') {
+        const labels = { resource_pool: str(row['name'], 'default') };
+        samples.push({
+          metric: 'rg_pool_active_requests',
+          value: num(row['active_requests']),
+          labels,
+        });
+        samples.push({
+          metric: 'rg_pool_cpu_ms',
+          value: num(row['cpu_ms']),
+          counter: true,
+          labels,
+        });
+        continue;
+      }
+      const labels = { workload_group: str(row['name'], 'default') };
+      samples.push({
+        metric: 'rg_active_requests',
+        value: num(row['active_requests']),
+        labels,
+      });
+      samples.push({
+        metric: 'rg_total_requests',
+        value: num(row['total_requests']),
+        counter: true,
+        labels,
+      });
+      samples.push({
+        metric: 'rg_cpu_ms',
+        value: num(row['cpu_ms']),
+        counter: true,
+        labels,
+      });
+      samples.push({
+        metric: 'rg_reduced_memgrant',
+        value: num(row['reduced_memgrant']),
+        counter: true,
+        labels,
+      });
+    }
+    return samples;
+  },
+};
+
 export const MSSQL_COLLECTORS: ForeignCollector[] = [
   availability,
   connections,
@@ -542,8 +670,43 @@ export const MSSQL_COLLECTORS: ForeignCollector[] = [
   dml,
   memory,
   cpu,
+  workers,
+  resourceGovernor,
   fileIo,
   databaseSizes,
   tableSizes,
   alwaysOn,
 ];
+
+/**
+ * Tras el DeltaEngine: convierte `mssql_cpu_ms_per_sec` + núcleos en
+ * `host_cpu_pct`, y el ratio buffer/target en `mssql_server_memory_pct`.
+ *
+ * Sin esto Overview y el pack de alertas de host no ven CPU en SQL Server
+ * (no hay SSH a /proc; el anillo del scheduler en Linux publica idle=0).
+ */
+export function enrichMssqlDerivedSamples(samples: Sample[], rates: Sample[]): Sample[] {
+  const derived: Sample[] = [];
+
+  const cores = samples.find((sample) => sample.metric === 'host_cpu_count')?.value;
+  const cpuMsPerSec = rates.find((sample) => sample.metric === 'mssql_cpu_ms_per_sec')?.value;
+  if (cores !== undefined && cores > 0 && cpuMsPerSec !== undefined) {
+    // 100 % de un núcleo = 1000 ms de CPU por segundo de pared.
+    const pct = (cpuMsPerSec / (cores * 1000)) * 100;
+    derived.push({
+      metric: 'host_cpu_pct',
+      value: Math.min(100, Math.max(0, pct)),
+    });
+  }
+
+  const totalServer = samples.find((sample) => sample.metric === 'total_server_memory_bytes')?.value;
+  const targetServer = samples.find((sample) => sample.metric === 'target_server_memory_bytes')?.value;
+  if (totalServer !== undefined && targetServer !== undefined && targetServer > 0) {
+    derived.push({
+      metric: 'mssql_server_memory_pct',
+      value: Math.min(100, Math.max(0, (totalServer / targetServer) * 100)),
+    });
+  }
+
+  return derived;
+}

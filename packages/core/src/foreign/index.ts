@@ -14,11 +14,35 @@
  */
 export { probeForeign, parseVersion } from './capabilities';
 export { MARIADB_COLLECTORS } from './mariadb';
-export { MSSQL_COLLECTORS } from './mssql';
+export { MSSQL_COLLECTORS, enrichMssqlDerivedSamples } from './mssql';
 export { MONGODB_COLLECTORS } from './mongodb';
+export {
+  sampleMongoSessions,
+  sampleMongoBlocking,
+  sampleMongoCurrentOpMetrics,
+  sampleMongoTop,
+} from './mongodb-ops';
+export { REDIS_COLLECTORS } from './redis';
+export { sampleRedisSessions, sampleRedisBlocking } from './redis-ops';
+export { ORACLE_COLLECTORS } from './oracle';
+export { sampleOracleSessions, sampleOracleBlocking } from './oracle-ops';
 export { runForeignCollectors } from './types';
 export type { ForeignCaps, ForeignCollector, ForeignRunResult } from './types';
-export { ForeignStatementTracker, sampleForeignStatements, digestToQueryid } from './statements';
+export { ForeignStatementTracker, sampleForeignStatements, sampleMariadbSlowStatements, digestToQueryid } from './statements';
+export {
+  MariadbSlowEventTracker,
+  sampleMariadbSlowEvents,
+  sampleMariadbIndexes,
+  runMariadbExplain,
+} from './mariadb-depth';
+export type { StatementSlowEvent } from './mariadb-depth';
+export {
+  ForeignProcedureTracker,
+  sampleForeignProcedures,
+  sampleMssqlCatalog,
+  sampleMariadbCatalog,
+} from './procedures';
+export type { ProcedureDelta, ProcedureSnapshotRow } from './procedures';
 export { sampleForeignBlocking } from './blocking';
 export { sampleForeignSessions, classifyMariaState, classifyMssqlWait } from './sessions';
 export { readForeignLog, inspectForeignLogging } from './logs';
@@ -27,6 +51,8 @@ import type { EngineKind } from '../engine';
 import { MARIADB_COLLECTORS } from './mariadb';
 import { MSSQL_COLLECTORS } from './mssql';
 import { MONGODB_COLLECTORS } from './mongodb';
+import { REDIS_COLLECTORS } from './redis';
+import { ORACLE_COLLECTORS } from './oracle';
 import type { ForeignCaps, ForeignCollector } from './types';
 
 export function foreignCollectorsFor(caps: ForeignCaps, tier?: string): ForeignCollector[] {
@@ -34,6 +60,8 @@ export function foreignCollectorsFor(caps: ForeignCaps, tier?: string): ForeignC
     mariadb: MARIADB_COLLECTORS,
     mssql: MSSQL_COLLECTORS,
     mongodb: MONGODB_COLLECTORS,
+    redis: REDIS_COLLECTORS,
+    oracle: ORACLE_COLLECTORS,
   };
   const lista = caps.engine === 'postgres' ? [] : catalogo[caps.engine];
   return lista.filter(

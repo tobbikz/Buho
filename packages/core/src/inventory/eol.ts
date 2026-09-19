@@ -47,6 +47,18 @@ const EOL: Record<EngineKind, Record<string, string>> = {
     '7': '2026-08-15',
     '8': '2027-10-02',
   },
+  // Redis OSS: roughly aligned with major support windows (community).
+  redis: {
+    '6': '2024-09-30',
+    '7': '2026-07-31',
+    '8': '2027-12-31',
+  },
+  // Oracle Database: Premier Support end (approximate major releases).
+  oracle: {
+    '19': '2029-12-31',
+    '21': '2027-04-30',
+    '23': '2032-12-31',
+  },
 };
 
 const PRODUCT_NAME: Record<string, string> = {

@@ -106,42 +106,108 @@ export default async function CapacityPage({ params }: { params: Promise<{ id: s
           ))}
         </div>
 
-        <div className="flex flex-col gap-[0.875rem]">
-          {visible.map((f) => (
-            <section key={f.resource} className="panel" style={{ borderLeft: `3px solid ${
-              f.tone === 'error' ? 'var(--error)' : f.tone === 'warn' ? 'var(--warning)' : f.tone === 'ok' ? 'var(--success)' : 'var(--border)'
-            }` }}>
-              <div className="panel-header">
-                <span className="panel-title">{f.label}</span>
-                <span className="font-mono text-[10px] text-foreground-muted">
-                  R²={f.rSquared === null ? '—' : f.rSquared.toFixed(2)} · threshold{' '}
-                  {f.unit === 'bytes' ? formatBytes(f.threshold) : formatPct(f.threshold, 0)}
-                </span>
-              </div>
-              <div className="panel-body text-[13px] leading-relaxed text-foreground-secondary">
-                {f.summary}
-              </div>
-              {f.history.length > 0 ? (
-                <TimeseriesPanel
-                  title=""
-                  data={f.history.map((p) => ({
-                    bucket: p.bucket,
-                    [f.resource]: p.value,
-                  }))}
-                  unit={f.unit === 'bytes' ? 'bytes' : 'pct'}
-                  height={140}
-                  series={[
-                    {
-                      metric: f.resource,
-                      label: f.label,
-                      color: '#1f5f8b',
-                    },
-                  ]}
-                />
-              ) : null}
-            </section>
-          ))}
+        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+          {visible
+            .filter((f) => f.resource !== 'disco')
+            .map((f) => (
+              <section
+                key={f.resource}
+                className="panel"
+                style={{
+                  borderLeft: `3px solid ${
+                    f.tone === 'error'
+                      ? 'var(--error)'
+                      : f.tone === 'warn'
+                        ? 'var(--warning)'
+                        : f.tone === 'ok'
+                          ? 'var(--success)'
+                          : 'var(--border)'
+                  }`,
+                }}
+              >
+                <div className="panel-header">
+                  <span className="panel-title">{f.label}</span>
+                  <span className="font-mono text-[10px] text-foreground-muted">
+                    R²={f.rSquared === null ? '—' : f.rSquared.toFixed(2)} · threshold{' '}
+                    {f.unit === 'bytes' ? formatBytes(f.threshold) : formatPct(f.threshold, 0)}
+                  </span>
+                </div>
+                <div className="panel-body text-[13px] leading-relaxed text-foreground-secondary">
+                  {f.summary}
+                </div>
+                {f.history.length > 0 ? (
+                  <TimeseriesPanel
+                    title=""
+                    data={f.history.map((p) => ({
+                      bucket: p.bucket,
+                      [f.resource]: p.value,
+                    }))}
+                    unit={f.unit === 'bytes' ? 'bytes' : 'pct'}
+                    height={150}
+                    series={[
+                      {
+                        metric: f.resource,
+                        label: f.label,
+                        color: '#1f5f8b',
+                        filled: true,
+                      },
+                    ]}
+                  />
+                ) : null}
+              </section>
+            ))}
         </div>
+
+        {visible
+          .filter((f) => f.resource === 'disco')
+          .map((f) => (
+            <div key={f.resource} className="chart-panel--full mt-[0.875rem]">
+              <section
+                className="panel"
+                style={{
+                  borderLeft: `3px solid ${
+                    f.tone === 'error'
+                      ? 'var(--error)'
+                      : f.tone === 'warn'
+                        ? 'var(--warning)'
+                        : f.tone === 'ok'
+                          ? 'var(--success)'
+                          : 'var(--border)'
+                  }`,
+                }}
+              >
+                <div className="panel-header">
+                  <span className="panel-title">{f.label}</span>
+                  <span className="font-mono text-[10px] text-foreground-muted">
+                    R²={f.rSquared === null ? '—' : f.rSquared.toFixed(2)} · threshold{' '}
+                    {f.unit === 'bytes' ? formatBytes(f.threshold) : formatPct(f.threshold, 0)}
+                  </span>
+                </div>
+                <div className="panel-body text-[13px] leading-relaxed text-foreground-secondary">
+                  {f.summary}
+                </div>
+                {f.history.length > 0 ? (
+                  <TimeseriesPanel
+                    title=""
+                    data={f.history.map((p) => ({
+                      bucket: p.bucket,
+                      [f.resource]: p.value,
+                    }))}
+                    unit={f.unit === 'bytes' ? 'bytes' : 'pct'}
+                    height={180}
+                    series={[
+                      {
+                        metric: f.resource,
+                        label: f.label,
+                        color: '#1f5f8b',
+                        filled: true,
+                      },
+                    ]}
+                  />
+                ) : null}
+              </section>
+            </div>
+          ))}
       </div>
     </>
   );

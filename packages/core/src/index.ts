@@ -74,12 +74,22 @@ export {
   runForeignCollectors,
   MARIADB_COLLECTORS,
   MSSQL_COLLECTORS,
+  enrichMssqlDerivedSamples,
   ForeignStatementTracker,
   sampleForeignStatements,
+  sampleMariadbSlowStatements,
+  MariadbSlowEventTracker,
+  sampleMariadbSlowEvents,
+  sampleMariadbIndexes,
+  runMariadbExplain,
+  ForeignProcedureTracker,
+  sampleForeignProcedures,
+  sampleMssqlCatalog,
+  sampleMariadbCatalog,
   sampleForeignBlocking,
   sampleForeignSessions,
   readForeignLog,
   inspectForeignLogging,
   digestToQueryid,
 } from './foreign';
-export type { ForeignCaps, ForeignCollector, ForeignRunResult } from './foreign';
+export type { ForeignCaps, ForeignCollector, ForeignRunResult, ProcedureDelta, StatementSlowEvent } from './foreign';

@@ -47,7 +47,7 @@ export default async function OrmPage({
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
 
   const engine = (await getInstanceEngine(instanceId)) ?? 'postgres';
-  if (engine !== 'postgres') notFound();
+  if (engine !== 'postgres' && engine !== 'mssql' && engine !== 'mariadb') notFound();
 
   const weight = (WEIGHTS.find((w) => w.key === peso)?.key ?? 'rows') as FlowWeight;
   const window = WINDOWS.find((w) => w.key === v) ?? WINDOWS[2]!;

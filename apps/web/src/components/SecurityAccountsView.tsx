@@ -9,6 +9,8 @@ const ENGINE_LABEL: Record<string, string> = {
   mariadb: 'MariaDB',
   mssql: 'SQL Server',
   mongodb: 'MongoDB',
+  redis: 'Redis',
+  oracle: 'Oracle',
 };
 
 export interface PrincipalView {
@@ -34,7 +36,7 @@ export interface PrincipalView {
 
 const WEAK_AUTH = new Set(['md5', 'mysql_native_password', 'mysql_old_password', 'no password']);
 
-type KindFilter = 'all' | 'login' | 'role' | 'superuser';
+type KindFilter = 'all' | 'login' | 'role' | 'superuser' | 'disabled' | 'sprawl';
 
 function authTone(method: string | null): string {
   if (!method) return 'tag tag--muted';
@@ -93,6 +95,12 @@ export function SecurityAccountsView({ principals }: { principals: PrincipalView
     return principals.filter((principal) => {
       if (instanceId !== 'all' && principal.instanceId !== instanceId) return false;
       if (kindFilter === 'superuser') return principal.isSuperuser && !principal.disabled;
+      if (kindFilter === 'disabled') return principal.disabled;
+      if (kindFilter === 'sprawl') {
+        const roles = principal.detail.memberOf?.length ?? 0;
+        const grants = principal.detail.grants?.length ?? 0;
+        return roles >= 5 || grants >= 20 || principal.privileges.length >= 8;
+      }
       if (kindFilter === 'login') return accountKind(principal) === 'login';
       if (kindFilter === 'role') {
         const kind = accountKind(principal);
@@ -175,6 +183,8 @@ export function SecurityAccountsView({ principals }: { principals: PrincipalView
             {chip('login', 'Logins')}
             {chip('role', 'Roles & groups')}
             {chip('superuser', 'Superusers')}
+            {chip('disabled', 'Disabled')}
+            {chip('sprawl', 'Role sprawl')}
           </div>
         </div>
 

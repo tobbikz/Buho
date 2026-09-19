@@ -136,6 +136,7 @@ export class Store {
       `select buho.ensure_partitions('metric_samples', $1),
               buho.ensure_partitions('metric_rollup_5m', $1),
               buho.ensure_partitions('statement_stats', $1),
+              buho.ensure_partitions('procedure_stats', $1),
               buho.ensure_partitions('log_events', $1)`,
       [3],
     );
@@ -928,15 +929,209 @@ export class Store {
     return deltas.length;
   }
 
+  async saveProcedureStats(
+    instanceId: number,
+    deltas: {
+      objectId: string;
+      database: string;
+      schema: string;
+      name: string;
+      calls: number;
+      execMs: number;
+      workerMs: number;
+      logicalReads: number;
+      avgDurationSec: number;
+    }[],
+    slow: {
+      objectId: string;
+      database: string;
+      schema: string;
+      name: string;
+      lastElapsedSec: number;
+    }[],
+    at = new Date(),
+  ): Promise<number> {
+    if (deltas.length === 0 && slow.length === 0) return 0;
+
+    if (deltas.length > 0) {
+      await this.pool.query(
+        `insert into buho.procedure_texts
+              (instance_id, object_id, database, schema_name, proc_name, first_seen_at, last_seen_at)
+         select $1, o::bigint, db, sch, nm, $2, $2
+           from unnest($3::text[], $4::text[], $5::text[], $6::text[]) as x(o, db, sch, nm)
+            on conflict (instance_id, object_id) do update
+                   set last_seen_at = excluded.last_seen_at,
+                       database = excluded.database,
+                       schema_name = excluded.schema_name,
+                       proc_name = excluded.proc_name`,
+        [
+          instanceId,
+          at,
+          deltas.map((d) => d.objectId),
+          deltas.map((d) => d.database),
+          deltas.map((d) => d.schema),
+          deltas.map((d) => d.name),
+        ],
+      );
+
+      await this.pool.query(
+        `insert into buho.procedure_stats
+              (instance_id, ts, object_id, database, calls, exec_ms, worker_ms, logical_reads, avg_duration_sec)
+         select $1, $2, o::bigint, db, c, e, w, lr, avgd
+           from unnest($3::text[], $4::text[], $5::double precision[], $6::double precision[],
+                       $7::double precision[], $8::double precision[], $9::double precision[])
+                as x(o, db, c, e, w, lr, avgd)`,
+        [
+          instanceId,
+          at,
+          deltas.map((d) => d.objectId),
+          deltas.map((d) => d.database),
+          deltas.map((d) => d.calls),
+          deltas.map((d) => d.execMs),
+          deltas.map((d) => d.workerMs),
+          deltas.map((d) => d.logicalReads),
+          deltas.map((d) => d.avgDurationSec),
+        ],
+      );
+    }
+
+    if (slow.length > 0) {
+      await this.pool.query(
+        `insert into buho.procedure_slow_events
+              (instance_id, ts, object_id, database, schema_name, proc_name, duration_sec)
+         select $1, $2, o::bigint, db, sch, nm, dur
+           from unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::double precision[])
+                as x(o, db, sch, nm, dur)
+            on conflict do nothing`,
+        [
+          instanceId,
+          at,
+          slow.map((d) => d.objectId),
+          slow.map((d) => d.database),
+          slow.map((d) => d.schema),
+          slow.map((d) => d.name),
+          slow.map((d) => d.lastElapsedSec),
+        ],
+      );
+    }
+
+    return deltas.length;
+  }
+
+  async saveStatementSlowEvents(
+    instanceId: number,
+    events: {
+      queryid: string;
+      database: string | null;
+      username: string | null;
+      query: string;
+      truncated: boolean;
+      durationSec: number;
+      rowsSent: number;
+      rowsExamined: number;
+      source: string;
+    }[],
+    at = new Date(),
+  ): Promise<number> {
+    if (events.length === 0) return 0;
+
+    await this.pool.query(
+      `insert into buho.statement_texts
+            (instance_id, queryid, query, truncated, first_seen_at, last_seen_at)
+       select $1, q::bigint, txt, trunc, $2, $2
+         from unnest($3::text[], $4::text[], $5::boolean[]) as x(q, txt, trunc)
+          on conflict (instance_id, queryid) do update
+                 set last_seen_at = excluded.last_seen_at,
+                     query = case when length(excluded.query) > length(buho.statement_texts.query)
+                                  then excluded.query else buho.statement_texts.query end`,
+      [
+        instanceId,
+        at,
+        events.map((e) => e.queryid),
+        events.map((e) => e.query || '(empty)'),
+        events.map((e) => e.truncated),
+      ],
+    );
+
+    await this.pool.query(
+      `insert into buho.statement_slow_events
+            (instance_id, ts, queryid, database, username, duration_sec, rows_sent, rows_examined, source)
+       select $1, $2, q::bigint, db, usr, dur, rs, re, src
+         from unnest(
+                $3::text[], $4::text[], $5::text[], $6::double precision[],
+                $7::double precision[], $8::double precision[], $9::text[]
+              ) as x(q, db, usr, dur, rs, re, src)
+          on conflict do nothing`,
+      [
+        instanceId,
+        at,
+        events.map((e) => e.queryid),
+        events.map((e) => e.database),
+        events.map((e) => e.username),
+        events.map((e) => e.durationSec),
+        events.map((e) => e.rowsSent),
+        events.map((e) => e.rowsExamined),
+        events.map((e) => e.source),
+      ],
+    );
+
+    return events.length;
+  }
+
+  /** Catálogo de tablas + FKs para ORM en motores sin vacuum_tables. */
+  async saveForeignOrmCatalog(
+    instanceId: number,
+    tables: { schema: string; table: string; liveTuples: number; sizeBytes: number }[],
+    fks: { fromSchema: string; fromTable: string; toSchema: string; toTable: string }[],
+  ): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('delete from buho.vacuum_tables where instance_id = $1', [instanceId]);
+      if (tables.length > 0) {
+        await client.query(
+          `insert into buho.vacuum_tables
+                (instance_id, schema_name, table_name, live_tuples, dead_tuples, size_bytes, heap_bytes, captured_at)
+           select $1, sch, tbl, live, 0, sz, sz, now()
+             from unnest($2::text[], $3::text[], $4::bigint[], $5::bigint[]) as x(sch, tbl, live, sz)`,
+          [
+            instanceId,
+            tables.map((t) => t.schema),
+            tables.map((t) => t.table),
+            tables.map((t) => t.liveTuples),
+            tables.map((t) => t.sizeBytes),
+          ],
+        );
+      }
+      await client.query('delete from buho.table_fks where instance_id = $1', [instanceId]);
+      if (fks.length > 0) {
+        await client.query(
+          `insert into buho.table_fks
+                (instance_id, from_schema, from_table, to_schema, to_table, constraint_name, captured_at)
+           select $1, fs, ft, ts, tt, concat(fs, '.', ft, '→', ts, '.', tt), now()
+             from unnest($2::text[], $3::text[], $4::text[], $5::text[]) as x(fs, ft, ts, tt)
+              on conflict do nothing`,
+          [
+            instanceId,
+            fks.map((f) => f.fromSchema),
+            fks.map((f) => f.fromTable),
+            fks.map((f) => f.toSchema),
+            fks.map((f) => f.toTable),
+          ],
+        );
+      }
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   /**
    * Guarda el estado de vacuum.
    *
-   * Se borra lo que ya no aparece: una tabla que se dejó de reportar es una
-   * tabla que se borró o que salió del top, y dejarla ahí mostraría un
-   * "último autovacuum" congelado en el tiempo como si fuera actual.
-   */
-  /**
-   * Guarda las observaciones de qué aplicación ejecutaba qué consulta.
    *
    * Llega ya agregado por minuto desde el colector, así que aquí sólo se
    * escribe. Se ignoran las combinaciones sin observaciones para no llenar la
@@ -1488,6 +1683,7 @@ export class Store {
         `select buho.prune_partitions('metric_samples', $1)
               + buho.prune_partitions('metric_rollup_5m', $2)
               + buho.prune_partitions('statement_stats', $3)
+              + buho.prune_partitions('procedure_stats', $3)
               + buho.prune_partitions('query_actors', $3)
               + buho.prune_partitions('wait_samples', $3)
               + buho.prune_partitions('session_samples', $1)

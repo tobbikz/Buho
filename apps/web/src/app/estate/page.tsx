@@ -55,6 +55,36 @@ export default async function BackupsPage() {
   );
   const allDbs = new Set(rows.map((row) => `${row.instanceId}/${row.database}`));
 
+  // Timeline buckets for "last successful backup age" (full/diff/log only).
+  const timelineKinds = rows.filter((row) => row.kind !== 'wal_archive');
+  const AGE_BUCKETS = [
+    { key: '6h', label: '≤ 6 h', maxH: 6 },
+    { key: '24h', label: '≤ 24 h', maxH: 24 },
+    { key: '3d', label: '≤ 3 d', maxH: 72 },
+    { key: '7d', label: '≤ 7 d', maxH: 168 },
+    { key: 'old', label: '> 7 d', maxH: Infinity },
+    { key: 'never', label: 'Never', maxH: -1 },
+  ] as const;
+  const ageBuckets = AGE_BUCKETS.map((bucket) => {
+    const count = timelineKinds.filter((row) => {
+      const age = backupAgeHours(row);
+      if (bucket.key === 'never') return age === null;
+      if (age === null) return false;
+      if (bucket.key === '6h') return age <= 6;
+      if (bucket.key === '24h') return age > 6 && age <= 24;
+      if (bucket.key === '3d') return age > 24 && age <= 72;
+      if (bucket.key === '7d') return age > 72 && age <= 168;
+      return age > 168;
+    }).length;
+    return { ...bucket, count };
+  });
+
+  // Heat grid: instance × kind with state color.
+  const heatInstances = [...new Map(timelineKinds.map((r) => [r.instanceId, r])).values()].sort(
+    (a, b) => a.alias.localeCompare(b.alias),
+  );
+  const heatKinds = ['full', 'differential', 'log'] as const;
+
   return (
     <div className="flex flex-col gap-[0.875rem]">
       <div className="stat-grid">
@@ -91,6 +121,106 @@ export default async function BackupsPage() {
       </div>
 
       <NotesPanel notes={notes} />
+
+      <section className="panel">
+        <div className="panel-header">
+          <span className="panel-title">Backup age timeline</span>
+          <span className="font-mono text-[10px] text-foreground-muted">
+            full / differential / log · how old is the last run
+          </span>
+        </div>
+        <div className="panel-body">
+          <div className="flex flex-wrap gap-2">
+            {ageBuckets.map((bucket) => (
+              <div
+                key={bucket.key}
+                className="flex min-w-[5.5rem] flex-col gap-1 rounded border border-[var(--border)] px-3 py-2"
+              >
+                <span className="font-mono text-[10px] text-foreground-muted">{bucket.label}</span>
+                <span
+                  className={`text-[1.25rem] font-semibold tabular-nums ${
+                    bucket.key === 'never' || bucket.key === 'old'
+                      ? 'text-[var(--error)]'
+                      : bucket.key === '7d' || bucket.key === '3d'
+                        ? 'text-[var(--warning)]'
+                        : 'text-[var(--success)]'
+                  }`}
+                >
+                  {bucket.count}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {heatInstances.length > 0 ? (
+        <section className="panel">
+          <div className="panel-header">
+            <span className="panel-title">Backup heat · instance × kind</span>
+            <span className="font-mono text-[10px] text-foreground-muted">
+              OK · overdue · at risk · unknown
+            </span>
+          </div>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Instance</th>
+                  {heatKinds.map((kind) => (
+                    <th key={kind}>{KIND_LABEL[kind] ?? kind}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {heatInstances.map((inst) => (
+                  <tr key={inst.instanceId}>
+                    <td>
+                      <Link
+                        href={`/instances/${inst.instanceId}`}
+                        className="underline decoration-dotted"
+                      >
+                        {inst.alias}
+                      </Link>
+                    </td>
+                    {heatKinds.map((kind) => {
+                      const match = timelineKinds.find(
+                        (r) => r.instanceId === inst.instanceId && r.kind === kind,
+                      );
+                      if (!match) {
+                        return (
+                          <td key={kind}>
+                            <span className="tag tag--muted">—</span>
+                          </td>
+                        );
+                      }
+                      const state = backupState(match);
+                      return (
+                        <td key={kind}>
+                          <span
+                            className={`tag ${
+                              backupStateLabel(match) === 'Archive off'
+                                ? 'tag--muted'
+                                : STATE_TAG[state]
+                            }`}
+                            title={
+                              match.finishedAt
+                                ? `${backupStateLabel(match)} · ${formatAgo(match.finishedAt)}`
+                                : backupStateLabel(match)
+                            }
+                          >
+                            {backupStateLabel(match)}
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       <section className="panel">
         <div className="panel-header">

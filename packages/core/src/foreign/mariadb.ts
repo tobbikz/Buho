@@ -16,6 +16,37 @@ import { num, str } from './types';
  * `wal_bytes` sobre el binlog o `xid_age` sobre nada sería mentir bonito.
  */
 
+/** Compact PROCESSLIST state for charts (full text is unreadable in legends). */
+function shortProcesslistState(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (lower.includes('waiting for master to send')) return 'Replica idle (IO)';
+  if (lower.includes('waiting for more updates') || lower.includes('sent all binlog')) {
+    return lower.includes('master has sent') || lower.includes('dump')
+      ? 'Dump idle'
+      : 'Replica idle (SQL)';
+  }
+  if (lower.includes('metadata lock')) return 'Metadata lock';
+  if (lower.includes('row lock')) return 'Row lock';
+  if (lower.includes('table level lock')) return 'Table lock';
+  if (lower.includes('filling schema')) return 'Filling schema';
+  if (lower.includes('sending data')) return 'Sending data';
+  if (lower.includes('copying to tmp')) return 'Tmp table';
+  if (lower.includes('creating sort')) return 'Sort index';
+  if (raw.length <= 36) return raw;
+  return `${raw.slice(0, 33)}…`;
+}
+
+/** `wait/io/file/innodb/innodb_data_file` → `innodb_data_file` */
+function shortPsEventName(raw: string): string {
+  if (raw.includes('::')) {
+    const leaf = raw.split('::').pop() ?? raw;
+    return leaf.length <= 40 ? leaf : `${leaf.slice(0, 37)}…`;
+  }
+  const parts = raw.split('/');
+  const leaf = parts[parts.length - 1] || raw;
+  return leaf.length <= 40 ? leaf : `${leaf.slice(0, 37)}…`;
+}
+
 /** Un contador de global_status por nombre, tal cual lo entrega el motor. */
 function statusMap(rows: Record<string, unknown>[]): Map<string, number> {
   const mapa = new Map<string, number>();
@@ -139,11 +170,13 @@ const throughput: ForeignCollector = {
        'INNODB_LOG_WAITS', 'INNODB_BUFFER_POOL_WAIT_FREE',
        'INNODB_BUFFER_POOL_PAGES_DIRTY', 'INNODB_BUFFER_POOL_PAGES_TOTAL',
        'INNODB_BUFFER_POOL_PAGES_FREE', 'INNODB_BUFFER_POOL_BYTES_DATA',
+       'INNODB_HISTORY_LIST_LENGTH',
+       'MEMORY_USED', 'MEMORY_USED_INITIAL',
        'BINLOG_CACHE_DISK_USE', 'BINLOG_CACHE_USE',
        'OPEN_TABLES', 'TABLE_OPEN_CACHE_OVERFLOWS',
        'KEY_READ_REQUESTS', 'KEY_READS',
        'HANDLER_READ_RND_NEXT', 'HANDLER_READ_KEY',
-       'THREADS_CREATED', 'MAX_USED_CONNECTIONS')`,
+       'THREADS_CREATED', 'THREADS_RUNNING', 'MAX_USED_CONNECTIONS')`,
   toSamples: (rows) => {
     const estado = statusMap(rows);
     const samples: Sample[] = [];
@@ -212,6 +245,31 @@ const throughput: ForeignCollector = {
     samples.push({ metric: 'innodb_row_lock_current_waits', value: estado.get('INNODB_ROW_LOCK_CURRENT_WAITS') ?? 0 });
     samples.push({ metric: 'open_tables', value: estado.get('OPEN_TABLES') ?? 0 });
     samples.push({ metric: 'max_used_connections', value: estado.get('MAX_USED_CONNECTIONS') ?? 0 });
+    samples.push({
+      metric: 'innodb_history_list_length',
+      value: estado.get('INNODB_HISTORY_LIST_LENGTH') ?? 0,
+    });
+    samples.push({ metric: 'threads_running', value: estado.get('THREADS_RUNNING') ?? 0 });
+
+    const memUsed = estado.get('MEMORY_USED');
+    if (memUsed !== undefined) {
+      samples.push({ metric: 'mariadb_memory_used_bytes', value: memUsed });
+      const memInitial = estado.get('MEMORY_USED_INITIAL') ?? 0;
+      if (memInitial > 0) {
+        samples.push({
+          metric: 'mariadb_memory_growth_bytes',
+          value: Math.max(0, memUsed - memInitial),
+        });
+      }
+    }
+    const poolData = estado.get('INNODB_BUFFER_POOL_BYTES_DATA');
+    if (poolData !== undefined) {
+      samples.push({ metric: 'buffer_pool_data_bytes', value: poolData });
+    }
+    const poolDirty = estado.get('INNODB_BUFFER_POOL_BYTES_DIRTY');
+    if (poolDirty !== undefined) {
+      samples.push({ metric: 'buffer_pool_dirty_bytes', value: poolDirty });
+    }
 
     const clave = estado.get('KEY_READ_REQUESTS') ?? 0;
     if (clave > 0) {
@@ -239,18 +297,39 @@ const sessionStates: ForeignCollector = {
   description: 'Sesiones activas agrupadas por lo que están haciendo',
   appliesTo: (caps) => caps.features.seesAllSessions,
   sql: () => `
-    select coalesce(nullif(state, ''), command) as estado, count(*) as sesiones
+    select coalesce(nullif(state, ''), command) as estado,
+           count(*) as sesiones,
+           coalesce(sum(time), 0) * 1000 as wait_ms
       from information_schema.processlist
-     where command not in ('Sleep', 'Daemon', 'Binlog Dump')
+     where command not in (
+             'Sleep', 'Daemon',
+             'Binlog Dump', 'Binlog Dump GTID',
+             'Slave_IO', 'Slave_SQL', 'Slave IO', 'Slave SQL'
+           )
+       -- Idle replica IO/SQL and dump threads accumulate TIME forever and drown Wait time.
+       and coalesce(state, '') not like '%waiting for more updates%'
+       and coalesce(state, '') not like '%Waiting for master to send event%'
+       and coalesce(state, '') not like '%has sent all binlog%'
+       and coalesce(state, '') not like '%Waiting for semi-sync ACK%'
      group by 1`,
-  toSamples: (rows) =>
-    rows.map((row) => ({
-      metric: 'wait_event_sessions',
-      value: num(row['sesiones']),
-      // Se reusa el nombre de PostgreSQL con la etiqueta genérica: la pantalla
-      // de clases de espera funciona igual y dice de dónde salió el dato.
-      labels: { wait_event_type: 'estado', wait_event: str(row['estado'], 'ejecutando') },
-    })),
+  toSamples: (rows) => {
+    const samples: Sample[] = [];
+    for (const row of rows) {
+      const evento = shortProcesslistState(str(row['estado'], 'ejecutando'));
+      const labels = { wait_event_type: 'estado', wait_event: evento };
+      samples.push({
+        metric: 'wait_event_sessions',
+        value: num(row['sesiones']),
+        labels,
+      });
+      samples.push({
+        metric: 'wait_event_ms',
+        value: num(row['wait_ms']),
+        labels,
+      });
+    }
+    return samples;
+  },
 };
 
 const databaseSizes: ForeignCollector = {
@@ -410,12 +489,155 @@ const binlogSize: ForeignCollector = {
   },
 };
 
+/** Sesiones abiertas por usuario (processlist) — complemento a aborted_connects. */
+const connectionsByUser: ForeignCollector = {
+  id: 'mariadb_connections_by_user',
+  tier: 'normal',
+  description: 'Conexiones abiertas agrupadas por usuario',
+  appliesTo: (caps) => caps.features.seesAllSessions,
+  sql: () => `
+    select coalesce(nullif(user, ''), '(unknown)') as usr, count(*) as sesiones
+      from information_schema.processlist
+     group by 1
+     order by 2 desc
+     limit 20`,
+  toSamples: (rows) =>
+    rows.map((row) => ({
+      metric: 'connections_by_user',
+      value: num(row['sesiones']),
+      labels: { user: str(row['usr'], '(unknown)') },
+    })),
+};
+
+/**
+ * Wait instruments from performance_schema (only when P_S is on).
+ *
+ * PROCESSLIST `state` still feeds Overview without P_S. With digests enabled we
+ * also expose instrumented wait time so the same Wait-time chart can show
+ * mutex/IO/socket classes that processlist never names.
+ */
+const psWaitEvents: ForeignCollector = {
+  id: 'mariadb_ps_wait_events',
+  tier: 'fast',
+  description: 'Top wait instruments from performance_schema',
+  appliesTo: (caps) => caps.features.statementDigests,
+  sql: () => `
+    select event_name,
+           count_star,
+           sum_timer_wait / 1e9 as wait_ms
+      from performance_schema.events_waits_summary_global_by_event_name
+     where sum_timer_wait > 0
+       and event_name not like 'idle%'
+       -- Cond/timer noise dominates charts; keep IO / lock / table instruments.
+       and event_name not like 'wait/synch/cond/%'
+       and event_name not like 'wait/synch/mutex/%'
+     order by sum_timer_wait desc
+     limit 15`,
+  toSamples: (rows) => {
+    const samples: Sample[] = [];
+    for (const row of rows) {
+      const event = shortPsEventName(str(row['event_name'], 'unknown'));
+      const labels = { wait_event_type: 'ps', wait_event: event };
+      samples.push({
+        metric: 'ps_wait_ms',
+        value: num(row['wait_ms']),
+        labels,
+        counter: true,
+      });
+      samples.push({
+        metric: 'ps_wait_count',
+        value: num(row['count_star']),
+        labels,
+        counter: true,
+      });
+    }
+    return samples;
+  },
+};
+
+/** Table I/O from P_S — hot tables by fetch/insert/update/delete latency. */
+const psTableIo: ForeignCollector = {
+  id: 'mariadb_ps_table_io',
+  tier: 'normal',
+  description: 'Hot tables by performance_schema table I/O waits',
+  appliesTo: (caps) => caps.features.statementDigests,
+  sql: () => `
+    select object_schema as db,
+           object_name as tabla,
+           count_fetch + count_insert + count_update + count_delete as ops,
+           (sum_timer_fetch + sum_timer_insert + sum_timer_update + sum_timer_delete) / 1e9 as wait_ms
+      from performance_schema.table_io_waits_summary_by_table
+     where object_schema not in ('mysql', 'information_schema', 'performance_schema', 'sys')
+       and (count_fetch + count_insert + count_update + count_delete) > 0
+     order by wait_ms desc
+     limit 20`,
+  toSamples: (rows) => {
+    const samples: Sample[] = [];
+    for (const row of rows) {
+      const labels = { schema: str(row['db']), table: str(row['tabla']) };
+      samples.push({
+        metric: 'ps_table_io_ops',
+        value: num(row['ops']),
+        labels,
+        counter: true,
+      });
+      samples.push({
+        metric: 'ps_table_io_ms',
+        value: num(row['wait_ms']),
+        labels,
+        counter: true,
+      });
+    }
+    return samples;
+  },
+};
+
+/** Statement stages (Sending data, Creating tmp, …) when P_S consumers are on. */
+const psStages: ForeignCollector = {
+  id: 'mariadb_ps_stages',
+  tier: 'normal',
+  description: 'Statement stages from performance_schema',
+  appliesTo: (caps) => caps.features.statementDigests,
+  sql: () => `
+    select event_name,
+           count_star,
+           sum_timer_wait / 1e9 as wait_ms
+      from performance_schema.events_stages_summary_global_by_event_name
+     where sum_timer_wait > 0
+     order by sum_timer_wait desc
+     limit 20`,
+  toSamples: (rows) => {
+    const samples: Sample[] = [];
+    for (const row of rows) {
+      const event = str(row['event_name'], 'unknown').replace(/^stage\//, '');
+      const labels = { stage: event };
+      samples.push({
+        metric: 'ps_stage_ms',
+        value: num(row['wait_ms']),
+        labels,
+        counter: true,
+      });
+      samples.push({
+        metric: 'ps_stage_count',
+        value: num(row['count_star']),
+        labels,
+        counter: true,
+      });
+    }
+    return samples;
+  },
+};
+
 export const MARIADB_COLLECTORS: ForeignCollector[] = [
   availability,
   connections,
   lockWaits,
   throughput,
   sessionStates,
+  connectionsByUser,
+  psWaitEvents,
+  psTableIo,
+  psStages,
   databaseSizes,
   tableSizes,
   replicaStatus,

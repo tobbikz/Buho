@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { TimeseriesPanel } from '@/components/TimeseriesPanel';
 import { formatBytes, formatPct } from '@/lib/format';
 
@@ -14,6 +14,8 @@ const ENGINE_LABEL: Record<string, string> = {
   mariadb: 'MariaDB',
   mssql: 'SQL Server',
   mongodb: 'MongoDB',
+  redis: 'Redis',
+  oracle: 'Oracle',
 };
 
 function formatDays(days: number | null): string {
@@ -124,6 +126,7 @@ export function EstateDiskViews({
   tablespaces,
 }: EstateDiskViewsProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const raw = searchParams.get('tab');
   const tab: EstateDiskTab = TABS.some((entry) => entry.id === raw) ? (raw as EstateDiskTab) : 'overview';
@@ -133,7 +136,7 @@ export function EstateDiskViews({
     if (next === 'overview') params.delete('tab');
     else params.set('tab', next);
     const query = params.toString();
-    router.replace(query ? `?${query}` : '/estate/disk', { scroll: false });
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }
 
   return (

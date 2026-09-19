@@ -11,6 +11,8 @@ const ENGINE_OPTIONS = [
   { value: 'mariadb', label: 'MariaDB / MySQL' },
   { value: 'mssql', label: 'SQL Server' },
   { value: 'mongodb', label: 'MongoDB' },
+  { value: 'redis', label: 'Redis' },
+  { value: 'oracle', label: 'Oracle' },
 ] as const;
 
 const HOST_SOURCE_OPTIONS = [

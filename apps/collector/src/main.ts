@@ -39,6 +39,7 @@ import {
   ActorAccumulator,
   sampleSessions,
   summarizeSessions,
+  enrichMssqlDerivedSamples,
   readLog,
   sampleVacuum,
   vacuumSamples,
@@ -53,6 +54,15 @@ import {
   runForeignCollectors,
   ForeignStatementTracker,
   sampleForeignStatements,
+  MariadbSlowEventTracker,
+  sampleMariadbSlowEvents,
+  sampleMariadbSlowStatements,
+  sampleMariadbIndexes,
+  runMariadbExplain,
+  ForeignProcedureTracker,
+  sampleForeignProcedures,
+  sampleMssqlCatalog,
+  sampleMariadbCatalog,
   sampleForeignBlocking,
   sampleForeignSessions,
   tagged,
@@ -468,6 +478,10 @@ function startLogLoop(instance: InstanceConfig, instanceId: number, pool: Pool):
  * volumen de consultas es el mismo, y una sesión por instancia es más fácil de
  * justificar ante el DBA del cliente que un pool que abre y cierra.
  */
+function isDocumentEngine(engine: string): boolean {
+  return engine === 'mongodb' || engine === 'redis';
+}
+
 async function monitorForeign(instance: InstanceConfig): Promise<void> {
   const engine = engineOf(instance);
   const instanceId = await store.upsertInstance(instance);
@@ -497,7 +511,13 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
 
       const result = await runForeignCollectors(client, caps, collectors);
       const { rates, discarded } = deltas.rates(key, result.samples);
-      const written = await store.insertSamples(instanceId, [...result.samples, ...rates]);
+      const derived =
+        caps.engine === 'mssql' ? enrichMssqlDerivedSamples(result.samples, rates) : [];
+      const written = await store.insertSamples(instanceId, [
+        ...result.samples,
+        ...rates,
+        ...derived,
+      ]);
 
       for (const error of result.errors) {
         log('warn', `${instance.alias}/${tier}: colector ${error.collectorId}: ${error.message}`);
@@ -511,46 +531,45 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
   }
 
   startInventoryLoop(instance, instanceId);
-  if (engine !== 'mongodb') {
+  if (!isDocumentEngine(engine)) {
     startSecurityLoop(instance, instanceId);
   }
 
-  // MongoDB v0.4: métricas + inventario. Sin bloqueos/sesiones/log SQL todavía.
-  if (engine !== 'mongodb') {
-    startLoop(`${instance.alias}/locks`, LOCKS_INTERVAL_MS, async () => {
-      const blocked = await sampleForeignBlocking(client, caps);
-      if (blocked.length === 0) return;
-      await store.saveLockEpisodes(instanceId, blocked);
-      const worst = blocked[0];
+  // Locks + sessions: Maria/MSSQL via SQL DMVs; Mongo via currentOp.
+  startLoop(`${instance.alias}/locks`, LOCKS_INTERVAL_MS, async () => {
+    const blocked = await sampleForeignBlocking(client, caps);
+    if (blocked.length === 0) return;
+    await store.saveLockEpisodes(instanceId, blocked);
+    const worst = blocked[0];
+    log(
+      'info',
+      `${instance.alias}/locks: ${blocked.length} sesión(es) bloqueada(s)` +
+        `${worst ? `, la peor ${worst.waitSeconds.toFixed(1)} s` : ''}`,
+    );
+  });
+
+  startLoop(`${instance.alias}/sesiones`, SESSION_INTERVAL_MS, async () => {
+    const foto = summarizeSessions(await sampleForeignSessions(client, caps));
+    const escritas = await store.saveSessionSnapshot(instanceId, {
+      at: foto.at,
+      waits: foto.waits,
+      detail: foto.detail,
+    });
+    if (escritas === 0) return;
+    if (foto.blockedSessions > 0 || (foto.longestQueryMs ?? 0) > 30_000) {
       log(
         'info',
-        `${instance.alias}/locks: ${blocked.length} sesión(es) bloqueada(s)` +
-          `${worst ? `, la peor ${worst.waitSeconds.toFixed(1)} s` : ''}`,
+        `${instance.alias}/sesiones: ${foto.activeSessions} activa(s), ` +
+          `${foto.blockedSessions} bloqueada(s)` +
+          (foto.longestQueryMs
+            ? `, la más larga ${(foto.longestQueryMs / 1000).toFixed(1)} s`
+            : ''),
       );
-    });
+    }
+  });
 
-    // Misma cadencia que PostgreSQL: el detalle de "qué estaba corriendo" y el
-    // perfil de espera salen de una foto periódica, no de contadores acumulados.
-    startLoop(`${instance.alias}/sesiones`, SESSION_INTERVAL_MS, async () => {
-      const foto = summarizeSessions(await sampleForeignSessions(client, caps));
-      const escritas = await store.saveSessionSnapshot(instanceId, {
-        at: foto.at,
-        waits: foto.waits,
-        detail: foto.detail,
-      });
-      if (escritas === 0) return;
-      if (foto.blockedSessions > 0 || (foto.longestQueryMs ?? 0) > 30_000) {
-        log(
-          'info',
-          `${instance.alias}/sesiones: ${foto.activeSessions} activa(s), ` +
-            `${foto.blockedSessions} bloqueada(s)` +
-            (foto.longestQueryMs
-              ? `, la más larga ${(foto.longestQueryMs / 1000).toFixed(1)} s`
-              : ''),
-        );
-      }
-    });
-
+  // Error log file reader is SQL-engine only (Maria slow_log / MSSQL XE).
+  if (!isDocumentEngine(engine) && engine !== 'oracle') {
     startLoop(`${instance.alias}/logs`, LOG_INTERVAL_MS, async () => {
       const cursor = await store.logCursor(instanceId);
       const result = await readForeignLog(client, caps, cursor);
@@ -569,8 +588,15 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
     });
   }
 
+  // Digests / PROCESSLIST statements — not Mongo (no SQL digests).
+  if (!isDocumentEngine(engine)) {
   const statements = new ForeignStatementTracker();
-  startLoop(`${instance.alias}/statements`, STATEMENTS_INTERVAL_MS, async () => {
+  // PROCESSLIST is lossy for sub-second queries — sample more often when digests are off.
+  const statementsIntervalMs =
+    caps.engine === 'mariadb' && !caps.features.statementDigests
+      ? Math.min(STATEMENTS_INTERVAL_MS, 15_000)
+      : STATEMENTS_INTERVAL_MS;
+  startLoop(`${instance.alias}/statements`, statementsIntervalMs, async () => {
     // Digests preferred; MariaDB without performance_schema uses PROCESSLIST sampling.
     if (!caps.features.statementDigests && caps.engine !== 'mariadb') return;
 
@@ -584,11 +610,106 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
     const written = await store.saveStatements(instanceId, activity);
     const totalMs = activity.reduce((sum, delta) => sum + delta.execMs, 0);
     const mode = caps.features.statementDigests ? 'digests' : 'processlist';
+    const slowDigests = rows.filter((row) => Number(row['avg_ms'] ?? 0) >= 500).length;
+    if (caps.engine === 'mariadb' && caps.features.statementDigests) {
+      await store.insertSamples(instanceId, [
+        { metric: 'slow_digest_count', value: slowDigests },
+      ]);
+    }
     log(
       'info',
-      `${instance.alias}/statements: ${written} consulta(s) con actividad (${mode}), ${totalMs.toFixed(0)} ms de ejecución`,
+      `${instance.alias}/statements: ${written} consulta(s) con actividad (${mode}), ${totalMs.toFixed(0)} ms de ejecución` +
+        (slowDigests > 0 ? `, ${slowDigests} lenta(s) por media` : ''),
     );
   });
+
+  if (caps.engine === 'mariadb') {
+    const slowTracker = new MariadbSlowEventTracker();
+    let slowLogSince = new Date(Date.now() - 5 * 60_000);
+    startLoop(`${instance.alias}/slow-events`, statementsIntervalMs, async () => {
+      const digestRows = caps.features.statementDigests
+        ? await sampleMariadbSlowStatements(client, caps)
+        : [];
+      const events = await sampleMariadbSlowEvents(
+        client,
+        caps,
+        slowTracker,
+        digestRows,
+        slowLogSince,
+      );
+      slowLogSince = new Date();
+      if (events.length === 0) return;
+      const written = await store.saveStatementSlowEvents(instanceId, events);
+      log('info', `${instance.alias}/slow-events: ${written} evento(s) ≥1s`);
+    });
+
+    startLoop(`${instance.alias}/indexes`, 15 * 60_000, async () => {
+      const indexes = await sampleMariadbIndexes(client, caps);
+      await store.saveIndexes(instanceId, indexes);
+      log('info', `${instance.alias}/indexes: ${indexes.indexes.length} índice(s)`);
+    });
+
+    startLoop(`${instance.alias}/planes`, PLAN_QUEUE_INTERVAL_MS, async () => {
+      const job = await store.claimPlanRequest(instanceId);
+      if (!job) return;
+      const started = Date.now();
+      try {
+        const report = await runMariadbExplain(client, job.sql, {
+          analyze: job.mode === 'analyze',
+          timeoutMs: config.collector.statementTimeoutMs * 3,
+        });
+        await store.finishPlanRequest(job.requestId, {
+          plan: report.root,
+          planText: report.text,
+          findings: report.findings,
+          planningMs: report.planningMs,
+          executionMs: report.executionMs,
+          totalCost: report.totalCost,
+        });
+        log(
+          'info',
+          `${instance.alias}/planes: ${job.mode} para ${job.requestedBy} en ${Date.now() - started} ms, ` +
+            `${report.findings.length} hallazgo(s)`,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await store.failPlanRequest(job.requestId, message);
+        log('warn', `${instance.alias}/planes: ${job.mode} falló: ${message}`);
+      }
+    });
+  }
+
+  if (caps.engine === 'mssql') {
+    const procedures = new ForeignProcedureTracker();
+    startLoop(`${instance.alias}/procedures`, STATEMENTS_INTERVAL_MS, async () => {
+      const rows = await sampleForeignProcedures(client, caps);
+      const { deltas, slow, discarded } = procedures.deltas(rows);
+      if (discarded > 0) {
+        log('info', `${instance.alias}/procedures: ${discarded} SP descartado(s) por reset de plan cache`);
+      }
+      const written = await store.saveProcedureStats(instanceId, deltas, slow);
+      log(
+        'info',
+        `${instance.alias}/procedures: snapshot ${rows.length}, deltas ${written}` +
+          (slow.length > 0 ? `, ${slow.length} lento(s)` : ''),
+      );
+    });
+  }
+
+  if (caps.engine === 'mssql' || caps.engine === 'mariadb') {
+    startLoop(`${instance.alias}/orm-catalog`, 15 * 60_000, async () => {
+      const catalog =
+        caps.engine === 'mssql'
+          ? await sampleMssqlCatalog(client)
+          : await sampleMariadbCatalog(client);
+      await store.saveForeignOrmCatalog(instanceId, catalog.tables, catalog.fks);
+      log(
+        'info',
+        `${instance.alias}/orm-catalog: ${catalog.tables.length} tablas, ${catalog.fks.length} FK`,
+      );
+    });
+  }
+  } // end !isDocumentEngine (SQL digests / SP / indexes / ORM)
 
   // Host CPU/RAM via /proc — same as PostgreSQL when declared on the target.
   const hostConfig = instance.hostMetrics;
@@ -603,7 +724,7 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
     });
   }
 
-    startLoop(`${instance.alias}/checks`, CHECKS_INTERVAL_MS, async () => {
+  startLoop(`${instance.alias}/checks`, CHECKS_INTERVAL_MS, async () => {
       const summary = await runForeignChecks(client, caps);
       const customDefs = await store.listAlertDefinitionsFor(instanceId, caps.engine);
       const custom = await runCustomAlerts(customDefs, instanceId, caps.engine, (sql) =>
@@ -643,7 +764,6 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
     if (fresh.versionNum !== caps.versionNum) {
       log('warn', `${instance.alias}: cambió la versión (${caps.versionText} → ${fresh.versionText})`);
       deltas.reset(key);
-      statements.reset();
     }
     if (fresh.features.statementDigests && !caps.features.statementDigests) {
       log('info', `${instance.alias}: la analítica de consultas quedó disponible`);

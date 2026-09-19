@@ -32,33 +32,42 @@ export function InstanceTabs({
           { href: `${base}/sessions`, label: 'Sessions' },
           { href: `${base}/capacity`, label: 'Capacity' },
           { href: `${base}/host`, label: 'Host' },
+          { href: `${base}/backups`, label: 'Backups' },
           { href: `${base}/vacuum`, label: 'Vacuum' },
           { href: `${base}/replication`, label: 'Replication' },
           { href: `${base}/locks`, label: 'Locks', badge: blockedCount },
           { href: `${base}/logs`, label: 'Log' },
         ]
-      : engine === 'mongodb'
+      : engine === 'mongodb' || engine === 'redis'
         ? [
             { href: base, label: 'Overview' },
             { href: `${base}/analysis`, label: 'Analysis' },
+            { href: `${base}/sessions`, label: 'Sessions' },
             { href: `${base}/capacity`, label: 'Capacity' },
+            { href: `${base}/host`, label: 'Host' },
+            { href: `${base}/backups`, label: 'Backups' },
+            { href: `${base}/replication`, label: 'Replication' },
+            { href: `${base}/locks`, label: 'Locks', badge: blockedCount },
             { href: `${base}/inventory`, label: 'Inventory' },
           ]
         : [
           { href: base, label: 'Overview' },
           { href: `${base}/analysis`, label: 'Analysis' },
           { href: `${base}/queries`, label: 'Queries' },
-          // Flujo funciona en los tres motores: la atribución sale del texto de
-          // la consulta, que se recoge igual en todos. Lo que cambia es el panel
-          // de contadores por tabla, que sólo PostgreSQL expone.
+          ...(engine === 'mssql' ? [{ href: `${base}/procedures`, label: 'Procedures' }] : []),
+          ...(engine === 'mariadb'
+            ? [
+                { href: `${base}/slow-queries`, label: 'Slow queries' },
+                { href: `${base}/indexes`, label: 'Indexes' },
+              ]
+            : []),
           { href: `${base}/flow`, label: 'Flow' },
+          { href: `${base}/orm`, label: 'ORM' },
           { href: `${base}/topology`, label: 'Topology' },
-          // Sesiones: en MariaDB sale de PROCESSLIST y en SQL Server de
-          // dm_exec_requests. La taxonomía de esperas se normaliza a las mismas
-          // familias que PostgreSQL para que el gráfico se lea igual.
           { href: `${base}/sessions`, label: 'Sessions' },
           { href: `${base}/capacity`, label: 'Capacity' },
           { href: `${base}/host`, label: 'Host' },
+          { href: `${base}/backups`, label: 'Backups' },
           { href: `${base}/replication`, label: 'Replication' },
           { href: `${base}/locks`, label: 'Locks', badge: blockedCount },
           { href: `${base}/logs`, label: 'Log' },

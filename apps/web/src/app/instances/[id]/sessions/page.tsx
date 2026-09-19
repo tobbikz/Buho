@@ -117,7 +117,11 @@ export default async function SessionsPage({
           </div>
         </header>
 
-        <InstanceTabs instanceId={instanceId} />
+        <InstanceTabs
+          instanceId={instanceId}
+          engine={instancia.engine ?? 'postgres'}
+          blockedCount={instancia.blockedSessions ?? 0}
+        />
 
         <IncidentPanel
           headline={incidente.headline}

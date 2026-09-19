@@ -17,14 +17,18 @@ const run = promisify(execFile);
  *   contenedor con `/proc` del host montado).
  * - `ssh`: se ejecuta un comando de lectura por SSH. Sigue siendo *sin agente*:
  *   no se instala nada en el servidor vigilado, sólo se leen archivos.
+ * - `docker`: `docker exec` into a sibling container (lab / compose). Requires
+ *   the Docker CLI + socket on the collector.
  */
-export type HostSourceKind = 'none' | 'local' | 'ssh';
+export type HostSourceKind = 'none' | 'local' | 'ssh' | 'docker';
 
 export interface HostConfig {
   source?: HostSourceKind;
   /** `usuario@servidor` para SSH. */
   target?: string;
   identityFile?: string;
+  /** Contenedor Docker (nombre o id) cuando `source=docker`. */
+  container?: string;
   /** Directorio a medir con `df`; por defecto el data directory típico. */
   dataDirectory?: string;
 }
@@ -79,6 +83,7 @@ function dataDirectoryOf(config: HostConfig): string {
 }
 
 const SAFE_TARGET = /^[A-Za-z0-9._@-]+$/;
+const SAFE_CONTAINER = /^[A-Za-z0-9._/-]+$/;
 
 export async function readHostSnapshot(config: HostConfig, timeoutMs = 10_000): Promise<HostSnapshot> {
   const body = script(dataDirectoryOf(config));
@@ -101,6 +106,16 @@ export async function readHostSnapshot(config: HostConfig, timeoutMs = 10_000): 
       body,
     ];
     ({ stdout } = await run('ssh', args, { timeout: timeoutMs, maxBuffer: 64 * 1024 }));
+  } else if (config.source === 'docker') {
+    const container = config.container ?? '';
+    if (!SAFE_CONTAINER.test(container)) {
+      throw new Error('host.container must be a Docker name/id (letters, digits, . _ - /).');
+    }
+    ({ stdout } = await run(
+      'docker',
+      ['exec', container, 'sh', '-c', body],
+      { timeout: timeoutMs, maxBuffer: 64 * 1024 },
+    ));
   } else {
     ({ stdout } = await run('sh', ['-c', body], { timeout: timeoutMs, maxBuffer: 64 * 1024 }));
   }

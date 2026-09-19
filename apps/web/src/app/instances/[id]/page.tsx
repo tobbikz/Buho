@@ -6,6 +6,8 @@ import { IncidentPanel } from '@/components/IncidentPanel';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { ForeignSummary } from '@/components/ForeignSummary';
 import { MongoSummary } from '@/components/MongoSummary';
+import { RedisSummary } from '@/components/RedisSummary';
+import { OracleSummary } from '@/components/OracleSummary';
 import { LabeledBars, type BarRow } from '@/components/LabeledBars';
 import { StatCard, toneForMinimum, toneForPct, toneForScore } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
@@ -36,6 +38,7 @@ import {
   getSeriesByLabel,
   seriesSource,
 } from '@/lib/queries';
+import { peakOf, peakOfDerived } from '@/lib/series-peak';
 
 export const dynamic = 'force-dynamic';
 
@@ -105,7 +108,7 @@ export default async function InstancePage({
   // los indicadores que cada motor sí puede contestar. El inventario, que antes
   // era toda su pantalla, ahora es una pestaña más.
   const engine = await getInstanceEngine(instanceId);
-  if (engine === 'mariadb' || engine === 'mssql' || engine === 'mongodb') {
+  if (engine === 'mariadb' || engine === 'mssql' || engine === 'mongodb' || engine === 'redis' || engine === 'oracle') {
     return (
       <>
         <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: instance.alias }]} />
@@ -149,6 +152,20 @@ export default async function InstancePage({
               bucketSeconds={window.bucketSeconds}
               windowHint={windowHint}
             />
+          ) : engine === 'redis' ? (
+            <RedisSummary
+              instanceId={instanceId}
+              windowMinutes={window.minutes}
+              bucketSeconds={window.bucketSeconds}
+              windowHint={windowHint}
+            />
+          ) : engine === 'oracle' ? (
+            <OracleSummary
+              instanceId={instanceId}
+              windowMinutes={window.minutes}
+              bucketSeconds={window.bucketSeconds}
+              windowHint={windowHint}
+            />
           ) : (
             <ForeignSummary
               instanceId={instanceId}
@@ -174,6 +191,8 @@ export default async function InstancePage({
       waitClasses,
       cache,
       io,
+      checkpoints,
+      tempFiles,
       findings,
       waitEvents,
       tables,
@@ -188,7 +207,12 @@ export default async function InstancePage({
     ] = await Promise.all([
         getSeries(
           instanceId,
-          ['connections_total', 'connections_active', 'connections_idle_in_transaction'],
+          [
+            'connections_total',
+            'connections_active',
+            'connections_idle_in_transaction',
+            'connections_used_pct',
+          ],
           window.minutes,
           window.bucketSeconds,
         ),
@@ -223,6 +247,22 @@ export default async function InstancePage({
           window.minutes,
           window.bucketSeconds,
         ),
+        getSeries(
+          instanceId,
+          [
+            'checkpoint_num_timed_per_sec',
+            'checkpoint_num_requested_per_sec',
+            'checkpoint_buffers_written_per_sec',
+          ],
+          window.minutes,
+          window.bucketSeconds,
+        ),
+        getSeries(
+          instanceId,
+          ['db_temp_files_per_sec', 'db_temp_bytes_per_sec'],
+          window.minutes,
+          window.bucketSeconds,
+        ),
         getFindings(instanceId),
         getLabeled(instanceId, 'wait_event_sessions', 10, 5),
         getLabeledPair(instanceId, 'table_total_bytes', 'table_index_bytes', 10, 30),
@@ -254,6 +294,8 @@ export default async function InstancePage({
       waitClasses,
       cache,
       io,
+      checkpoints,
+      tempFiles,
       findings,
       waitEvents,
       tables,
@@ -302,6 +344,25 @@ export default async function InstancePage({
     }
     return null;
   })();
+
+  const peakConnPct = peakOf(data.connections, 'connections_used_pct');
+  const peakCommit = peakOf(data.throughput, 'db_xact_commit_per_sec');
+  const peakDml = peakOfDerived(data.dml, (point) => {
+    if (
+      point['db_tup_inserted_per_sec'] === null &&
+      point['db_tup_updated_per_sec'] === null &&
+      point['db_tup_deleted_per_sec'] === null
+    ) {
+      return null;
+    }
+    return (
+      (point['db_tup_inserted_per_sec'] ?? 0) +
+      (point['db_tup_updated_per_sec'] ?? 0) +
+      (point['db_tup_deleted_per_sec'] ?? 0)
+    );
+  });
+  const peakTempBytes = peakOf(data.tempFiles, 'db_temp_bytes_per_sec');
+  const peakTempFiles = peakOf(data.tempFiles, 'db_temp_files_per_sec');
 
   const waitRows: BarRow[] = data.waitEvents.map((row) => ({
     label: row.labels['wait_event'] ?? '—',
@@ -494,6 +555,43 @@ export default async function InstancePage({
           <StatCard label="Uptime" value={formatDuration(instance.uptimeSeconds)} tone="neutral" />
         </div>
 
+        <div className="stat-grid stat-grid--5">
+          <StatCard
+            label={`Peak conn util (${window.key})`}
+            value={peakConnPct === null ? '—' : formatPct(peakConnPct, 0)}
+            tone={toneForPct(peakConnPct, 70, 90)}
+            hint="max connections_used_pct in window"
+          />
+          <StatCard
+            label={`Peak DML/s (${window.key})`}
+            value={peakDml === null ? '—' : formatCompactNumber(peakDml, 0)}
+            unit={peakDml === null ? undefined : '/s'}
+            tone="accent"
+            hint="max insert+update+delete rate"
+          />
+          <StatCard
+            label={`Peak commits/s (${window.key})`}
+            value={peakCommit === null ? '—' : formatCompactNumber(peakCommit, 1)}
+            unit={peakCommit === null ? undefined : '/s'}
+            tone="accent"
+            hint="max commit rate in window"
+          />
+          <StatCard
+            label={`Peak temp bytes/s (${window.key})`}
+            value={peakTempBytes === null ? '—' : formatBytes(peakTempBytes)}
+            unit={peakTempBytes === null ? undefined : '/s'}
+            tone={peakTempBytes !== null && peakTempBytes > 0 ? 'warn' : 'ok'}
+            hint="spill to disk — short work_mem symptom"
+          />
+          <StatCard
+            label={`Peak temp files/s (${window.key})`}
+            value={peakTempFiles === null ? '—' : formatCompactNumber(peakTempFiles, 2)}
+            unit={peakTempFiles === null ? undefined : '/s'}
+            tone={peakTempFiles !== null && peakTempFiles > 0 ? 'warn' : 'ok'}
+            hint="temp file creation rate"
+          />
+        </div>
+
         <IncidentPanel
           headline={data.incident.headline}
           body={data.incident.body}
@@ -585,11 +683,29 @@ export default async function InstancePage({
             ]}
           />
           <TimeseriesPanel
+            title="Checkpoints"
+            hint={`${windowHint} · timed vs requested`}
+            data={data.checkpoints}
+            unit="rate"
+            series={[
+              { metric: 'checkpoint_num_timed_per_sec', label: 'Timed', color: COLOR.accent },
+              { metric: 'checkpoint_num_requested_per_sec', label: 'Requested', color: COLOR.warning },
+              {
+                metric: 'checkpoint_buffers_written_per_sec',
+                label: 'Buffers written',
+                color: COLOR.muted,
+              },
+            ]}
+          />
+          <TimeseriesPanel
             title="Spill to temporary files"
-            hint="symptom of short work_mem"
-            data={data.io}
+            hint="symptom of short work_mem — bytes and file creation rate"
+            data={data.tempFiles}
             unit="bytes"
-            series={[{ metric: 'db_temp_bytes_per_sec', label: 'Temp bytes/s', color: COLOR.error }]}
+            series={[
+              { metric: 'db_temp_bytes_per_sec', label: 'Temp bytes/s', color: COLOR.error },
+              { metric: 'db_temp_files_per_sec', label: 'Temp files/s', color: COLOR.warning },
+            ]}
           />
         </div>
 

@@ -53,6 +53,16 @@ export default async function ReplicationPage() {
     .filter((row) => row.role === 'slot')
     .reduce((sum, row) => sum + (row.lagBytes ?? 0), 0);
 
+  // Lag heat: peers with measurable lag, sorted worst-first.
+  const lagHeat = withReplicas
+    .filter((row) => row.lagSeconds !== null || (row.lagBytes ?? 0) > 0)
+    .map((row) => ({
+      ...row,
+      score: Math.max(row.lagSeconds ?? 0, (row.lagBytes ?? 0) / (1024 * 1024)),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 24);
+
   const tableRows = rows.map((row) => ({
     instanceId: row.instanceId,
     alias: row.alias,
@@ -92,6 +102,40 @@ export default async function ReplicationPage() {
       </div>
 
       <NotesPanel notes={notes} title="What Búho reads from each engine" />
+
+      {lagHeat.length > 0 ? (
+        <section className="panel">
+          <div className="panel-header">
+            <span className="panel-title">Lag heat · worst peers</span>
+            <span className="font-mono text-[10px] text-foreground-muted">
+              seconds of lag or retained WAL · top {lagHeat.length}
+            </span>
+          </div>
+          <div className="panel-body flex flex-wrap gap-2">
+            {lagHeat.map((row) => {
+              const secs = row.lagSeconds ?? 0;
+              const tone =
+                secs > 300 || (row.lagBytes ?? 0) > 1024 * 1024
+                  ? 'tag--error'
+                  : secs > 30
+                    ? 'tag--warn'
+                    : 'tag--ok';
+              return (
+                <span
+                  key={`${row.instanceId}-${row.peer}-${row.role}`}
+                  className={`tag ${tone}`}
+                  title={`${row.alias} → ${row.peer || row.role}`}
+                >
+                  {row.alias}
+                  {row.peer ? ` → ${row.peer}` : ''}
+                  {secs > 0 ? ` · ${secs.toFixed(0)}s` : ''}
+                  {(row.lagBytes ?? 0) > 0 ? ` · ${formatBytes(row.lagBytes)}` : ''}
+                </span>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <section className="panel">
         <div className="panel-header">

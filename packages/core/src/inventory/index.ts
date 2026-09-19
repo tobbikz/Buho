@@ -2,7 +2,9 @@ import type { EngineClient } from '../engine';
 import { collectMariadb } from './mariadb';
 import { collectMongodb } from './mongodb';
 import { collectMssql } from './mssql';
+import { collectOracle } from './oracle';
 import { collectPostgres } from './postgres';
+import { collectRedis } from './redis';
 import type { InventorySnapshot } from './types';
 
 export * from './types';
@@ -26,5 +28,9 @@ export async function collectInventory(client: EngineClient): Promise<InventoryS
       return collectMssql(client);
     case 'mongodb':
       return collectMongodb(client);
+    case 'redis':
+      return collectRedis(client);
+    case 'oracle':
+      return collectOracle(client);
   }
 }

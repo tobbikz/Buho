@@ -18,13 +18,15 @@ import { tagged } from './tag';
  * ("¿esta versión tiene soporte?", "¿cuándo fue el último backup?") y no de
  * implementación.
  */
-export type EngineKind = 'postgres' | 'mariadb' | 'mssql' | 'mongodb';
+export type EngineKind = 'postgres' | 'mariadb' | 'mssql' | 'mongodb' | 'redis' | 'oracle';
 
 export const ENGINE_LABEL: Record<EngineKind, string> = {
   postgres: 'PostgreSQL',
   mariadb: 'MariaDB',
   mssql: 'SQL Server',
   mongodb: 'MongoDB',
+  redis: 'Redis',
+  oracle: 'Oracle',
 };
 
 export const DEFAULT_PORT: Record<EngineKind, number> = {
@@ -32,6 +34,8 @@ export const DEFAULT_PORT: Record<EngineKind, number> = {
   mariadb: 3306,
   mssql: 1433,
   mongodb: 27017,
+  redis: 6379,
+  oracle: 1521,
 };
 
 /**
@@ -45,7 +49,7 @@ export interface EngineClient {
   kind: EngineKind;
   query(sql: string): Promise<Record<string, unknown>[]>;
   /**
-   * Sólo MongoDB: corre un comando del protocolo (`serverStatus`, `dbStats`).
+   * MongoDB / Redis: protocolo no-SQL (`serverStatus`, INFO, …).
    * Los motores SQL no lo implementan.
    */
   command?(cmd: Record<string, unknown>): Promise<Record<string, unknown>>;
@@ -198,12 +202,53 @@ export async function openEngine(
       appName: appName ?? 'buho',
       directConnection: 'true',
       serverSelectionTimeoutMS: String(connectTimeout),
+      // Root / SCRAM users live in admin; without this, auth uses the path db (tienda) and fails.
+      authSource: 'admin',
     });
     if (instance.ssl) params.set('tls', 'true');
     const uri = `mongodb://${auth}${instance.host}:${instance.port}/${dbName}?${params.toString()}`;
     const client = new MongoClient(uri);
     await client.connect();
     return new MongodbClient(client, dbName);
+  }
+
+  if (kind === 'redis') {
+    const { createClient } = await import('redis');
+    const dbNum = instance.database && /^\d+$/.test(instance.database) ? instance.database : '0';
+    const auth =
+      instance.password
+        ? instance.user
+          ? `${encodeURIComponent(instance.user)}:${encodeURIComponent(instance.password)}@`
+          : `:${encodeURIComponent(instance.password)}@`
+        : '';
+    const protocol = instance.ssl ? 'rediss' : 'redis';
+    const url = `${protocol}://${auth}${instance.host}:${instance.port}/${dbNum}`;
+    const client = createClient({
+      url,
+      socket: { connectTimeout: connectTimeout },
+    });
+    client.on('error', () => {});
+    await client.connect();
+    return new RedisClient(client);
+  }
+
+  if (kind === 'oracle') {
+    // Thin mode (node-oracledb 6+): no Instant Client.
+    // @ts-expect-error oracledb ships JS without types in this monorepo install
+    const oracledbMod = await import('oracledb');
+    const oracledb = oracledbMod.default ?? oracledbMod;
+    const service = instance.database || 'FREEPDB1';
+    const connectString = `${instance.host}:${instance.port}/${service}`;
+    const pool = await oracledb.createPool({
+      user: instance.user,
+      password: instance.password,
+      connectString,
+      poolMin: 0,
+      poolMax: 1,
+      poolIncrement: 1,
+      connectTimeout: Math.ceil(connectTimeout / 1000),
+    });
+    return new OracleClient(pool, statementTimeout, oracledb.OUT_FORMAT_OBJECT);
   }
 
   // `mssql` es CommonJS: bajo import() dinámico sus exportaciones quedan en
@@ -275,5 +320,113 @@ class MongodbClient implements EngineClient {
 
   async close(): Promise<void> {
     await this.client.close();
+  }
+}
+
+class RedisClient implements EngineClient {
+  readonly kind = 'redis' as const;
+
+  constructor(
+    private readonly client: {
+      info: (section?: string) => Promise<string>;
+      sendCommand: (args: string[]) => Promise<unknown>;
+      quit: () => Promise<unknown>;
+      destroy?: () => void;
+    },
+  ) {}
+
+  /** JSON command docs: `{info:"all"|"memory"|…}` or `{clientList:1}`. */
+  async query(sql: string): Promise<Record<string, unknown>[]> {
+    const trimmed = sql.trim();
+    if (!trimmed.startsWith('{')) {
+      throw new Error('Redis no acepta SQL; usar command() o pasar un documento JSON');
+    }
+    const doc = await this.command(JSON.parse(trimmed) as Record<string, unknown>);
+    return [doc];
+  }
+
+  async command(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (cmd['clientList'] != null) {
+      const raw = String(await this.client.sendCommand(['CLIENT', 'LIST']));
+      return { raw };
+    }
+    const section = cmd['info'] != null ? String(cmd['info']) : cmd['section'] != null ? String(cmd['section']) : 'default';
+    const text =
+      section === 'all' || section === '1' || section === 'default'
+        ? await this.client.info()
+        : await this.client.info(section);
+    return parseRedisInfo(text);
+  }
+
+  async close(): Promise<void> {
+    try {
+      await this.client.quit();
+    } catch {
+      this.client.destroy?.();
+    }
+  }
+}
+
+function parseRedisInfo(text: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const line of text.split(/\r?\n/)) {
+    if (!line || line.startsWith('#')) continue;
+    const colon = line.indexOf(':');
+    if (colon <= 0) continue;
+    const key = line.slice(0, colon);
+    const value = line.slice(colon + 1);
+    // Keep dotted versions / statuses as strings (e.g. redis_version=7.2.5).
+    if (/^\d+$/.test(value)) {
+      out[key] = Number(value);
+    } else if (/^\d+\.\d+$/.test(value)) {
+      out[key] = Number(value);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+class OracleClient implements EngineClient {
+  readonly kind = 'oracle' as const;
+
+  constructor(
+    private readonly pool: {
+      getConnection: () => Promise<{
+        execute: (
+          sql: string,
+          binds?: unknown,
+          opts?: Record<string, unknown>,
+        ) => Promise<{ rows?: unknown[]; metaData?: { name: string }[] }>;
+        close: () => Promise<void>;
+        callTimeout?: number;
+      }>;
+      close: (drain?: number) => Promise<void>;
+    },
+    private readonly statementTimeoutMs: number,
+    private readonly outFormatObject: number,
+  ) {}
+
+  async query(sql: string): Promise<Record<string, unknown>[]> {
+    const conn = await this.pool.getConnection();
+    try {
+      conn.callTimeout = this.statementTimeoutMs;
+      const result = await conn.execute(sql, [], {
+        outFormat: this.outFormatObject,
+      });
+      const rows = (result.rows as Record<string, unknown>[] | undefined) ?? [];
+      // Oracle returns uppercase column names; normalize for collectors.
+      return rows.map((row) => {
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(row)) out[k.toLowerCase()] = v;
+        return out;
+      });
+    } finally {
+      await conn.close();
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.pool.close(0);
   }
 }

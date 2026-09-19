@@ -36,6 +36,8 @@ const SAFE_PATH = /^[A-Za-z0-9._/-]+$/;
 
 function defaultDatabase(engine: string): string {
   if (engine === 'mongodb') return 'admin';
+  if (engine === 'oracle') return 'FREEPDB1';
+  if (engine === 'redis') return '0';
   if (engine === 'mssql') return 'master';
   return 'postgres';
 }
@@ -198,7 +200,7 @@ export function hostMetricsFromForm(form: FormData): Record<string, unknown> {
 export function probeInputFromForm(form: FormData): TargetProbeInput {
   const engine = String(form.get('engine') ?? 'postgres');
   const portField = String(form.get('port') ?? '').trim();
-  const port = portField ? Number(portField) : engine === 'mongodb' ? 27017 : engine === 'mssql' ? 1433 : engine === 'mariadb' ? 3306 : 5432;
+  const port = portField ? Number(portField) : engine === 'mongodb' ? 27017 : engine === 'mssql' ? 1433 : engine === 'mariadb' ? 3306 : engine === 'redis' ? 6379 : engine === 'oracle' ? 1521 : 5432;
 
   return {
     engine,

@@ -1,10 +1,12 @@
 import Link from 'next/link';
+import { AlertDayHeat } from '@/components/AlertDayHeat';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { Topbar } from '@/components/Topbar';
 import { formatAgo } from '@/lib/format';
 import {
   countOpenAlerts,
+  getAlertDayHeatmap,
   listFleetAlerts,
   type FleetAlert,
 } from '@/lib/alerts';
@@ -60,10 +62,12 @@ export default async function AlertsPage({
 
   let alerts: FleetAlert[];
   let counts: Awaited<ReturnType<typeof countOpenAlerts>>;
+  let heatmap: Awaited<ReturnType<typeof getAlertDayHeatmap>>;
   try {
-    [alerts, counts] = await Promise.all([
+    [alerts, counts, heatmap] = await Promise.all([
       listFleetAlerts(showResolved ? ['resolved'] : ['pending', 'firing']),
       countOpenAlerts(),
+      getAlertDayHeatmap(14),
     ]);
   } catch (error) {
     return (
@@ -103,6 +107,18 @@ export default async function AlertsPage({
           <StatCard label="Pending" value={String(counts.pending)} hint="waiting for hysteresis" />
           <StatCard label="Critical open" value={String(counts.critical)} hint="pending + firing" />
         </div>
+
+        <section className="panel">
+          <div className="panel-header">
+            <span className="panel-title">Alert × day</span>
+            <span className="font-mono text-[10px] text-foreground-muted">
+              fire events · last 14 days
+            </span>
+          </div>
+          <div className="panel-body">
+            <AlertDayHeat data={heatmap} />
+          </div>
+        </section>
 
         <section className="panel">
           <div className="panel-header">

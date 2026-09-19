@@ -1,5 +1,8 @@
 FROM node:24-alpine
 
+# docker CLI for hostMetrics.source=docker (lab: docker exec into Maria containers)
+RUN apk add --no-cache docker-cli
+
 WORKDIR /app
 
 COPY package.json package-lock.json ./

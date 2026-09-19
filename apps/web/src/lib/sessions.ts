@@ -237,6 +237,57 @@ export async function getInterestingMoments(
   }));
 }
 
+export interface SessionDimCount {
+  label: string;
+  count: number;
+}
+
+/** Connections by user from recent session samples (all engines that sample sessions). */
+export async function getConnectionsByUser(
+  instanceId: number,
+  minutes = 60,
+  limit = 12,
+): Promise<SessionDimCount[]> {
+  const rows = await query<{ username: string; count: string }>(
+    `select coalesce(nullif(username, ''), '(unknown)') as username,
+            count(*)::text as count
+       from buho.session_samples
+      where instance_id = $1
+        and ts >= now() - ($2 || ' minutes')::interval
+      group by 1
+      order by count(*) desc
+      limit $3`,
+    [instanceId, minutes, limit],
+  );
+  return rows.map((row) => ({ label: row.username, count: Number(row.count) }));
+}
+
+/** Wait samples grouped by application (foreign + PG). */
+export async function getWaitsByApplication(
+  instanceId: number,
+  minutes = 60,
+  limit = 12,
+): Promise<Array<SessionDimCount & { waitType: string }>> {
+  const rows = await query<{ application: string; wait_type: string; count: string }>(
+    `select coalesce(nullif(application, ''), '(unknown)') as application,
+            coalesce(nullif(wait_type, ''), '(none)') as wait_type,
+            count(*)::text as count
+       from buho.session_samples
+      where instance_id = $1
+        and ts >= now() - ($2 || ' minutes')::interval
+        and coalesce(wait_type, '') not in ('', 'Activity')
+      group by 1, 2
+      order by count(*) desc
+      limit $3`,
+    [instanceId, minutes, limit],
+  );
+  return rows.map((row) => ({
+    label: row.application,
+    waitType: row.wait_type,
+    count: Number(row.count),
+  }));
+}
+
 /** Descripciones cortas: el nombre del evento no le dice nada a nadie sin esto. */
 export const WAIT_TYPE_HELP: Record<string, string> = {
   CPU: 'not waiting: actively computing. If it dominates, the bottleneck is CPU or a missing index.',

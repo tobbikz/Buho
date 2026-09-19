@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { EstateTabs } from '@/components/EstateTabs';
 import { Topbar } from '@/components/Topbar';
 import { ENGINE_LABEL, getEngineCounts } from '@/lib/estate';
@@ -27,7 +28,12 @@ export default async function EstateLayout({ children }: { children: React.React
             <h1 className="page-title">Estate</h1>
             <p className="page-sub">
               Inventario de todo el parque: respaldos, disco, tareas, replicación, configuración, licencias y
-              versiones. Se lee una vez por hora, porque estas cosas cambian de mes en mes.
+              versiones. Se lee una vez por hora, porque estas cosas cambian de mes en mes. HA lag y data
+              growth también viven en{' '}
+              <Link href="/cluster" className="underline decoration-dotted">
+                Cluster
+              </Link>
+              .
             </p>
           </div>
           <div className="flex items-center gap-1">

@@ -70,10 +70,13 @@ async function explain(formData: FormData) {
   // encargo imposible sólo produce un error en pantalla un segundo después.
   const kind = statementKind(sql);
   if (kind === 'utilitaria') {
-    back('PostgreSQL cannot explain utility statements such as ALTER TABLE, VACUUM, or SET.');
+    back('This statement has no query plan (utility / DDL). EXPLAIN does not apply.');
   }
   if (kind === 'escritura' && mode === 'analyze') {
     back('A writing statement is not run with ANALYZE. The estimated plan shows the same structure.');
+  }
+  if (mode === 'generic') {
+    back('Generic plan is PostgreSQL-only. Use the estimated plan for MariaDB.');
   }
 
   const requestId = await requestPlan(instanceId, sql, mode, session.username, queryid);
@@ -124,33 +127,35 @@ export default async function QueryPlanPage({
   }
 
   if (!instance) notFound();
-  if (instance.engine !== 'postgres') redirect(`/instances/${instanceId}`);
+  if (instance.engine !== 'postgres' && instance.engine !== 'mariadb') {
+    redirect(`/instances/${instanceId}`);
+  }
   if (!statement) notFound();
 
   const parameterized = isParameterized(statement.query);
   const waiting = request?.state === 'pendiente' || request?.state === 'corriendo';
   const analyzed = request?.mode === 'analyze';
+  const isMaria = instance.engine === 'mariadb';
 
-  // Qué modos tienen sentido para *esta* sentencia. Un botón que no puede
-  // funcionar es peor que ningún botón: se aprieta, falla, y el error habla de
-  // otra cosa.
-  //
-  // - Texto cortado a 4000 caracteres: no es una sentencia válida.
-  // - Utilitaria (ALTER, VACUUM, SET…): PostgreSQL no la puede explicar.
-  // - Normalizada con $1: sólo el plan genérico, que no necesita valores.
-  // - Escritura: se planifica, pero ejecutarla escribiría.
+  // Qué modos tienen sentido para *esta* sentencia.
+  // MariaDB: estimate + analyze (no GENERIC_PLAN). Digests use ? not $1 — treat
+  // as concrete enough for EXPLAIN when not truncated.
   const kind = statementKind(statement.query);
   const modes: PlanMode[] = statement.truncated
     ? []
     : kind === 'utilitaria'
       ? []
-      : parameterized
-        ? generic
-          ? ['generic']
-          : []
-        : kind === 'lectura'
+      : isMaria
+        ? kind === 'lectura'
           ? ['estimate', 'analyze']
-          : ['estimate'];
+          : ['estimate']
+        : parameterized
+          ? generic
+            ? ['generic']
+            : []
+          : kind === 'lectura'
+            ? ['estimate', 'analyze']
+            : ['estimate'];
 
   return (
     <>

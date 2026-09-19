@@ -1,0 +1,127 @@
+# Lab: 4× MariaDB circular replication (ring) for Búho.
+#
+# Host ports: 3307–3310 → maria-1 … maria-4
+# PS ON: maria-1, maria-2 · PS OFF: maria-3, maria-4
+#
+#   docker compose -f docker-compose.maria-ring.yml up -d
+#   bash scripts/lab-maria-ring-bootstrap.sh
+services:
+  maria-1:
+    image: mariadb:11.4
+    container_name: buho-maria-1
+    environment:
+      MARIADB_ROOT_PASSWORD: Buho_Maria_Root1!
+      MARIADB_DATABASE: tienda
+    ports:
+      - "127.0.0.1:3307:3306"
+    command:
+      - --server-id=1
+      - --log-bin=mariadb-bin
+      - --binlog-format=ROW
+      - --log-slave-updates=ON
+      - --gtid-strict-mode=ON
+      - --gtid-domain-id=1
+      - --gtid-ignore-duplicates=ON
+      - --slave-exec-mode=IDEMPOTENT
+      - --auto-increment-increment=4
+      - --auto-increment-offset=1
+      - --performance_schema=ON
+      - --report-host=maria-1
+      - --report-port=3306
+      - --bind-address=0.0.0.0
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  maria-2:
+    image: mariadb:11.4
+    container_name: buho-maria-2
+    environment:
+      MARIADB_ROOT_PASSWORD: Buho_Maria_Root1!
+      MARIADB_DATABASE: tienda
+    ports:
+      - "127.0.0.1:3308:3306"
+    command:
+      - --server-id=2
+      - --log-bin=mariadb-bin
+      - --binlog-format=ROW
+      - --log-slave-updates=ON
+      - --gtid-strict-mode=ON
+      - --gtid-domain-id=2
+      - --gtid-ignore-duplicates=ON
+      - --slave-exec-mode=IDEMPOTENT
+      - --auto-increment-increment=4
+      - --auto-increment-offset=2
+      - --performance_schema=ON
+      - --report-host=maria-2
+      - --report-port=3306
+      - --bind-address=0.0.0.0
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  maria-3:
+    image: mariadb:11.4
+    container_name: buho-maria-3
+    environment:
+      MARIADB_ROOT_PASSWORD: Buho_Maria_Root1!
+      MARIADB_DATABASE: tienda
+    ports:
+      - "127.0.0.1:3309:3306"
+    command:
+      - --server-id=3
+      - --log-bin=mariadb-bin
+      - --binlog-format=ROW
+      - --log-slave-updates=ON
+      - --gtid-strict-mode=ON
+      - --gtid-domain-id=3
+      - --gtid-ignore-duplicates=ON
+      - --slave-exec-mode=IDEMPOTENT
+      - --auto-increment-increment=4
+      - --auto-increment-offset=3
+      - --performance_schema=OFF
+      - --report-host=maria-3
+      - --report-port=3306
+      - --bind-address=0.0.0.0
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  maria-4:
+    image: mariadb:11.4
+    container_name: buho-maria-4
+    environment:
+      MARIADB_ROOT_PASSWORD: Buho_Maria_Root1!
+      MARIADB_DATABASE: tienda
+    ports:
+      - "127.0.0.1:3310:3306"
+    command:
+      - --server-id=4
+      - --log-bin=mariadb-bin
+      - --binlog-format=ROW
+      - --log-slave-updates=ON
+      - --gtid-strict-mode=ON
+      - --gtid-domain-id=4
+      - --gtid-ignore-duplicates=ON
+      - --slave-exec-mode=IDEMPOTENT
+      - --auto-increment-increment=4
+      - --auto-increment-offset=4
+      - --performance_schema=OFF
+      - --report-host=maria-4
+      - --report-port=3306
+      - --bind-address=0.0.0.0
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped

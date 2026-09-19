@@ -284,9 +284,13 @@ export async function collectMssql(client: EngineClient): Promise<InventorySnaps
       detail: { recovery_model: recovery, state: text(row['state_desc']), backup_count: num(row['backup_count']) },
     });
     const lastDiff = date(row['last_diff']);
-    if (lastDiff) {
-      rows.push({ database: db, kind: 'differential', finishedAt: lastDiff, source: 'msdb', detail: { recovery_model: recovery } });
-    }
+    rows.push({
+      database: db,
+      kind: 'differential',
+      finishedAt: lastDiff,
+      source: 'msdb',
+      detail: { recovery_model: recovery },
+    });
     if (recovery === 'FULL' || recovery === 'BULK_LOGGED') {
       rows.push({ database: db, kind: 'log', finishedAt: lastLog, source: 'msdb', detail: { recovery_model: recovery } });
       if (!lastLog) fullWithoutLog.push(db);
@@ -403,8 +407,7 @@ export async function collectMssql(client: EngineClient): Promise<InventorySnaps
       const replicas = await client.query(
         `select ar.replica_server_name, ar.availability_mode_desc, ar.failover_mode_desc,
                 hars.role_desc, hars.synchronization_health_desc, hars.connected_state_desc,
-                ag.name as group_name,
-                datediff(second, hars.last_connect_date, sysutcdatetime()) as seconds_since_connect
+                ag.name as group_name
            from sys.availability_replicas ar
            join sys.availability_groups ag on ag.group_id = ar.group_id
            left join sys.dm_hadr_availability_replica_states hars on hars.replica_id = ar.replica_id`,

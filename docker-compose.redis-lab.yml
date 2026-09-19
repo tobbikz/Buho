@@ -1,0 +1,27 @@
+# Lab Redis for Búho — single node on buho_default.
+# Host: 127.0.0.1:6380 → container 6379
+services:
+  redis-lab:
+    image: redis:7-alpine
+    container_name: buho-redis-lab
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "Buho_Redis_Lab1!", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - buho_redis_lab_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "Buho_Redis_Lab1!", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - default
+
+volumes:
+  buho_redis_lab_data:
+
+networks:
+  default:
+    name: buho_default
+    external: true

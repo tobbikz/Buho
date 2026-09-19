@@ -1,5 +1,8 @@
 import type { EngineClient } from '../engine';
 import type { SessionSample } from '../sessions';
+import { sampleMongoSessions } from './mongodb-ops';
+import { sampleRedisSessions } from './redis-ops';
+import { sampleOracleSessions } from './oracle-ops';
 import type { ForeignCaps } from './types';
 import { num, str } from './types';
 
@@ -224,6 +227,18 @@ export async function sampleForeignSessions(
         query: queryText,
       };
     });
+  }
+
+  if (caps.engine === 'mongodb') {
+    return sampleMongoSessions(client);
+  }
+
+  if (caps.engine === 'redis') {
+    return sampleRedisSessions(client);
+  }
+
+  if (caps.engine === 'oracle') {
+    return sampleOracleSessions(client);
   }
 
   return [];

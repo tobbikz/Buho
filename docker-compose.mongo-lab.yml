@@ -1,0 +1,30 @@
+# Lab MongoDB for Búho — single node on the buho_default network.
+# Host: 127.0.0.1:27018 → container 27017 (avoids clash with datasync-mongodb-test :27017).
+services:
+  mongo-lab:
+    image: mongo:7
+    container_name: buho-mongo-lab
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27018:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: buho
+      MONGO_INITDB_ROOT_PASSWORD: Buho_Mongo_Lab1!
+      MONGO_INITDB_DATABASE: tienda
+    volumes:
+      - buho_mongo_lab_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "-u", "buho", "-p", "Buho_Mongo_Lab1!", "--authenticationDatabase", "admin", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+    networks:
+      - default
+
+volumes:
+  buho_mongo_lab_data:
+
+networks:
+  default:
+    name: buho_default
+    external: true

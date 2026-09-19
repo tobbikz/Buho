@@ -14,7 +14,7 @@ import {
 import type { ChartPoint } from '@/lib/queries';
 import { formatBytes, formatNumber, formatPct } from '@/lib/format';
 
-export type Unit = 'count' | 'bytes' | 'pct' | 'rate' | 'seconds';
+export type Unit = 'count' | 'bytes' | 'pct' | 'rate' | 'seconds' | 'ms';
 
 export interface SeriesSpec {
   metric: string;
@@ -22,6 +22,8 @@ export interface SeriesSpec {
   color: string;
   /** Línea punteada: la serie "de antes" en comparación de dos momentos. */
   dashed?: boolean;
+  /** Relleno bajo la línea (throughput / wait time). */
+  filled?: boolean;
 }
 
 // Las funciones no cruzan la frontera servidor→cliente, así que el formato se
@@ -37,6 +39,8 @@ function formatValue(value: number | null, unit: Unit): string {
       return `${formatNumber(value, value < 10 ? 2 : 0)}/s`;
     case 'seconds':
       return `${formatNumber(value, value < 10 ? 2 : 0)}s`;
+    case 'ms':
+      return `${formatNumber(value, value < 10 ? 1 : 0)} ms`;
     default: {
       // Los valores chicos (DB time, sessions bloqueadas) se vuelven una
       // columna de "0.0" si se redondea a un decimal fijo.
@@ -166,22 +170,39 @@ export function TimeseriesPanel({
                   isAnimationActive={false}
                 />
               )}
-              {series.map((spec) => (
-                <Line
-                  key={spec.metric}
-                  type="monotone"
-                  name={spec.label}
-                  dataKey={spec.metric}
-                  stroke={spec.color}
-                  strokeWidth={spec.dashed ? 1.25 : 1.5}
-                  strokeDasharray={spec.dashed ? '4 3' : undefined}
-                  strokeOpacity={spec.dashed ? 0.85 : 1}
-                  dot={false}
-                  activeDot={{ r: 2.5 }}
-                  connectNulls
-                  isAnimationActive={false}
-                />
-              ))}
+              {series.map((spec) =>
+                spec.filled ? (
+                  <Area
+                    key={spec.metric}
+                    type="monotone"
+                    name={spec.label}
+                    dataKey={spec.metric}
+                    stroke={spec.color}
+                    strokeWidth={1.5}
+                    fill={spec.color}
+                    fillOpacity={0.18}
+                    dot={false}
+                    activeDot={{ r: 2.5 }}
+                    connectNulls
+                    isAnimationActive={false}
+                  />
+                ) : (
+                  <Line
+                    key={spec.metric}
+                    type="monotone"
+                    name={spec.label}
+                    dataKey={spec.metric}
+                    stroke={spec.color}
+                    strokeWidth={spec.dashed ? 1.25 : 1.5}
+                    strokeDasharray={spec.dashed ? '4 3' : undefined}
+                    strokeOpacity={spec.dashed ? 0.85 : 1}
+                    dot={false}
+                    activeDot={{ r: 2.5 }}
+                    connectNulls
+                    isAnimationActive={false}
+                  />
+                ),
+              )}
             </ComposedChart>
           </ResponsiveContainer>
         </div>

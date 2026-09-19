@@ -654,6 +654,84 @@ export async function deleteAlertChannel(channelId: number): Promise<void> {
   await query(`delete from buho.alert_channels where channel_id = $1`, [channelId]);
 }
 
+export interface AlertDayCell {
+  day: string; // YYYY-MM-DD
+  checkId: string;
+  count: number;
+}
+
+export interface AlertDayHeatmap {
+  days: string[];
+  checks: string[];
+  cells: AlertDayCell[];
+  max: number;
+  totalFires: number;
+}
+
+/** Fire events per check × calendar day (from deliveries, falls back to alerts.fired_at). */
+export async function getAlertDayHeatmap(days = 14): Promise<AlertDayHeatmap> {
+  const fromDeliveries = await query<{ day: Date; check_id: string; count: string }>(
+    `select date_trunc('day', coalesce(d.sent_at, d.created_at)) as day,
+            a.check_id,
+            count(*)::text as count
+       from buho.alert_deliveries d
+       join buho.alerts a using (alert_id)
+      where d.event = 'fired'
+        and coalesce(d.sent_at, d.created_at) >= now() - ($1 || ' days')::interval
+      group by 1, 2
+      order by 1, 3 desc`,
+    [days],
+  );
+
+  let rows = fromDeliveries;
+  if (rows.length === 0) {
+    rows = await query<{ day: Date; check_id: string; count: string }>(
+      `select date_trunc('day', fired_at) as day,
+              check_id,
+              count(*)::text as count
+         from buho.alerts
+        where fired_at is not null
+          and fired_at >= now() - ($1 || ' days')::interval
+        group by 1, 2
+        order by 1, 3 desc`,
+      [days],
+    );
+  }
+
+  const daySet = new Set<string>();
+  const checkCounts = new Map<string, number>();
+  const cells: AlertDayCell[] = [];
+  let max = 0;
+  let totalFires = 0;
+
+  for (const row of rows) {
+    const day = row.day.toISOString().slice(0, 10);
+    const checkId = row.check_id;
+    const count = Number(row.count);
+    daySet.add(day);
+    checkCounts.set(checkId, (checkCounts.get(checkId) ?? 0) + count);
+    cells.push({ day, checkId, count });
+    max = Math.max(max, count);
+    totalFires += count;
+  }
+
+  // Fill calendar continuum even when sparse.
+  const dayList: string[] = [];
+  for (let i = days - 1; i >= 0; i -= 1) {
+    const d = new Date();
+    d.setUTCHours(0, 0, 0, 0);
+    d.setUTCDate(d.getUTCDate() - i);
+    dayList.push(d.toISOString().slice(0, 10));
+  }
+
+  const checks = [...checkCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20)
+    .map(([id]) => id);
+
+  return { days: dayList, checks, cells, max, totalFires };
+}
+
 /** One-shot channel probe (Admin → Alerts / Get started). */
 export async function sendChannelTest(channelId: number): Promise<void> {
   const { Store } = await import('@buho/store');

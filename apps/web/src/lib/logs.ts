@@ -269,3 +269,96 @@ export async function getLogRate(
     cancelled: Number(row.cancelled),
   }));
 }
+
+export interface FleetLogPattern {
+  instanceId: number;
+  alias: string;
+  engine: string;
+  fingerprint: string;
+  kind: LogKind;
+  level: string;
+  times: number;
+  lastAt: Date;
+  sample: string;
+}
+
+export interface FleetLogLevelCount {
+  instanceId: number;
+  alias: string;
+  engine: string;
+  level: string;
+  times: number;
+}
+
+/** Top message fingerprints across the fleet (CRITICAL/ERROR/FATAL style). */
+export async function getFleetLogPatterns(
+  hours = 24,
+  limit = 40,
+): Promise<FleetLogPattern[]> {
+  const rows = await query<{
+    instance_id: string;
+    alias: string;
+    engine: string;
+    fingerprint: string;
+    kind: LogKind;
+    level: string;
+    times: string;
+    last_at: Date;
+    sample: string;
+  }>(
+    `select e.instance_id, i.alias, i.engine, e.fingerprint, e.kind, e.level,
+            count(*)::text as times, max(e.at) as last_at,
+            (array_agg(e.message order by e.at desc))[1] as sample
+       from buho.log_events e
+       join buho.instances i using (instance_id)
+      where e.at >= now() - ($1 || ' hours')::interval
+        and (
+          e.kind in ('fatal', 'error', 'deadlock', 'cancelled')
+          or lower(e.level) in ('fatal', 'panic', 'error', 'critical', 'warning', 'warn')
+        )
+      group by e.instance_id, i.alias, i.engine, e.fingerprint, e.kind, e.level
+      order by count(*) desc, max(e.at) desc
+      limit $2`,
+    [hours, limit],
+  );
+
+  return rows.map((row) => ({
+    instanceId: Number(row.instance_id),
+    alias: row.alias,
+    engine: row.engine,
+    fingerprint: row.fingerprint,
+    kind: row.kind,
+    level: row.level,
+    times: Number(row.times),
+    lastAt: row.last_at,
+    sample: row.sample,
+  }));
+}
+
+/** Counts by instance × log level for the fleet heatmap strip. */
+export async function getFleetLogLevelCounts(hours = 24): Promise<FleetLogLevelCount[]> {
+  const rows = await query<{
+    instance_id: string;
+    alias: string;
+    engine: string;
+    level: string;
+    times: string;
+  }>(
+    `select e.instance_id, i.alias, i.engine, lower(e.level) as level, count(*)::text as times
+       from buho.log_events e
+       join buho.instances i using (instance_id)
+      where e.at >= now() - ($1 || ' hours')::interval
+        and lower(e.level) in ('fatal', 'panic', 'error', 'critical', 'warning', 'warn')
+      group by e.instance_id, i.alias, i.engine, lower(e.level)
+      order by i.alias, times desc`,
+    [hours],
+  );
+
+  return rows.map((row) => ({
+    instanceId: Number(row.instance_id),
+    alias: row.alias,
+    engine: row.engine,
+    level: row.level,
+    times: Number(row.times),
+  }));
+}

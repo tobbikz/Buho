@@ -1,5 +1,8 @@
 import type { EngineClient } from '../engine';
 import type { BlockedSession } from '../blocking';
+import { sampleMongoBlocking } from './mongodb-ops';
+import { sampleRedisBlocking } from './redis-ops';
+import { sampleOracleBlocking } from './oracle-ops';
 import type { ForeignCaps } from './types';
 import { num, str } from './types';
 
@@ -98,6 +101,16 @@ export async function sampleForeignBlocking(
   client: EngineClient,
   caps: ForeignCaps,
 ): Promise<BlockedSession[]> {
+  if (caps.engine === 'mongodb') {
+    return sampleMongoBlocking(client);
+  }
+  if (caps.engine === 'redis') {
+    return sampleRedisBlocking(client);
+  }
+  if (caps.engine === 'oracle') {
+    if (!caps.features.lockWaits) return [];
+    return sampleOracleBlocking(client);
+  }
   if (!caps.features.lockWaits) return [];
 
   const rows = await client.query(caps.engine === 'mariadb' ? MARIADB_SQL : MSSQL_SQL);

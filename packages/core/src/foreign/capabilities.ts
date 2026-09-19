@@ -213,6 +213,8 @@ export async function probeForeign(client: EngineClient): Promise<ForeignCaps> {
   if (client.kind === 'mariadb') return probeMariadb(client);
   if (client.kind === 'mssql') return probeMssql(client);
   if (client.kind === 'mongodb') return probeMongodb(client);
+  if (client.kind === 'redis') return probeRedis(client);
+  if (client.kind === 'oracle') return probeOracle(client);
   throw new Error(`probeForeign no aplica a ${client.kind}`);
 }
 
@@ -234,24 +236,95 @@ async function probeMongodb(client: EngineClient): Promise<ForeignCaps> {
   const isRepl = Boolean(setName);
   const isPrimary = hello['isWritablePrimary'] === true || hello['ismaster'] === true;
 
-  const limitations: string[] = [
-    'MongoDB v0.4: métricas de serverStatus/dbStats. Sin profiler de consultas ni topología de sharding todavía.',
-  ];
+  const limitations: string[] = [];
+  if (!isRepl) {
+    limitations.push('Standalone: no replica set lag. Join a replica set for HA metrics.');
+  }
 
   return {
     engine: 'mongodb',
     versionText,
     versionNum: parseVersion(versionText),
-    flavor: str(build['modules'] ? 'MongoDB' : 'MongoDB', 'MongoDB'),
+    flavor: 'MongoDB',
     startedAt: uptime > 0 ? new Date(Date.now() - uptime * 1000) : null,
     serverName: str(status['host'], 'desconocido'),
     role: isRepl ? (isPrimary ? 'primary' : 'replica') : 'primary',
     features: {
       statementDigests: false,
-      lockWaits: false,
+      // currentOp waitingForLock — not InnoDB-style wait graphs, but enough for Locks tab.
+      lockWaits: true,
       seesAllSessions: true,
       queryStore: false,
       alwaysOn: isRepl,
+      slowLog: false,
+      binlog: false,
+    },
+    limitations,
+  };
+}
+
+async function probeRedis(client: EngineClient): Promise<ForeignCaps> {
+  if (!client.command) throw new Error('cliente Redis sin command()');
+  const info = await client.command({ info: 'all' });
+  const versionText = str(info['redis_version'], 'desconocida');
+  const uptime = num(info['uptime_in_seconds']);
+  const roleRaw = str(info['role'], 'master');
+  const isReplica = roleRaw === 'slave' || roleRaw === 'replica';
+  const slaves = num(info['connected_slaves']);
+  const limitations: string[] = [];
+  if (!isReplica && slaves === 0) {
+    limitations.push('Standalone Redis: no replica lag until a replica attaches.');
+  }
+  return {
+    engine: 'redis',
+    versionText,
+    versionNum: parseVersion(versionText),
+    flavor: str(info['redis_mode'], 'Redis'),
+    startedAt: uptime > 0 ? new Date(Date.now() - uptime * 1000) : null,
+    serverName: str(info['run_id'], 'redis').slice(0, 12),
+    role: isReplica ? 'replica' : 'primary',
+    features: {
+      statementDigests: false,
+      lockWaits: true,
+      seesAllSessions: true,
+      queryStore: false,
+      alwaysOn: isReplica || slaves > 0,
+      slowLog: false,
+      binlog: false,
+    },
+    limitations,
+  };
+}
+
+async function probeOracle(client: EngineClient): Promise<ForeignCaps> {
+  const [row] = await client.query(`
+    select i.version_full as version, i.host_name, i.instance_name,
+           (sysdate - i.startup_time) * 86400 as uptime_seconds,
+           d.database_role, d.open_mode
+      from v$instance i
+      cross join v$database d`);
+  const versionText = str(row?.['version'], 'desconocida');
+  const uptime = num(row?.['uptime_seconds']);
+  const dbRole = str(row?.['database_role'], 'PRIMARY').toUpperCase();
+  const isStandby = dbRole.includes('STANDBY');
+  const limitations: string[] = [];
+  if (!isStandby) {
+    limitations.push('Primary (or no Data Guard): apply lag metrics idle until a standby is configured.');
+  }
+  return {
+    engine: 'oracle',
+    versionText,
+    versionNum: parseVersion(versionText),
+    flavor: 'Oracle Database',
+    startedAt: uptime > 0 ? new Date(Date.now() - uptime * 1000) : null,
+    serverName: str(row?.['instance_name'], str(row?.['host_name'], 'oracle')),
+    role: isStandby ? 'replica' : 'primary',
+    features: {
+      statementDigests: false,
+      lockWaits: true,
+      seesAllSessions: true,
+      queryStore: false,
+      alwaysOn: isStandby,
       slowLog: false,
       binlog: false,
     },

@@ -48,6 +48,7 @@ const UNIT_TITLE: Record<Unit, string> = {
   bytes: 'Bytes',
   rate: 'Per second',
   seconds: 'Duraciones',
+  ms: 'Milliseconds',
   count: 'Conteos',
 };
 

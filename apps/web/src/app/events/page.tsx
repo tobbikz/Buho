@@ -1,5 +1,6 @@
 import { revalidatePath } from 'next/cache';
 import { EventsFeed } from '@/components/EventsFeed';
+import { FleetLogPatterns } from '@/components/FleetLogPatterns';
 import { StoreError } from '@/components/StoreError';
 import { Topbar } from '@/components/Topbar';
 import {
@@ -8,6 +9,7 @@ import {
   getEvents,
   type EventFeedView,
 } from '@/lib/queries';
+import { getFleetLogLevelCounts, getFleetLogPatterns } from '@/lib/logs';
 import { currentSession } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
@@ -38,8 +40,14 @@ export default async function EventsPage({
   const session = await currentSession();
 
   let events;
+  let patterns;
+  let levelCounts;
   try {
-    events = await getEvents(null, view === 'history' ? 250 : 100, view);
+    [events, patterns, levelCounts] = await Promise.all([
+      getEvents(null, view === 'history' ? 250 : 100, view),
+      getFleetLogPatterns(24, 40),
+      getFleetLogLevelCounts(24),
+    ]);
   } catch (error) {
     return (
       <>
@@ -67,6 +75,8 @@ export default async function EventsPage({
             </p>
           </div>
         </header>
+
+        <FleetLogPatterns patterns={patterns} levelCounts={levelCounts} hours={24} />
 
         <section className="panel">
           <EventsFeed

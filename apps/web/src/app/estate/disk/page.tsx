@@ -3,12 +3,14 @@ import { NotesPanel } from '@/components/NotesPanel';
 import { EstateDiskViews } from '@/components/EstateDiskViews';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
+import { TimeseriesPanel } from '@/components/TimeseriesPanel';
 import { formatBytes, formatPct } from '@/lib/format';
 import { formatDays, type CapacityForecast } from '@/lib/capacity';
 import {
   getEstateDiskByInstance,
   getEstateDiskBySchema,
   getEstateDiskByTable,
+  getEstateDiskByEngineSeries,
   getEstateDiskFleetForecast,
   getEstateDiskFleetHistory,
   getEstateDiskInstanceSeries,
@@ -19,6 +21,22 @@ import { getDiskUsage, getNotes, type DiskRow } from '@/lib/estate';
 export const dynamic = 'force-dynamic';
 
 const INSTANCE_COLORS = ['#1f5f8b', '#0a6e42', '#b45309', '#7c3aed', '#be123c'];
+const ENGINE_COLORS: Record<string, string> = {
+  postgres: '#1f5f8b',
+  mariadb: '#0a6e42',
+  mssql: '#b45309',
+  mongodb: '#7c3aed',
+  redis: '#dc382c',
+  oracle: '#f80000',
+};
+const ENGINE_LABEL: Record<string, string> = {
+  postgres: 'PostgreSQL',
+  mariadb: 'MariaDB',
+  mssql: 'SQL Server',
+  mongodb: 'MongoDB',
+  redis: 'Redis',
+  oracle: 'Oracle',
+};
 
 function forecastTone(f: CapacityForecast): 'ok' | 'warn' | 'error' | 'neutral' {
   return f.tone;
@@ -40,8 +58,9 @@ export default async function DiskPage() {
   let fleetHistory;
   let instanceSeries;
   let fleetForecast;
+  let engineSeries;
   try {
-    [rows, notes, byInstance, bySchema, byTable, fleetHistory, instanceSeries, fleetForecast] =
+    [rows, notes, byInstance, bySchema, byTable, fleetHistory, instanceSeries, fleetForecast, engineSeries] =
       await Promise.all([
         getDiskUsage(),
         getNotes('disk'),
@@ -51,6 +70,7 @@ export default async function DiskPage() {
         getEstateDiskFleetHistory(),
         getEstateDiskInstanceSeries(),
         getEstateDiskFleetForecast(),
+        getEstateDiskByEngineSeries(30),
       ]);
   } catch (error) {
     return <StoreError message={error instanceof Error ? error.message : String(error)} />;
@@ -157,6 +177,23 @@ export default async function DiskPage() {
       </div>
 
       <NotesPanel notes={notes} />
+
+      {engineSeries.keys.length > 0 ? (
+        <div className="chart-panel--full">
+          <TimeseriesPanel
+            title="Data size by engine · 30d"
+            hint="daily sum of database_size_bytes · deduped by host/port/database"
+            data={engineSeries.points}
+            unit="bytes"
+            height={220}
+            series={engineSeries.keys.map((engine) => ({
+              metric: engine,
+              label: ENGINE_LABEL[engine] ?? engine,
+              color: ENGINE_COLORS[engine] ?? '#4a525c',
+            }))}
+          />
+        </div>
+      ) : null}
 
       <Suspense fallback={<div className="empty">Loading disk views…</div>}>
         <EstateDiskViews

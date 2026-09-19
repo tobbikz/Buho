@@ -23,6 +23,12 @@ export default async function AccountsPage() {
   const loginCapable = principals.filter((principal) => principal.canLogin);
   const withMembership = principals.filter((principal) => (principal.detail.memberOf?.length ?? 0) > 0);
   const withGrants = principals.filter((principal) => (principal.detail.grants?.length ?? 0) > 0);
+  const disabled = principals.filter((principal) => principal.disabled);
+  const sprawl = principals.filter((principal) => {
+    const roles = principal.detail.memberOf?.length ?? 0;
+    const grants = principal.detail.grants?.length ?? 0;
+    return roles >= 5 || grants >= 20 || principal.privileges.length >= 8;
+  });
 
   return (
     <div className="flex flex-col gap-[0.875rem]">
@@ -44,6 +50,18 @@ export default async function AccountsPage() {
           value={String(anyHost.length)}
           hint="host '%' in MariaDB"
           tone={anyHost.length > 0 ? 'warn' : 'ok'}
+        />
+        <StatCard
+          label="Disabled / inactive"
+          value={String(disabled.length)}
+          hint="account marked disabled"
+          tone={disabled.length > 0 ? 'neutral' : 'ok'}
+        />
+        <StatCard
+          label="Role sprawl"
+          value={String(sprawl.length)}
+          hint="≥5 roles, ≥20 grants, or ≥8 globals"
+          tone={sprawl.length > 0 ? 'warn' : 'ok'}
         />
         <StatCard
           label="Can sign in"

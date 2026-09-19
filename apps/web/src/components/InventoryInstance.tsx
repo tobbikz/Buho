@@ -52,10 +52,12 @@ export function InventoryInstance({
     <div className="flex flex-col gap-[0.875rem]">
       <section className="panel">
         <div className="panel-body text-[12.5px]">
-          <strong>{ENGINE_LABEL[engine] ?? engine} comes in through estate inventory.</strong> Five-second
-          metric series, the 22 checks, and per-query analysis are PostgreSQL: the statistics views of
-          the three engines do not match, and forcing them into one mold would lie about what
-          each one measures. What is unified is inventory, which is what appears below and in{' '}
+          Configuration, disk layout, jobs, licensing and backup catalog for{' '}
+          <strong>{alias}</strong>. Live metrics live in{' '}
+          <Link href={`/instances/${instanceId}`} className="underline decoration-dotted">
+            Overview
+          </Link>
+          ; the fleet-wide backup posture is in{' '}
           <Link href="/estate" className="underline decoration-dotted">
             Estate
           </Link>
@@ -95,8 +97,8 @@ export function InventoryInstance({
         <section className="panel">
           <div className="panel-header">
             <span className="panel-title">Backups</span>
-            <Link href="/estate" className="text-[11px] underline decoration-dotted">
-              see the whole estate
+            <Link href={`/instances/${instanceId}/backups`} className="text-[11px] underline decoration-dotted">
+              open Backups
             </Link>
           </div>
           {inventory.backups.length === 0 ? (

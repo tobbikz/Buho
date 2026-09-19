@@ -287,9 +287,15 @@ export default async function IndexesPage({
           <div>
             <h1 className="page-title">Indexes · {instance.alias}</h1>
             <p className="page-sub">
-              Inventory is what exists on the server (size, scans, overlap). Suggestions come only
-              from <Link href={`/instances/${instanceId}/queries`} className="text-accent">Queries</Link>{' '}
-              with <strong>Executed with ANALYZE</strong> — hypotheses, not DDL Búho will run.
+              {engine === 'mariadb'
+                ? 'Inventory from information_schema.statistics (+ performance_schema index I/O when enabled). Unused needs P_S; suggestions still come from ANALYZE plans.'
+                : (
+                  <>
+                    Inventory is what exists on the server (size, scans, overlap). Suggestions come only
+                    from <Link href={`/instances/${instanceId}/queries`} className="text-accent">Queries</Link>{' '}
+                    with <strong>Executed with ANALYZE</strong> — hypotheses, not DDL Búho will run.
+                  </>
+                )}
             </p>
           </div>
         </header>
@@ -303,16 +309,20 @@ export default async function IndexesPage({
             hint={
               summary.capturedAt
                 ? `total size ${formatBytes(summary.totalBytes)} · ${formatAgo(summary.capturedAt)}`
-                : engine === 'postgres'
+                : engine === 'postgres' || engine === 'mariadb'
                   ? 'inventory not collected yet'
-                  : 'inventory is PostgreSQL-only'
+                  : 'inventory is PostgreSQL / MariaDB'
             }
           />
           <StatCard
             label="Unused"
             value={formatNumber(summary.unused)}
             tone={summary.unused > 0 ? 'warn' : 'ok'}
-            hint="large secondary indexes with zero scans"
+            hint={
+              engine === 'mariadb'
+                ? 'secondary indexes with zero P_S reads (needs performance_schema)'
+                : 'large secondary indexes with zero scans'
+            }
           />
           <StatCard
             label="Redundant"
@@ -334,14 +344,15 @@ export default async function IndexesPage({
           />
         </div>
 
-        {engine !== 'postgres' ? (
+        {engine !== 'postgres' && engine !== 'mariadb' ? (
           <section className="panel">
             <div className="panel-header">
               <span className="panel-title">Index inventory</span>
             </div>
             <div className="panel-body text-[12px]">
-              Full index listing (size, usage, redundancy) is implemented for PostgreSQL. Plan-based
-              suggestions below still apply if you have requested ANALYZE plans for this instance.
+              Full index listing (size, usage, redundancy) is implemented for PostgreSQL and MariaDB.
+              Plan-based suggestions below still apply if you have requested ANALYZE plans for this
+              instance.
             </div>
           </section>
         ) : summary.total === 0 ? (
@@ -350,8 +361,9 @@ export default async function IndexesPage({
               <span className="panel-title">Index inventory</span>
             </div>
             <div className="panel-body text-[12px]">
-              No index snapshot yet. The collector refreshes inventory on the same cycle as vacuum
-              (~5 minutes). If this stays empty, restart the collector after migrating the store.
+              {engine === 'mariadb'
+                ? 'No index snapshot yet. The collector refreshes MariaDB indexes every ~15 minutes.'
+                : 'No index snapshot yet. The collector refreshes inventory on the same cycle as vacuum (~5 minutes). If this stays empty, restart the collector after migrating the store.'}
             </div>
           </section>
         ) : (
@@ -683,33 +695,28 @@ export default async function IndexesPage({
             </div>
             {findings.length > 0 ? (
               <div>
-                {findings.map((finding) => (
+                {findings.map((finding) => {
+                  const isUnused = finding.checkId.includes('unused');
+                  return (
                   <article
                     key={`${finding.checkId}-${finding.object}`}
-                    className={`finding finding--${
-                      finding.checkId === 'unused_indexes' ? 'warning' : 'info'
-                    }`}
+                    className={`finding finding--${isUnused ? 'warning' : 'info'}`}
                   >
                     <div>
-                      <span
-                        className={`tag ${
-                          finding.checkId === 'unused_indexes' ? 'tag--warn' : 'tag--info'
-                        }`}
-                      >
-                        {finding.checkId === 'unused_indexes' ? 'Unused' : 'Redundant'}
+                      <span className={`tag ${isUnused ? 'tag--warn' : 'tag--info'}`}>
+                        {isUnused ? 'Unused' : 'Redundant'}
                       </span>
                     </div>
                     <div className="min-w-0">
                       <div className="finding__title">
-                        {finding.checkId === 'unused_indexes'
-                          ? 'Unused index'
-                          : 'Redundant index prefix'}
+                        {isUnused ? 'Unused index' : 'Redundant index prefix'}
                       </div>
                       <div className="finding__object font-mono">{finding.object}</div>
                       <div className="finding__message">{finding.message}</div>
                     </div>
                   </article>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="panel-body">

@@ -328,4 +328,54 @@ export async function getEstateDiskFleetForecast(days = 90): Promise<CapacityFor
   return project('disco', 'Estate data', 'bytes', history, threshold, (v) => formatBytes(v));
 }
 
+export interface EstateDiskEnginePoint {
+  bucket: number;
+  [engine: string]: number | null;
+}
+
+/** Hourly (then daily) total size by engine — growth heat across the fleet. */
+export async function getEstateDiskByEngineSeries(
+  days = 30,
+): Promise<{ keys: string[]; points: EstateDiskEnginePoint[] }> {
+  const rows = await query<{ day: Date; engine: string; bytes: string }>(
+    `with hourly as (
+       select date_trunc('day', r.bucket) as day,
+              i.engine,
+              i.host, i.port,
+              ${DATABASE_EXPR} as database,
+              avg(r.avg_value) as bytes
+         from buho.metric_rollup_1h r
+         join buho.instances i on i.instance_id = r.instance_id
+        where r.metric = 'database_size_bytes'
+          and r.bucket > now() - make_interval(days => $1::int)
+        group by 1, 2, 3, 4, 5
+     )
+     select day, engine, sum(bytes)::text as bytes
+       from hourly
+      group by 1, 2
+      order by 1, 2`,
+    [days],
+  );
+
+  const engineSet = new Set<string>();
+  const byBucket = new Map<number, EstateDiskEnginePoint>();
+  for (const row of rows) {
+    const bucket = row.day.getTime();
+    const engine = row.engine;
+    engineSet.add(engine);
+    let point = byBucket.get(bucket);
+    if (!point) {
+      point = { bucket };
+      byBucket.set(bucket, point);
+    }
+    point[engine] = Number(row.bytes);
+  }
+
+  const keys = [...engineSet].sort();
+  return {
+    keys,
+    points: [...byBucket.values()].sort((a, b) => a.bucket - b.bucket),
+  };
+}
+
 export { MIN_FORECAST_DAYS, canForecast, historyDayCount };

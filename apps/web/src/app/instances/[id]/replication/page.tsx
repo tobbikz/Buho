@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { NotesPanel } from '@/components/NotesPanel';
+import { ReplicationSankey } from '@/components/ReplicationSankey';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { TimeseriesPanel } from '@/components/TimeseriesPanel';
@@ -14,6 +15,8 @@ import {
   type ReplicationRow as EstateReplicationRow,
 } from '@/lib/estate';
 import { getInstance, getSeries, getSeriesByLabel } from '@/lib/queries';
+import { getMariaReplicationSankey } from '@/lib/replication-sankey';
+import { shortPeerLabel, shortProcesslistState } from '@/lib/maria-labels';
 import {
   getReplicationTopology,
   type InstanceReplicationRow,
@@ -344,7 +347,7 @@ export default async function ReplicationPage({
           </div>
         </header>
 
-        <InstanceTabs instanceId={instanceId} />
+        <InstanceTabs instanceId={instanceId} engine="postgres" />
 
         {standalone ? (
           <div className="notice">
@@ -625,11 +628,15 @@ async function ForeignReplicationPage({
 }) {
   let instance;
   let inventory;
+  let sankey = { nodes: [] as { name: string }[], links: [] as { source: number; target: number; value: number }[] };
   try {
     [instance, inventory] = await Promise.all([
       getInstance(instanceId),
       getInstanceInventory(instanceId),
     ]);
+    if (engine === 'mariadb') {
+      sankey = await getMariaReplicationSankey();
+    }
   } catch (error) {
     return (
       <>
@@ -711,6 +718,20 @@ async function ForeignReplicationPage({
 
         {instanceNotes.length > 0 ? <NotesPanel notes={instanceNotes} title="What this means" /> : null}
 
+        {engine === 'mariadb' ? (
+          <section className="panel">
+            <div className="panel-header">
+              <span className="panel-title">Ring / tree · Sankey</span>
+              <span className="font-mono text-[10px] text-foreground-muted">
+                masters → replicas · ring drawn bipartite · lag colors the ribbon
+              </span>
+            </div>
+            <div className="panel-body">
+              <ReplicationSankey data={sankey} height={300} />
+            </div>
+          </section>
+        ) : null}
+
         <section className="panel">
           <div className="panel-header">
             <span className="panel-title">Topology from the engine</span>
@@ -737,9 +758,11 @@ async function ForeignReplicationPage({
                   {rows.map((row, index) => (
                     <tr key={`${row.role}-${row.peer}-${index}`}>
                       <td>{row.role}</td>
-                      <td className="font-mono text-[11px]">{row.peer || '·'}</td>
+                      <td className="font-mono text-[11px]">{shortPeerLabel(row.peer) || '·'}</td>
                       <td>
-                        <span className="tag tag--muted">{row.state ?? '·'}</span>
+                        <span className="tag tag--muted" title={row.state ?? undefined}>
+                          {shortProcesslistState(row.state)}
+                        </span>
                       </td>
                       <td className="num">
                         {row.lagSeconds == null ? '·' : formatDuration(row.lagSeconds)}

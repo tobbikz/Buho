@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { SecurityFindingRow } from '@/components/SecurityFindingRow';
+import { Sparkline } from '@/components/Sparkline';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { formatAgo } from '@/lib/format';
@@ -9,6 +10,8 @@ import {
   engineLabel,
   getFindings,
   getPosture,
+  getPostureScoreSeries,
+  getSecurityFindingHeat,
   scoreTone,
   type Finding,
   type Posture,
@@ -28,8 +31,15 @@ function findingClass(severity: Severity): string {
 export default async function SecurityPage() {
   let findings: Finding[];
   let posture: Posture[];
+  let scoreSeries: Record<number, number[]>;
+  let findingHeat: Awaited<ReturnType<typeof getSecurityFindingHeat>>;
   try {
-    [findings, posture] = await Promise.all([getFindings(), getPosture()]);
+    [findings, posture, scoreSeries, findingHeat] = await Promise.all([
+      getFindings(),
+      getPosture(),
+      getPostureScoreSeries(30),
+      getSecurityFindingHeat(14),
+    ]);
   } catch (error) {
     return <StoreError message={error instanceof Error ? error.message : String(error)} />;
   }
@@ -107,9 +117,36 @@ export default async function SecurityPage() {
 
       <section className="panel">
         <div className="panel-header">
+          <span className="panel-title">Critical / high findings · last 14d</span>
+          <span className="font-mono text-[10px] text-foreground-muted">
+            sum of latest scorecard per instance per day
+          </span>
+        </div>
+        <div className="panel-body">
+          {findingHeat.length === 0 ? (
+            <div className="empty">No posture history yet — fills after a few audit cycles.</div>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {findingHeat.map((row) => {
+                const bad = row.critical + row.high;
+                const tone =
+                  row.critical > 0 ? 'tag--error' : row.high > 0 ? 'tag--warn' : 'tag--ok';
+                return (
+                  <span key={row.day} className={`tag ${tone}`} title={`${row.day}`}>
+                    {row.day.slice(5)} · {bad}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
           <span className="panel-title">Posture by instance</span>
           <span className="text-[11px] text-foreground-muted">
-            score is calculated only over checks that could be verified
+            score is calculated only over checks that could be verified · sparkline = 30d
           </span>
         </div>
         <table className="data-table">
@@ -118,6 +155,7 @@ export default async function SecurityPage() {
               <th>Instance</th>
               <th>Engine</th>
               <th className="text-right">Posture</th>
+              <th>Trend</th>
               <th className="text-right">Critical</th>
               <th className="text-right">High</th>
               <th className="text-right">Medium</th>
@@ -135,6 +173,13 @@ export default async function SecurityPage() {
                 <td>{engineLabel(row.engine)}</td>
                 <td className="text-right">
                   <span className={`score score--${scoreTone(row.score)}`}>{row.score}</span>
+                </td>
+                <td>
+                  <Sparkline
+                    values={scoreSeries[row.instanceId] ?? []}
+                    color={row.score < 70 ? '#b01818' : '#005eb8'}
+                    title={`${row.alias} posture`}
+                  />
                 </td>
                 <td className="text-right">
                   {row.critical > 0 ? <span className="tag tag--error">{row.critical}</span> : '—'}

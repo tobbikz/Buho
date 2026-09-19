@@ -11,7 +11,7 @@ import { hostMetricsFromForm } from './test-target';
  * store the same way they already live in config.json on-prem.
  */
 
-export type TargetEngine = 'postgres' | 'mariadb' | 'mssql' | 'mongodb';
+export type TargetEngine = 'postgres' | 'mariadb' | 'mssql' | 'mongodb' | 'redis' | 'oracle';
 
 export interface MonitorTarget {
   targetId: number;
@@ -48,13 +48,15 @@ export interface MonitorTargetInput {
   expandAllDatabases?: boolean;
 }
 
-const ENGINES = new Set(['postgres', 'mariadb', 'mssql', 'mongodb']);
+const ENGINES = new Set(['postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle']);
 
 const DEFAULT_PORTS: Record<TargetEngine, number> = {
   postgres: 5432,
   mariadb: 3306,
   mssql: 1433,
   mongodb: 27017,
+  redis: 6379,
+  oracle: 1521,
 };
 
 export function defaultPort(engine: TargetEngine): number {
@@ -141,7 +143,7 @@ export async function saveMonitorTarget(input: MonitorTargetInput): Promise<numb
 
   const seedDatabase =
     input.database ||
-    (input.engine === 'mongodb' ? 'admin' : input.engine === 'mssql' ? 'master' : 'postgres');
+    (input.engine === 'mongodb' ? 'admin' : input.engine === 'mssql' ? 'master' : input.engine === 'oracle' ? 'FREEPDB1' : input.engine === 'redis' ? '0' : 'postgres');
 
   let databases = [seedDatabase];
   if (input.engine === 'postgres' && input.expandAllDatabases) {

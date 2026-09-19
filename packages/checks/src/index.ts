@@ -106,10 +106,16 @@ export async function runChecks(pool: Pool, caps: Capabilities): Promise<CheckRu
 import type { EngineClient, ForeignCaps } from '@buho/core';
 import { MARIADB_CHECKS } from './mariadb';
 import { MSSQL_CHECKS } from './mssql';
+import { MONGODB_CHECKS } from './mongodb';
+import { REDIS_CHECKS } from './redis';
+import { ORACLE_CHECKS } from './oracle';
 import type { ForeignCheckDefinition } from './mariadb';
 
 export { MARIADB_CHECKS } from './mariadb';
 export { MSSQL_CHECKS, MSSQL_PARITY_CHECKS, MSSQL_PARITY_MAP, assertMssqlParity } from './mssql';
+export { MONGODB_CHECKS } from './mongodb';
+export { REDIS_CHECKS } from './redis';
+export { ORACLE_CHECKS } from './oracle';
 export {
   MARIADB_PARITY_CHECKS,
   MARIADB_PARITY_MAP,
@@ -126,7 +132,17 @@ export type { ForeignCheckDefinition } from './mariadb';
  */
 export async function runForeignChecks(client: EngineClient, caps: ForeignCaps): Promise<CheckRunSummary> {
   const catalogo: ForeignCheckDefinition[] =
-    caps.engine === 'mariadb' ? MARIADB_CHECKS : caps.engine === 'mssql' ? MSSQL_CHECKS : [];
+    caps.engine === 'mariadb'
+      ? MARIADB_CHECKS
+      : caps.engine === 'mssql'
+        ? MSSQL_CHECKS
+        : caps.engine === 'mongodb'
+          ? MONGODB_CHECKS
+          : caps.engine === 'redis'
+            ? REDIS_CHECKS
+            : caps.engine === 'oracle'
+              ? ORACLE_CHECKS
+              : [];
 
   const results: CheckResult[] = [];
   const errors: CheckRunError[] = [];

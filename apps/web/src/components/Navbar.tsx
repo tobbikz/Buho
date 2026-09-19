@@ -13,6 +13,11 @@ const FLEET_LINKS_BASE = [
   { href: '/flow', label: 'Flow', match: (path: string) => path === '/flow' },
   { href: '/report', label: 'Report', match: (path: string) => path.startsWith('/report') },
   { href: '/estate', label: 'Estate', match: (path: string) => path.startsWith('/estate') },
+  {
+    href: '/cluster',
+    label: 'Cluster',
+    match: (path: string) => path.startsWith('/cluster'),
+  },
   { href: '/security', label: 'Security', match: (path: string) => path.startsWith('/security') },
 ] as const;
 

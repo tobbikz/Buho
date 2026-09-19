@@ -44,6 +44,8 @@ const MARIADB_SQL = `
          length(digest_text) > 4000                as truncated,
          count_star                                as calls,
          sum_timer_wait / 1000000000               as exec_ms,
+         avg_timer_wait / 1000000000               as avg_ms,
+         max_timer_wait / 1000000000               as max_ms,
          -- Las filas de una consulta son las que devuelve *o* las que modifica,
          -- según de qué consulta se trate. Con sólo rows_sent todo el DML valdría
          -- cero y el tráfico de escritura sería invisible.
@@ -59,6 +61,31 @@ const MARIADB_SQL = `
      and digest_text not like '%${QUERY_TAG_LIKE}%'
    order by sum_timer_wait desc
    limit 200`;
+
+/** Digests whose average latency crosses the server long_query_time (or 1s). */
+export const MARIADB_SLOW_SQL = `
+  select digest                                    as digest,
+         schema_name                               as db,
+         left(digest_text, 4000)                   as query,
+         length(digest_text) > 4000                as truncated,
+         count_star                                as calls,
+         sum_timer_wait / 1000000000               as exec_ms,
+         avg_timer_wait / 1000000000               as avg_ms,
+         max_timer_wait / 1000000000               as max_ms,
+         sum_rows_sent + sum_rows_affected         as rows_sent,
+         sum_rows_examined                         as rows_examined,
+         sum_created_tmp_disk_tables               as tmp_disk_tables,
+         sum_no_index_used                         as no_index_used,
+         sum_select_full_join                      as full_joins
+    from performance_schema.events_statements_summary_by_digest
+   where digest is not null
+     and digest_text not like '%${QUERY_TAG_LIKE}%'
+     and avg_timer_wait / 1e12 >= greatest(
+           coalesce((select variable_value from information_schema.global_variables
+                      where variable_name = 'LONG_QUERY_TIME'), 1),
+           0.5)
+   order by avg_timer_wait desc
+   limit 50`;
 
 /**
  * SQL Server acumula por plan, no por consulta: la misma consulta con dos planes
@@ -253,7 +280,19 @@ export async function sampleForeignStatements(
   tracker?: ForeignStatementTracker,
 ): Promise<Record<string, unknown>[]> {
   if (caps.features.statementDigests) {
-    return client.query(caps.engine === 'mariadb' ? MARIADB_SQL : MSSQL_SQL);
+    if (caps.engine === 'mssql') return client.query(MSSQL_SQL);
+    // Top by total time + digests that are slow by average (long_query_time),
+    // so rare-but-slow statements still land in the Queries / Slow panel.
+    const [top, slow] = await Promise.all([
+      client.query(MARIADB_SQL),
+      client.query(MARIADB_SLOW_SQL).catch(() => [] as Record<string, unknown>[]),
+    ]);
+    const byDigest = new Map<string, Record<string, unknown>>();
+    for (const row of [...top, ...slow]) {
+      const digest = str(row['digest'], '');
+      if (digest) byDigest.set(digest, row);
+    }
+    return [...byDigest.values()];
   }
   // Degraded path: MariaDB without performance_schema — sample PROCESSLIST.
   if (caps.engine === 'mariadb' && tracker) {
@@ -265,6 +304,22 @@ export async function sampleForeignStatements(
     return ephemeral.sampleProcesslist(client);
   }
   return [];
+}
+
+/**
+ * MariaDB digests whose average latency is at/above long_query_time.
+ * Empty when performance_schema is off.
+ */
+export async function sampleMariadbSlowStatements(
+  client: EngineClient,
+  caps: ForeignCaps,
+): Promise<Record<string, unknown>[]> {
+  if (caps.engine !== 'mariadb' || !caps.features.statementDigests) return [];
+  try {
+    return await client.query(MARIADB_SLOW_SQL);
+  } catch {
+    return [];
+  }
 }
 
 /**

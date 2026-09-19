@@ -401,6 +401,70 @@ create index if not exists statement_stats_lookup
 create index if not exists statement_stats_by_query
   on buho.statement_stats (instance_id, queryid, ts desc);
 
+-- Stored procedures (SQL Server dm_exec_procedure_stats) — same delta model as statements.
+create table if not exists buho.procedure_texts (
+  instance_id   bigint      not null references buho.instances (instance_id) on delete cascade,
+  object_id     bigint      not null,
+  database      text        not null,
+  schema_name   text        not null,
+  proc_name     text        not null,
+  first_seen_at timestamptz not null default now(),
+  last_seen_at  timestamptz not null default now(),
+  primary key (instance_id, object_id)
+);
+
+create table if not exists buho.procedure_stats (
+  instance_id    bigint           not null references buho.instances (instance_id) on delete cascade,
+  ts             timestamptz      not null,
+  object_id      bigint           not null,
+  database       text,
+  calls          double precision not null,
+  exec_ms        double precision not null,
+  worker_ms      double precision not null default 0,
+  logical_reads  double precision not null default 0,
+  avg_duration_sec double precision
+) partition by range (ts);
+
+create table if not exists buho.procedure_stats_default
+  partition of buho.procedure_stats default;
+
+create index if not exists procedure_stats_lookup
+  on buho.procedure_stats (instance_id, ts desc);
+create index if not exists procedure_stats_by_object
+  on buho.procedure_stats (instance_id, object_id, ts desc);
+
+create table if not exists buho.procedure_slow_events (
+  instance_id       bigint           not null references buho.instances (instance_id) on delete cascade,
+  ts                timestamptz      not null,
+  object_id         bigint           not null,
+  database          text,
+  schema_name       text,
+  proc_name         text             not null,
+  duration_sec      double precision not null,
+  primary key (instance_id, ts, object_id)
+);
+
+create index if not exists procedure_slow_events_lookup
+  on buho.procedure_slow_events (instance_id, ts desc);
+
+-- Slow query events (MariaDB digests / slow_log / PROCESSLIST) — Procedures-style timeline.
+create table if not exists buho.statement_slow_events (
+  instance_id    bigint           not null references buho.instances (instance_id) on delete cascade,
+  ts             timestamptz      not null,
+  queryid        bigint           not null,
+  database       text,
+  username       text,
+  duration_sec   double precision not null,
+  rows_sent      double precision,
+  rows_examined  double precision,
+  source         text             not null default 'digest'
+                   check (source in ('digest', 'slow_log', 'processlist')),
+  primary key (instance_id, ts, queryid, source)
+);
+
+create index if not exists statement_slow_events_lookup
+  on buho.statement_slow_events (instance_id, ts desc);
+
 do $$
 begin
   if exists (
@@ -431,7 +495,7 @@ alter table buho.instances
 alter table buho.instances drop constraint if exists instances_engine_check;
 alter table buho.instances
   add constraint instances_engine_check
-  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb'));
+  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle'));
 
 create table if not exists buho.engine_info (
   instance_id      bigint      primary key references buho.instances (instance_id) on delete cascade,
@@ -988,7 +1052,7 @@ create table if not exists buho.monitor_targets (
   tenant       text        not null default 'default',
   alias        text        not null,
   engine       text        not null
-               check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb')),
+               check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle')),
   host         text        not null,
   port         integer     not null,
   database     text        not null default '',
@@ -1014,7 +1078,7 @@ alter table buho.monitor_targets add column if not exists host_metrics jsonb not
 alter table buho.instances drop constraint if exists instances_engine_check;
 alter table buho.instances
   add constraint instances_engine_check
-  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb'));
+  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle'));
 
 -- --------------------------------------------------- registro de operaciones
 

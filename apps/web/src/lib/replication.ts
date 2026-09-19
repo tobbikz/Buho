@@ -387,7 +387,8 @@ export async function getReplicationLagTrends(
         and metric in (
           'replication_replay_lag_seconds',
           'standby_replay_delay_seconds',
-          'standby_pending_bytes'
+          'standby_pending_bytes',
+          'replication_lag_seconds'
         )
         and bucket > now() - make_interval(mins => $2::int)
       group by 1, 2, 3, 4
@@ -424,8 +425,14 @@ export async function getReplicationLagTrends(
     }
 
     if (row.role === 'upstream' || row.role === 'replica') {
-      const points = series.get(`${row.instanceId}:standby_pending_bytes:`) ?? [];
-      out[key] = points.sort((a, b) => a.bucket - b.bucket).map((point) => point.value);
+      const pending = series.get(`${row.instanceId}:standby_pending_bytes:`) ?? [];
+      if (pending.length > 0) {
+        out[key] = pending.sort((a, b) => a.bucket - b.bucket).map((point) => point.value);
+        continue;
+      }
+      // Mongo (and some foreign) publish plain replication_lag_seconds.
+      const mongoLag = series.get(`${row.instanceId}:replication_lag_seconds:`) ?? [];
+      out[key] = mongoLag.sort((a, b) => a.bucket - b.bucket).map((point) => point.value);
       continue;
     }
 
