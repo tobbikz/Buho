@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Buho">
+  <rect width="32" height="32" fill="#005eb8"/>
+  <rect x="0.5" y="0.5" width="31" height="31" fill="none" stroke="#004a92" stroke-width="1"/>
+  <rect x="9" y="13" width="5" height="5" fill="#ffffff"/>
+  <rect x="18" y="13" width="5" height="5" fill="#ffffff"/>
+</svg>

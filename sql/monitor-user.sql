@@ -85,42 +85,46 @@ grant connect on database :"DBNAME" to buho_monitor;
 --    Es la única opción cuando `logging_collector = off` y el log va a
 --    journald, que es lo normal en instalaciones por paquete de Linux.
 --
--- Para la opción A, ejecutar como superusuario:
+-- Para la opción A (recomendado con `logs.source = "sql"`, el default de
+-- instancias añadidas desde la consola), ejecutar como superusuario:
 --
---     create or replace function buho_read_log(archivo text, desde bigint, largo integer)
---       returns text
---       language plpgsql
---       security definer
---       set search_path = pg_catalog, pg_temp
---     as $fn$
---     declare
---       directorio text;
---       ruta       text;
---     begin
---       -- Sin esto, un `..` en el nombre lee cualquier archivo del servidor y la
---       -- función deja de ser más segura que el permiso que evita.
---       if archivo !~ '^[A-Za-z0-9._%+-]+$' then
---         raise exception 'nombre de archivo no permitido: %', archivo;
---       end if;
+    create or replace function buho_read_log(archivo text, desde bigint, largo integer)
+      returns text
+      language plpgsql
+      security definer
+      set search_path = pg_catalog, pg_temp
+    as $fn$
+    declare
+      directorio text;
+      ruta       text;
+    begin
+      -- Sin esto, un `..` en el nombre lee cualquier archivo del servidor y la
+      -- función deja de ser más segura que el permiso que evita.
+      if archivo !~ '^[A-Za-z0-9._%+-]+$' then
+        raise exception 'nombre de archivo no permitido: %', archivo;
+      end if;
+
+      select setting into directorio from pg_settings where name = 'log_directory';
+      if directorio is null then
+        raise exception 'log_directory no está definido';
+      end if;
+
+      -- log_directory puede ser relativo al directorio de datos.
+      if left(directorio, 1) <> '/' then
+        directorio := (select setting from pg_settings where name = 'data_directory')
+                      || '/' || directorio;
+      end if;
+
+      ruta := directorio || '/' || archivo;
+      return pg_read_file(ruta, desde, largo);
+    end
+    $fn$;
+
+    revoke all on function buho_read_log(text, bigint, integer) from public;
+    grant execute on function buho_read_log(text, bigint, integer) to buho_monitor;
 --
---       select setting into directorio from pg_settings where name = 'log_directory';
---       if directorio is null then
---         raise exception 'log_directory no está definido';
---       end if;
---
---       -- log_directory puede ser relativo al directorio de datos.
---       if left(directorio, 1) <> '/' then
---         directorio := (select setting from pg_settings where name = 'data_directory')
---                       || '/' || directorio;
---       end if;
---
---       ruta := directorio || '/' || archivo;
---       return pg_read_file(ruta, desde, largo);
---     end
---     $fn$;
---
---     revoke all on function buho_read_log(text, bigint, integer) from public;
---     grant execute on function buho_read_log(text, bigint, integer) to buho_monitor;
+-- (Si preferís dejarlo comentado, Búho intenta `pg_read_binary_file` y falla
+--  con un aviso claro cuando el rol no tiene permiso.)
 --
 -- `pg_ls_logdir()` ya es ejecutable por miembros de pg_monitor, así que el rol
 -- puede listar el directorio sin permisos extra.

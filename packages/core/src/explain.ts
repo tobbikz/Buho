@@ -575,10 +575,10 @@ export async function runExplain(pool: Pool, sql: string, options: ExplainOption
   const client = await pool.connect();
 
   try {
-    await client.query(tagged(`set local statement_timeout = ${options.timeoutMs ?? 15_000}`));
-    // La transacción envuelve también el plan estimado: así el camino es uno
-    // solo y no hay una rama sin red.
+    // SET LOCAL only works inside a transaction. Doing it before BEGIN made
+    // every EXPLAIN fail with "SET LOCAL can only be used in transaction blocks".
     await client.query('begin');
+    await client.query(tagged(`set local statement_timeout = ${options.timeoutMs ?? 15_000}`));
 
     const json = await client.query<{ plan: unknown[] }>(
       tagged(`explain (${flags}, FORMAT JSON) ${clean}`),

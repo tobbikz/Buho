@@ -107,7 +107,8 @@ export async function measureBloat(
   try {
     // Sin timeout, un `exacto` sobre una tabla enorme deja el colector clavado
     // en una sola instancia. Con timeout el error dice qué pasó y se puede
-    // reintentar en modo aproximado.
+    // reintentar en modo aproximado. SET LOCAL requires an open transaction.
+    await client.query('begin');
     await client.query(tagged(`set local statement_timeout = ${Math.max(1000, Math.trunc(timeoutMs))}`));
 
     const funcion = mode === 'exacto' ? 'pgstattuple' : 'pgstattuple_approx';
@@ -137,7 +138,11 @@ export async function measureBloat(
     const freePct = mode === 'exacto' ? n('free_percent') : n('approx_free_percent');
     const deadPct = tableBytes > 0 ? (deadBytes / tableBytes) * 100 : 0;
 
+    await client.query('rollback');
     return { tableBytes, tupleCount, tupleBytes, deadCount, deadBytes, freeBytes, freePct, deadPct };
+  } catch (error) {
+    await client.query('rollback').catch(() => {});
+    throw error;
   } finally {
     client.release();
   }

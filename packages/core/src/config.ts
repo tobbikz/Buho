@@ -86,10 +86,10 @@ export async function loadConfig(path = process.env['BUHO_CONFIG'] ?? 'config.js
     // en una pantalla vacía que parezca "no hay errores".
     const logs = instance.logs;
     if (logs?.source && logs.source !== 'none') {
-      if (!['journal', 'file'].includes(logs.source)) {
+      if (!['journal', 'file', 'sql'].includes(logs.source)) {
         throw new Error(
           `La instancia "${instance.alias}" declara logs.source = "${logs.source}". ` +
-            'Los valores válidos son "journal" (systemd), "file" (archivos) o "none".',
+            'Los valores válidos son "journal" (systemd), "file" (archivos), "sql" (vía PostgreSQL) o "none".',
         );
       }
       if (logs.access === 'ssh' && !logs.target) {

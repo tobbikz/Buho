@@ -70,5 +70,5 @@ export async function proxy(request: NextRequest) {
 export const config = {
   // Los assets estáticos quedan fuera: no llevan datos y pasar cada uno por la
   // verificación sólo agrega latencia.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|icon(?:\\.svg)?|apple-icon).*)'],
 };

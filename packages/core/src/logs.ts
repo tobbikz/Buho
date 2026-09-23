@@ -21,6 +21,9 @@ import { tagged } from './tag';
  *   en el que `pg_current_logfile()` devuelve vacío y `pg_ls_logdir()` falla.
  * - **archivos**, cuando `logging_collector = on`. Legibles por el sistema
  *   operativo o por SQL con una función envoltorio (ver `sql/monitor-user.sql`).
+ * - **sql**, leyendo el log **a través de la conexión PostgreSQL** (`pg_ls_logdir`
+ *   + `buho_read_log` / `pg_read_file`). Es el camino por defecto para instancias
+ *   añadidas desde la consola: no hace falta SSH ni filesystem local.
  * - **ninguno alcanzable**, que también es un resultado y hay que decirlo en
  *   lugar de mostrar una pantalla vacía.
  *
@@ -31,7 +34,7 @@ import { tagged } from './tag';
 
 const run = promisify(execFile);
 
-export type LogSourceKind = 'none' | 'journal' | 'file';
+export type LogSourceKind = 'none' | 'journal' | 'file' | 'sql';
 export type LogAccess = 'local' | 'ssh';
 
 export interface LogConfig {
@@ -624,16 +627,22 @@ export async function inspectLogging(pool: Pool, config: LogConfig): Promise<Log
     : null;
 
   const declared = config.source ?? 'none';
-  // Lo declarado manda, pero si no se declaró nada se deduce: con el colector
-  // apagado el log no está en archivos por más que log_directory tenga valor.
-  const usable: LogSourceKind =
-    declared !== 'none' ? declared : collector ? 'file' : 'none';
+  // Lo declarado manda. Sin declarar nada: SQL si el colector escribe archivos
+  // (camino por defecto vía la conexión), si no none.
+  let usable: LogSourceKind =
+    declared !== 'none' ? declared : collector ? 'sql' : 'none';
 
   const limitations: string[] = [];
+  if (usable === 'sql' && !collector) {
+    usable = 'none';
+    limitations.push(
+      'logs.source=sql necesita logging_collector=on. Con el colector apagado el log va a stderr/journald: usa logs.source=journal.',
+    );
+  }
   if (usable === 'none') {
     limitations.push(
       collector
-        ? 'El servidor escribe archivos de log, pero no se declaró cómo llegar a ellos en config.json.'
+        ? 'El servidor escribe archivos de log, pero no se configuró un origen (sql / file / journal).'
         : 'logging_collector está apagado: el log va a la salida de error, que en Linux suele capturar systemd. Declarar `logs.source = "journal"` en config.json para leerlo.',
     );
   }
@@ -664,6 +673,7 @@ export async function readLog(
   info: LogSourceInfo,
   cursor: string | null,
   timeoutMs = 20_000,
+  pool?: Pool,
 ): Promise<LogReadResult> {
   if (info.usable === 'journal') return readJournal(config, cursor, timeoutMs);
   if (info.usable === 'file') {
@@ -678,6 +688,18 @@ export async function readLog(
     }
     return readFiles(config, info.directory, cursor, timeoutMs);
   }
+  if (info.usable === 'sql') {
+    if (!pool) {
+      return {
+        entries: [],
+        cursor,
+        source: 'sql',
+        detail: 'sin conexión',
+        warnings: ['SQL log reading needs a live PostgreSQL pool.'],
+      };
+    }
+    return readViaSql(pool, cursor, timeoutMs);
+  }
   return {
     entries: [],
     cursor,
@@ -685,4 +707,158 @@ export async function readLog(
     detail: 'sin origen',
     warnings: info.limitations,
   };
+}
+
+/**
+ * Lee el log a través de SQL: lista con pg_ls_logdir y lee bytes con
+ * buho_read_log (recomendado) o pg_read_file.
+ *
+ * Es el mismo truco que suelen usar scripts de DBA: la DB expone el logdir a
+ * roles con pg_monitor; la función SECURITY DEFINER evita dar pg_read_server_files.
+ */
+async function readViaSql(
+  pool: Pool,
+  cursor: string | null,
+  timeoutMs: number,
+): Promise<LogReadResult> {
+  const warnings: string[] = [];
+  const previous = cursor ? (JSON.parse(cursor) as { file?: string; offset?: number }) : {};
+  const maxBytes = 4 * 1024 * 1024;
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    await client.query(tagged(`set local statement_timeout = ${Math.max(5_000, Math.trunc(timeoutMs))}`));
+
+    const listed = await client.query<{ name: string; size: string | number; modification: Date | null }>(
+      tagged(`select name, size, modification
+                from pg_ls_logdir()
+               where name ~ '\\.(log|csv|json)$'
+               order by modification desc nulls last, name desc
+               limit 5`),
+    );
+
+    if (listed.rows.length === 0) {
+      await client.query('rollback');
+      return {
+        entries: [],
+        cursor,
+        source: 'sql',
+        detail: 'pg_ls_logdir vacío',
+        warnings: [
+          'pg_ls_logdir() no devolvió archivos. Comprueba logging_collector=on y que el rol tenga pg_monitor.',
+        ],
+      };
+    }
+
+    const file =
+      previous.file && listed.rows.some((row) => row.name === previous.file)
+        ? previous.file
+        : listed.rows[0]!.name;
+    const meta = listed.rows.find((row) => row.name === file) ?? listed.rows[0]!;
+    const size = Number(meta.size ?? 0);
+    let offset = previous.file === file ? Math.max(0, previous.offset ?? 0) : 0;
+    if (offset > size) offset = 0;
+    const length = Math.min(maxBytes, Math.max(0, size - offset));
+    if (length === 0) {
+      await client.query('rollback');
+      return {
+        entries: [],
+        cursor: JSON.stringify({ file, offset }),
+        source: 'sql',
+        detail: `sql:${file}`,
+        warnings,
+      };
+    }
+
+    // Prefer the SECURITY DEFINER wrapper from sql/monitor-user.sql.
+    let body = '';
+    const hasWrapper = await client.query<{ ok: boolean }>(
+      tagged(`select exists(
+                select 1 from pg_proc p
+                  join pg_namespace n on n.oid = p.pronamespace
+                 where p.proname = 'buho_read_log'
+                   and pg_get_function_identity_arguments(p.oid) = 'text, bigint, integer'
+              ) as ok`),
+    );
+
+    if (hasWrapper.rows[0]?.ok) {
+      const { rows } = await client.query<{ chunk: string | null }>(
+        tagged(`select buho_read_log($1, $2::bigint, $3::integer) as chunk`),
+        [file, offset, length],
+      );
+      body = rows[0]?.chunk ?? '';
+    } else {
+      try {
+        const { rows } = await client.query<{ chunk: string | null }>(
+          tagged(`select convert_from(
+                    pg_read_binary_file(
+                      (select case when left(setting, 1) = '/' then setting
+                                   else (select setting from pg_settings where name = 'data_directory') || '/' || setting
+                              end
+                         from pg_settings where name = 'log_directory') || '/' || $1,
+                      $2::bigint,
+                      $3::integer,
+                      true
+                    ),
+                    'UTF8'
+                  ) as chunk`),
+          [file, offset, length],
+        );
+        body = rows[0]?.chunk ?? '';
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await client.query('rollback').catch(() => {});
+        return {
+          entries: [],
+          cursor,
+          source: 'sql',
+          detail: `sql:${file}`,
+          warnings: [
+            `No se pudo leer el log por SQL (${message}). Crea la función buho_read_log de sql/monitor-user.sql y GRANT EXECUTE al rol de monitoreo.`,
+          ],
+        };
+      }
+    }
+
+    const rows = body.split('\n');
+    const complete = rows.slice(0, -1);
+    const partial = body.endsWith('\n') ? 0 : Buffer.byteLength(rows[rows.length - 1] ?? '', 'utf8');
+    const consumed = Buffer.byteLength(body, 'utf8');
+    const nextOffset = offset + consumed - partial;
+
+    const entries: LogEntry[] = [];
+    const plain: { text: string; at: Date }[] = [];
+    const now = new Date();
+    for (const row of complete) {
+      if (!row.trim()) continue;
+      if (row.trimStart().startsWith('{')) {
+        const parsed = fromJson(row);
+        if (parsed) entries.push(parsed);
+        continue;
+      }
+      if (file.endsWith('.csv')) {
+        const parsed = fromCsv(row);
+        if (parsed) entries.push(parsed);
+        continue;
+      }
+      plain.push({ text: row, at: now });
+    }
+    entries.push(...parseEntries(plain));
+    entries.sort((a, b) => a.at.getTime() - b.at.getTime());
+
+    await client.query('rollback');
+    return {
+      entries,
+      cursor: JSON.stringify({ file, offset: nextOffset }),
+      source: 'sql',
+      detail: `sql:${file}`,
+      warnings,
+    };
+  } catch (error) {
+    await client.query('rollback').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }

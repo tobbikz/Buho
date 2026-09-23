@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import { IndexInventoryTable } from '@/components/IndexInventoryTable';
 import { IndexSuggestionCards } from '@/components/IndexSuggestionCards';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StatCard } from '@/components/StatCard';
@@ -21,22 +22,6 @@ const STATUS_LABEL: Record<IndexStatus, string> = {
   redundant: 'Redundant',
   invalid: 'Invalid',
 };
-
-const STATUS_TAG: Record<IndexStatus, string> = {
-  ok: 'tag--ok',
-  unused: 'tag--warn',
-  redundant: 'tag--warn',
-  invalid: 'tag--error',
-};
-
-function IndexBadge({ status }: { status: IndexStatus }) {
-  return <span className={`tag ${STATUS_TAG[status]}`}>{STATUS_LABEL[status]}</span>;
-}
-
-function IndexDefinition({ row }: { row: IndexRow }) {
-  if (!row.definition) return null;
-  return <div className="mt-1 font-mono text-[10px] text-foreground-muted">{row.definition}</div>;
-}
 
 function groupBySchema(rows: IndexRow[]) {
   const groups = new Map<string, { schema: string; indexes: number; bytes: number; flagged: number }>();
@@ -88,62 +73,6 @@ function buildIndexesHref(
   if (opts?.dir) params.set('dir', opts.dir);
   const query = params.toString();
   return query ? `/instances/${instanceId}/indexes?${query}` : `/instances/${instanceId}/indexes`;
-}
-
-function IndexTable({ rows }: { rows: IndexRow[] }) {
-  if (rows.length === 0) {
-    return <div className="empty">No indexes in this category.</div>;
-  }
-
-  return (
-    <div className="table-scroll">
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>Index</th>
-            <th>Table</th>
-            <th>Columns</th>
-            <th className="text-right">Size</th>
-            <th className="text-right">Scans</th>
-            <th>Flags</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={`${row.schema}.${row.table}.${row.name}`}>
-              <td className="font-mono text-[11px]">{row.name}</td>
-              <td className="font-mono text-[11px]">
-                {row.schema}.{row.table}
-              </td>
-              <td className="font-mono text-[11px]">{row.columns.join(', ') || '·'}</td>
-              <td className="num">{formatBytes(row.sizeBytes)}</td>
-              <td className="num">{formatNumber(row.idxScan)}</td>
-              <td className="text-[11px] text-foreground-muted">
-                {[
-                  row.isPrimary ? 'PK' : null,
-                  row.isUnique && !row.isPrimary ? 'UNIQUE' : null,
-                  row.isPartial ? 'partial' : null,
-                  row.hasExpression ? 'expression' : null,
-                ]
-                  .filter(Boolean)
-                  .join(' · ') || '·'}
-              </td>
-              <td>
-                <IndexBadge status={row.status} />
-                {row.coveredBy && (
-                  <div className="mt-1 font-mono text-[10px] text-foreground-muted">
-                    covered by {row.coveredBy}
-                  </div>
-                )}
-                <IndexDefinition row={row} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
 }
 
 export default async function IndexesPage({
@@ -390,7 +319,7 @@ export default async function IndexesPage({
                   </span>
                 </div>
                 <div className="panel-body">
-                  <IndexTable rows={redundantIndexes} />
+                  <IndexInventoryTable rows={redundantIndexes} instanceId={instanceId} pageSize={25} />
                   <p className="mt-3 text-[11px] text-foreground-muted">
                     Each row includes the current definition and, when Búho can prove it, the larger
                     index that already covers the same left prefix.
@@ -408,7 +337,7 @@ export default async function IndexesPage({
                   </span>
                 </div>
                 <div className="panel-body">
-                  <IndexTable rows={unusedIndexes} />
+                  <IndexInventoryTable rows={unusedIndexes} instanceId={instanceId} pageSize={25} />
                   <p className="mt-3 text-[11px] text-foreground-muted">
                     Unused means zero scans on a large non-PK index since the last stats reset.
                     Check infrequent reports, month-end jobs, and replica-only reads before dropping.
@@ -426,7 +355,7 @@ export default async function IndexesPage({
                   </span>
                 </div>
                 <div className="panel-body">
-                  <IndexTable rows={invalidIndexes} />
+                  <IndexInventoryTable rows={invalidIndexes} instanceId={instanceId} pageSize={25} />
                   <p className="mt-3 text-[11px] text-foreground-muted">
                     PostgreSQL marks an index invalid when a concurrent build fails or is
                     interrupted. These objects can consume space without being safe to rely on.
@@ -588,7 +517,7 @@ export default async function IndexesPage({
                 <p className="mb-4 text-[11px] text-foreground-muted">
                   Filtered to {formatNumber(sortedRows.length)} row(s) by search.
                 </p>
-                <IndexTable rows={sortedRows} />
+                <IndexInventoryTable rows={sortedRows} instanceId={instanceId} pageSize={50} />
               </div>
             </section>
           </>

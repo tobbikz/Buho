@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { FlowSankey, OperationBars } from '@/components/FlowSankey';
+import { OperationBars } from '@/components/FlowSankey';
 import { LiveFlow } from '@/components/LiveFlow';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
@@ -34,13 +34,12 @@ const ENGINE_LABEL: Record<string, string> = {
 export default async function FleetFlowPage({
   searchParams,
 }: {
-  searchParams: Promise<{ peso?: string; v?: string; vista?: string }>;
+  searchParams: Promise<{ peso?: string; v?: string }>;
 }) {
-  const { peso, v, vista } = await searchParams;
+  const { peso, v } = await searchParams;
 
   const weight = (WEIGHTS.find((entrada) => entrada.key === peso)?.key ?? 'rows') as FlowWeight;
   const window = WINDOWS.find((entrada) => entrada.key === v) ?? WINDOWS[2]!;
-  const enVivo = vista === 'vivo';
 
   let flow;
   try {
@@ -61,7 +60,6 @@ export default async function FleetFlowPage({
     const parametros = new URLSearchParams({
       peso: weight,
       v: window.key,
-      vista: enVivo ? 'vivo' : 'acumulado',
       ...cambios,
     });
     return `/flow?${parametros.toString()}`;
@@ -80,10 +78,12 @@ export default async function FleetFlowPage({
           <div>
             <h1 className="page-title">Estate flow</h1>
             <p className="page-sub">
-              Hot tables across the fleet. <strong>Writes</strong> and <strong>Reads</strong> are the two entry
-              points, then schema, then table. Attribution comes from reading each query&apos;s text — it is{' '}
-              <strong>approximate</strong>. Per-instance detail lives on each server&apos;s Flow screen; the full
-              catalog map is on the ORM tab (PostgreSQL).
+              Hot tables across the fleet in this window — which servers and tables take the heat. Attribution is
+              approximate (from query text). Per-instance detail:{' '}
+              <Link href="/" className="underline">
+                open an instance → Flow
+              </Link>
+              .
             </p>
           </div>
         </header>
@@ -92,13 +92,13 @@ export default async function FleetFlowPage({
           <StatCard
             label="Write heat"
             value={formatUnit(flow.writeTotal, unidad)}
-            hint={`whole estate, window ${window.label}`}
+            hint={`estate · ${window.label}`}
             tone="accent"
           />
           <StatCard
             label="Read heat"
             value={formatUnit(flow.readTotal, unidad)}
-            hint={`whole estate, window ${window.label}`}
+            hint={`estate · ${window.label}`}
           />
           <StatCard
             label="Hottest table"
@@ -107,31 +107,17 @@ export default async function FleetFlowPage({
             tone={concentracion >= 50 ? 'warn' : 'neutral'}
           />
           <StatCard
-            label="Instances with traffic"
-            value={`${formatNumber(flow.withTraffic)} / ${formatNumber(flow.instances)}`}
-            hint={`${formatPct(cobertura, 0)} of measured weight attributed`}
+            label="Attribution coverage"
+            value={formatPct(cobertura, 0)}
+            hint={`${formatNumber(flow.withTraffic)} / ${formatNumber(flow.instances)} instances with traffic`}
             tone={cobertura >= 60 ? 'ok' : cobertura >= 25 ? 'warn' : 'neutral'}
           />
         </div>
 
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Hot tables · writes &amp; reads</span>
+            <span className="panel-title">Where traffic lands · writes &amp; reads</span>
             <div className="flex flex-wrap items-center gap-1">
-              <Link
-                href={enlace({ vista: 'vivo' })}
-                className={`tag ${enVivo ? 'tag--ok' : 'tag--muted'}`}
-                title="what is moving now across the estate"
-              >
-                Live
-              </Link>
-              <Link
-                href={enlace({ vista: 'acumulado' })}
-                className={`tag ${enVivo ? 'tag--muted' : 'tag--info'}`}
-              >
-                Accumulated
-              </Link>
-              <span className="mx-1 text-foreground-muted">·</span>
               {WEIGHTS.map((opcion) => (
                 <Link
                   key={opcion.key}
@@ -156,20 +142,21 @@ export default async function FleetFlowPage({
           </div>
 
           <div className="panel-body">
-            {enVivo ? (
-              <LiveFlow scope="flota" weight={weight} unit={unidad} height={460} />
+            {flow.tables.length === 0 ? (
+              <div className="empty">No estate traffic could be attributed to a table in this window.</div>
             ) : (
-              <FlowSankey
-                nodes={flow.nodes}
-                links={flow.links}
+              <LiveFlow
+                scope="flota"
+                weight={weight}
                 unit={unidad}
-                height={460}
-                emptyMessage="No estate traffic could be attributed to a table in this window."
+                height={520}
+                animated={false}
+                windowMinutes={window.minutes}
               />
             )}
             <p className="mt-2 text-[11px] text-foreground-muted">
-              Green bands are writes, blue bands are reads. Schemas are qualified per instance — two servers can
-              each have their own <span className="font-mono">public</span>.
+              Green = writes, blue = reads. Packed layout without motion. Schemas are per instance — two
+              servers can each have their own <span className="font-mono">public</span>.
             </p>
           </div>
         </section>
@@ -178,7 +165,9 @@ export default async function FleetFlowPage({
           <section className="panel xl:col-span-2">
             <div className="panel-header">
               <span className="panel-title">Hottest tables in the estate</span>
-              <span className="font-mono text-[10px] text-foreground-muted">window {window.label}</span>
+              <span className="font-mono text-[10px] text-foreground-muted">
+                by {weight} · {window.label}
+              </span>
             </div>
             <div className="panel-body">
               {flow.tables.length === 0 ? (
@@ -188,6 +177,7 @@ export default async function FleetFlowPage({
                   <table className="data-table">
                     <thead>
                       <tr>
+                        <th>#</th>
                         <th>Table</th>
                         <th>Instance</th>
                         <th className="text-right">Write</th>
@@ -196,8 +186,9 @@ export default async function FleetFlowPage({
                       </tr>
                     </thead>
                     <tbody>
-                      {flow.tables.map((tabla) => (
+                      {flow.tables.map((tabla, index) => (
                         <tr key={`${tabla.instanceId}-${tabla.relation}`}>
+                          <td className="num text-foreground-muted">{index + 1}</td>
                           <td className="font-mono text-[11px]">{tabla.relation}</td>
                           <td>
                             <Link href={`/instances/${tabla.instanceId}/flow`} className="link">
@@ -223,7 +214,7 @@ export default async function FleetFlowPage({
 
           <section className="panel xl:col-span-1">
             <div className="panel-header">
-              <span className="panel-title">Traffic mix per table</span>
+              <span className="panel-title">Traffic mix</span>
             </div>
             <div className="panel-body">
               {flow.tables.length === 0 ? (
@@ -245,7 +236,7 @@ export default async function FleetFlowPage({
         {flow.silent.length > 0 && (
           <section className="panel">
             <div className="panel-header">
-              <span className="panel-title">Instances that contributed nothing</span>
+              <span className="panel-title">Instances with nothing attributed</span>
             </div>
             <div className="panel-body">
               <table className="data-table">
@@ -265,8 +256,8 @@ export default async function FleetFlowPage({
                       <td className="num">{formatNumber(instancia.statements)}</td>
                       <td className="text-[11px] text-foreground-muted">
                         {instancia.statements === 0
-                          ? 'no query statistics: either no application traffic, or pg_stat_statements is missing'
-                          : 'there are queries but none touch an identifiable table'}
+                          ? 'no query statistics, or no application traffic'
+                          : 'queries seen but none pinned to a table'}
                       </td>
                     </tr>
                   ))}

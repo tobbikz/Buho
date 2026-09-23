@@ -29,6 +29,7 @@ import { getAnomalies, getBaselineCoverage } from '@/lib/baselines';
 import { ENGINE_LABEL, getInstanceEngine } from '@/lib/estate';
 import { explainIncident } from '@/lib/incident';
 import { postureHint } from '@/lib/health-posture';
+import { getInstanceReplication } from '@/lib/replication';
 import {
   getEvents,
   getFindings,
@@ -291,7 +292,7 @@ export default async function InstancePage({
         getLabeled(instanceId, 'wait_event_sessions', 10, 5),
         getLabeledPair(instanceId, 'table_total_bytes', 'table_index_bytes', 10, 30),
         getLabeledPair(instanceId, 'table_dead_tuples', 'table_dead_pct', 8, 30),
-        getLabeled(instanceId, 'replication_slot_active', 10, 30),
+        getInstanceReplication(instanceId),
         getEvents(instanceId, 10),
         // Recursos reales del host. Devuelve null si la instancia no los
         // declara, y en ese caso el Resumen sigue mostrando sólo las
@@ -411,7 +412,8 @@ export default async function InstancePage({
     tone: (row.valueB ?? 0) >= 20 ? 'error' : (row.valueB ?? 0) >= 10 ? 'warn' : 'accent',
   }));
 
-  const inactiveSlots = data.slots.filter((slot) => slot.value === 0);
+  const slotRows = data.slots.filter((row) => row.role === 'slot');
+  const inactiveSlots = slotRows.filter((slot) => slot.state !== 'active');
 
   return (
     <>
@@ -663,6 +665,20 @@ export default async function InstancePage({
           />
         </div>
 
+        <div className="chart-panel--full">
+          <TimeseriesPanel
+            title="I/O per second"
+            hint={windowHint}
+            data={data.io}
+            unit="rate"
+            height={220}
+            series={[
+              { metric: 'io_reads_per_sec', label: 'Reads', color: COLOR.warning },
+              { metric: 'io_writes_per_sec', label: 'Writes', color: COLOR.accent },
+            ]}
+          />
+        </div>
+
         <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
           <TimeseriesPanel
             title="WAL generated per second"
@@ -695,16 +711,6 @@ export default async function InstancePage({
             data={data.cache}
             unit="pct"
             series={[{ metric: 'db_cache_hit_pct', label: 'Cache hit', color: COLOR.accent }]}
-          />
-          <TimeseriesPanel
-            title="I/O per second"
-            hint={windowHint}
-            data={data.io}
-            unit="rate"
-            series={[
-              { metric: 'io_reads_per_sec', label: 'Reads', color: COLOR.warning },
-              { metric: 'io_writes_per_sec', label: 'Writes', color: COLOR.accent },
-            ]}
           />
           <TimeseriesPanel
             title="Checkpoints"
@@ -779,10 +785,10 @@ export default async function InstancePage({
             <div className="panel-header">
               <span className="panel-title">Replication</span>
               <span className="font-mono text-[10px] text-foreground-muted">
-                {data.slots.length} slot{data.slots.length === 1 ? '' : 's'}
+                {slotRows.length} slot{slotRows.length === 1 ? '' : 's'}
               </span>
             </div>
-            {data.slots.length === 0 ? (
+            {slotRows.length === 0 ? (
               <div className="empty">No replication slots.</div>
             ) : (
               <table className="data-table">
@@ -795,14 +801,18 @@ export default async function InstancePage({
                   </tr>
                 </thead>
                 <tbody>
-                  {data.slots.map((slot) => (
-                    <tr key={slot.labels['slot']}>
-                      <td className="font-mono text-[11.5px]">{slot.labels['slot']}</td>
-                      <td className="font-mono text-[11px] text-foreground-secondary">{slot.labels['slot_type']}</td>
-                      <td className="font-mono text-[11px] text-foreground-secondary">{slot.labels['wal_status']}</td>
+                  {slotRows.map((slot) => (
+                    <tr key={slot.peer}>
+                      <td className="font-mono text-[11.5px]">{slot.peer}</td>
+                      <td className="font-mono text-[11px] text-foreground-secondary">
+                        {typeof slot.detail['type'] === 'string' ? slot.detail['type'] : '·'}
+                      </td>
+                      <td className="font-mono text-[11px] text-foreground-secondary">
+                        {typeof slot.detail['wal_status'] === 'string' ? slot.detail['wal_status'] : '·'}
+                      </td>
                       <td className="text-right">
-                        <span className={`tag ${slot.value === 1 ? 'tag--ok' : 'tag--error'}`}>
-                          {slot.value === 1 ? 'active' : 'inactive'}
+                        <span className={`tag ${slot.state === 'active' ? 'tag--ok' : 'tag--error'}`}>
+                          {slot.state === 'active' ? 'active' : 'inactive'}
                         </span>
                       </td>
                     </tr>

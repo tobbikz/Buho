@@ -24,6 +24,14 @@ const jetbrains = JetBrains_Mono({
 export const metadata: Metadata = {
   title: 'Búho — Database monitor',
   description: 'On-prem PostgreSQL monitor with actionable diagnostics',
+  applicationName: 'Búho',
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+    ],
+    apple: [{ url: '/apple-icon', type: 'image/png' }],
+  },
 };
 
 export const viewport: Viewport = {

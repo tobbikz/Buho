@@ -1,12 +1,12 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { InstanceTabs } from '@/components/InstanceTabs';
-import { OrmGraph } from '@/components/OrmGraph';
+import { OrmExplorer } from '@/components/OrmExplorer';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { Topbar } from '@/components/Topbar';
 import { formatNumber } from '@/lib/format';
-import { formatUnit, type Unit } from '@/lib/units';
+import { type Unit } from '@/lib/units';
 import { getInstanceEngine } from '@/lib/estate';
 import { getInstance } from '@/lib/queries';
 import { getOrmModel } from '@/lib/orm';
@@ -71,11 +71,6 @@ export default async function OrmPage({
     );
   }
 
-  const enlace = (cambios: Record<string, string> = {}) => {
-    const params = new URLSearchParams({ peso: weight, v: window.key, capa: layer, ...cambios });
-    return `/instances/${instanceId}/orm?${params.toString()}`;
-  };
-
   return (
     <>
       <Topbar
@@ -120,59 +115,14 @@ export default async function OrmPage({
         </div>
 
         <section className="panel">
-          <div className="panel-header">
-            <span className="panel-title">Catalog graph</span>
-            <div className="flex flex-wrap items-center gap-1">
-              {LAYERS.map((opcion) => (
-                <Link
-                  key={opcion.key}
-                  href={enlace({ capa: opcion.key })}
-                  className={`tag ${opcion.key === layer ? 'tag--info' : 'tag--muted'}`}
-                  title={opcion.hint}
-                >
-                  {opcion.label}
-                </Link>
-              ))}
-              <span className="mx-1 text-foreground-muted">·</span>
-              {layer !== 'estructura'
-                ? WEIGHTS.map((opcion) => (
-                    <Link
-                      key={opcion.key}
-                      href={enlace({ peso: opcion.key })}
-                      className={`tag ${opcion.key === weight ? 'tag--info' : 'tag--muted'}`}
-                    >
-                      {opcion.label}
-                    </Link>
-                  ))
-                : null}
-              {layer !== 'estructura' ? <span className="mx-1 text-foreground-muted">·</span> : null}
-              {layer !== 'estructura'
-                ? WINDOWS.map((opcion) => (
-                    <Link
-                      key={opcion.key}
-                      href={enlace({ v: opcion.key })}
-                      className={`tag ${opcion.key === window.key ? 'tag--info' : 'tag--muted'}`}
-                    >
-                      {opcion.label}
-                    </Link>
-                  ))
-                : null}
-            </div>
-          </div>
-          <div className="panel-body">
-            {model.totalTables === 0 ? (
-              <div className="empty">No tables in catalog yet. Wait for the collector vacuum scan.</div>
-            ) : (
-              <OrmGraph model={model} instanceId={instanceId} unit={unit} layer={layer} />
-            )}
-            {layer !== 'estructura' && model.attributedTables > 0 ? (
-              <p className="mt-2 text-[11px] text-foreground-muted">
-                Traffic overlay uses {formatUnit(model.nodes.reduce((s, n) => s + n.writeHeat, 0), unit)} write
-                and {formatUnit(model.nodes.reduce((s, n) => s + n.readHeat, 0), unit)} read across FK-linked
-                tables in the last {window.label}.
-              </p>
-            ) : null}
-          </div>
+          <OrmExplorer
+            model={model}
+            instanceId={instanceId}
+            unit={unit}
+            initialLayer={layer}
+            weight={weight}
+            windowKey={window.key}
+          />
         </section>
       </div>
     </>

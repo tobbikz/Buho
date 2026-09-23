@@ -436,13 +436,15 @@ function startSessionLoop(instance: InstanceConfig, instanceId: number, pool: Po
  * sin reiniciarse.
  */
 function startLogLoop(instance: InstanceConfig, instanceId: number, pool: Pool): void {
-  const logConfig = instance.logs;
-  if (!logConfig?.source || logConfig.source === 'none') return;
+  // Default for Postgres: read logs over SQL (pg_ls_logdir). File/journal still
+  // work when explicitly configured. Console-added targets have no logs block.
+  const logConfig = instance.logs ?? { source: 'sql' as const };
+  if (logConfig.source === 'none') return;
 
   startLoop(`${instance.alias}/logs`, LOG_INTERVAL_MS, async () => {
     const info = await inspectLogging(pool, logConfig);
     const cursor = await store.logCursor(instanceId);
-    const result = await readLog(logConfig, info, cursor);
+    const result = await readLog(logConfig, info, cursor, 20_000, pool);
 
     const written = await store.saveLogEntries(instanceId, result.entries);
     await store.saveLogCursor(
@@ -1081,6 +1083,11 @@ function targetToInstance(target: Awaited<ReturnType<typeof store.listMonitorTar
     ssl: target.ssl,
     tags: target.tags,
     hostMetrics: hasHostMetrics ? (hostMetrics as InstanceConfig['hostMetrics']) : undefined,
+    // Console-added Postgres: read server logs over SQL by default (no SSH).
+    logs:
+      target.engine === 'postgres' || !target.engine
+        ? { source: 'sql' }
+        : undefined,
   };
 }
 

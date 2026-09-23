@@ -208,9 +208,13 @@ export default async function LogsPage({
 
         {!coverage && (
           <div className="notice notice--warn">
-            <strong>This instance has no log reading configured.</strong> El colector no lee journald ni
-            files unless asked: set <span className="font-mono">logs</span> in config.json. See{' '}
-            <span className="font-mono">sql/monitor-user.sql</span> para las dos formas y lo que cada una necesita.
+            <strong>This instance has no log reading yet.</strong> For PostgreSQL the collector
+            defaults to <span className="font-mono">logs.source = &quot;sql&quot;</span> (reads via{' '}
+            <span className="font-mono">pg_ls_logdir</span>
+            ). Install <span className="font-mono">buho_read_log</span> from{' '}
+            <span className="font-mono">sql/monitor-user.sql</span> so the monitor role can read
+            files without superuser. Alternatives: <span className="font-mono">journal</span> or{' '}
+            <span className="font-mono">file</span> in config.json.
           </div>
         )}
 

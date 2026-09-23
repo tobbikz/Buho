@@ -16,8 +16,8 @@ export default function FlowDesignLabPage() {
       />
       <div className="page page--wide">
         <p className="dl-lab__nav">
-          <Link href="/instances/1/flow" className="tag tag--muted">
-            ← back to live Flow
+          <Link href="/" className="tag tag--muted">
+            ← back to fleet
           </Link>
         </p>
         <FlowDesignCanvas />

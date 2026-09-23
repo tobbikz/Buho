@@ -61,7 +61,7 @@ export function TopologyBubbles({
   const [selected, setSelected] = useState<SimNode | null>(null);
   const selectedRef = useRef<SimNode | null>(null);
 
-  const { nodesSeed, links, maxWeight } = useMemo(() => {
+  const { nodesSeed, links, maxWeight, truncated } = useMemo(() => {
     const appWeight = new Map<string, number>();
     const tableWeight = new Map<string, { label: string; weight: number }>();
     const linksLocal: { source: string; target: string; weight: number; kind: 'write' | 'read' }[] =
@@ -105,7 +105,11 @@ export function TopologyBubbles({
       })),
     ].sort((a, b) => b.weight - a.weight);
 
-    return { nodesSeed: seeds, links: linksLocal, maxWeight: max };
+    const CAP = 48;
+    const kept = new Set(seeds.slice(0, CAP).map((s) => s.id));
+    const cappedSeeds = seeds.slice(0, CAP);
+    const cappedLinks = linksLocal.filter((l) => kept.has(l.source) && kept.has(l.target));
+    return { nodesSeed: cappedSeeds, links: cappedLinks, maxWeight: max, truncated: seeds.length > CAP };
   }, [edges]);
 
   useEffect(() => {
@@ -124,7 +128,7 @@ export function TopologyBubbles({
     nodesRef.current = nodesSeed.map((seed) => {
       const list = seed.kind === 'app' ? apps : tables;
       const index = list.findIndex((n) => n.id === seed.id);
-      const colX = seed.kind === 'app' ? w * 0.28 : w * 0.72;
+      const colX = seed.kind === 'app' ? w * 0.22 : w * 0.78;
       const paso = h / (list.length + 1);
       return {
         ...seed,
@@ -157,8 +161,8 @@ export function TopologyBubbles({
       for (const n of nodes) {
         if (n.pinned) continue;
         const homeX = n.kind === 'app' ? w * 0.28 : w * 0.72;
-        n.vx += (homeX - n.x) * 0.012 * alpha;
-        n.vy += (h / 2 - n.y) * 0.0012 * alpha;
+        n.vx += (homeX - n.x) * 0.008 * alpha;
+        n.vy += (h / 2 - n.y) * 0.0008 * alpha;
       }
 
       for (let i = 0; i < nodes.length; i += 1) {
@@ -168,9 +172,9 @@ export function TopologyBubbles({
           const dx = b.x - a.x;
           const dy = b.y - a.y;
           const dist = Math.hypot(dx, dy) || 0.01;
-          const minDist = a.r + b.r + 16;
+          const minDist = a.r + b.r + 28;
           if (dist < minDist) {
-            const push = ((minDist - dist) / dist) * 2.4 * alpha;
+            const push = ((minDist - dist) / dist) * 1.6 * alpha;
             if (!a.pinned) {
               a.vx -= dx * push;
               a.vy -= dy * push;
@@ -190,8 +194,8 @@ export function TopologyBubbles({
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const dist = Math.hypot(dx, dy) || 0.01;
-        const target = 140 + a.r + b.r;
-        const force = (dist - target) * 0.02 * alpha;
+        const target = 180 + a.r + b.r;
+        const force = (dist - target) * 0.014 * alpha;
         if (!a.pinned) {
           a.vx += (dx / dist) * force;
           a.vy += (dy / dist) * force;
@@ -209,16 +213,16 @@ export function TopologyBubbles({
           n.vy = 0;
           continue;
         }
-        n.vx *= 0.82;
-        n.vy *= 0.82;
+        n.vx *= 0.78;
+        n.vy *= 0.78;
         n.x += n.vx;
         n.y += n.vy;
         n.x = Math.min(w - 20, Math.max(20, n.x));
         n.y = Math.min(h - 20, Math.max(20, n.y));
         movement += Math.abs(n.vx) + Math.abs(n.vy);
       }
-      settledFrames = movement < 0.45 ? settledFrames + 1 : 0;
-      if (settledFrames >= 60) {
+      settledFrames = movement < 0.35 ? settledFrames + 1 : 0;
+      if (settledFrames >= 40) {
         for (const n of nodes) {
           n.pinned = true;
           n.vx = 0;
@@ -230,7 +234,7 @@ export function TopologyBubbles({
     const draw = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      if (settledFrames < 60) simulate(dt);
+      if (settledFrames < 40) simulate(dt);
 
       const width = canvas.clientWidth || w;
       const tall = canvas.clientHeight || h;
@@ -272,7 +276,7 @@ export function TopologyBubbles({
 
       for (const n of nodesRef.current) {
         const dim = sel && sel.id !== n.id;
-        const color = n.kind === 'app' ? APP : WRITE;
+        const color = n.kind === 'app' ? APP : READ;
         ctx.beginPath();
         ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
         ctx.fillStyle = dim ? 'rgba(168,176,186,0.35)' : `${color}22`;
@@ -379,7 +383,7 @@ export function TopologyBubbles({
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-3 text-[10px] text-foreground-muted">
-        <span>Bubble size = attributed time · drag nodes · scroll zoom · pan background</span>
+        <span>Bubble size = attributed time · drag nodes · scroll zoom · pan background{truncated ? ' · top 48 by weight' : ''}</span>
         <span className="inline-flex items-center gap-3">
           <span className="inline-flex items-center gap-1">
             <span className="inline-block h-2 w-2 rounded-full" style={{ background: APP }} />

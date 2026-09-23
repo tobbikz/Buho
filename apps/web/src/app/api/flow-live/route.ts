@@ -25,7 +25,7 @@ export async function GET(request: Request) {
   const weight = (['rows', 'time', 'calls'].includes(parametros.get('peso') ?? '')
     ? parametros.get('peso')
     : 'rows') as FlowWeight;
-  const minutos = Math.max(1, Math.min(60, Number(parametros.get('min') ?? VENTANA_MINUTOS)));
+  const minutos = Math.max(1, Math.min(10_080, Number(parametros.get('min') ?? VENTANA_MINUTOS)));
 
   const clave = `${alcance}|${parametros.get('instancia') ?? ''}|${weight}|${minutos}`;
   const guardado = cache.get(clave);

@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { FlowSankey, OperationBars } from '@/components/FlowSankey';
+import { OperationBars } from '@/components/FlowSankey';
 import { LiveFlow } from '@/components/LiveFlow';
 import { Heatmap } from '@/components/Heatmap';
 import { InstanceTabs } from '@/components/InstanceTabs';
@@ -44,7 +44,6 @@ const HEAT_WINDOWS: { key: string; label: string; days: number }[] = [
   { key: '365d', label: '1 year', days: 365 },
 ];
 
-/** La unidad del peso elegido: el tiempo viene en milisegundos, el resto son cuentas. */
 function unitFor(weight: FlowWeight): Unit {
   return weight === 'time' ? 'ms' : 'count';
 }
@@ -57,14 +56,13 @@ export default async function FlowPage({
   searchParams: Promise<{
     peso?: string;
     v?: string;
-    vista?: string;
     calor?: string;
     cv?: string;
     agg?: string;
   }>;
 }) {
   const { id } = await params;
-  const { peso, v, vista, calor, cv, agg } = await searchParams;
+  const { peso, v, calor, cv, agg } = await searchParams;
 
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
@@ -73,7 +71,6 @@ export default async function FlowPage({
 
   const weight = (WEIGHTS.find((entrada) => entrada.key === peso)?.key ?? 'rows') as FlowWeight;
   const window = WINDOWS.find((entrada) => entrada.key === v) ?? WINDOWS[2]!;
-  const enVivo = vista === 'vivo';
   const heatOption = HEAT_OPTIONS.find((entrada) => entrada.key === calor) ?? HEAT_OPTIONS[0]!;
   const heatWindow = HEAT_WINDOWS.find((entrada) => entrada.key === cv) ?? HEAT_WINDOWS[1]!;
   const heatAgg: HeatAgg = agg === 'max' ? 'max' : 'avg';
@@ -111,7 +108,6 @@ export default async function FlowPage({
     const parametros = new URLSearchParams({
       peso: weight,
       v: window.key,
-      vista: enVivo ? 'vivo' : 'acumulado',
       calor: heatOption.key,
       cv: heatWindow.key,
       agg: heatAgg,
@@ -128,13 +124,14 @@ export default async function FlowPage({
   const cobertura =
     flow.weightTotal > 0 ? (flow.weightAttributed / flow.weightTotal) * 100 : 0;
 
-  // Los contadores del propio PostgreSQL, para contrastar la atribución.
   const escriturasContadas = counters.reduce(
     (suma, fila) => suma + fila.inserted + fila.updated + fila.deleted,
     0,
   );
   const escriturasAtribuidas = flow.writeTotal;
   const lecturasAtribuidas = flow.readTotal;
+  const hotTables = [...flow.tables].sort((a, b) => pesoTabla(b) - pesoTabla(a));
+  const weightSum = hotTables.reduce((suma, tabla) => suma + pesoTabla(tabla), 0);
 
   const tranquila = quietestHour(heat, 2);
   const cargada = busiestHour(heat, 2);
@@ -147,18 +144,18 @@ export default async function FlowPage({
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Flow and usage · {instance.alias}</h1>
+            <h1 className="page-title">Flow · {instance.alias}</h1>
             <p className="page-sub">
-              Where traffic enters and where it lands. <strong>Writes</strong> and <strong>Reads</strong> are the two
-              entry points, then schema, then table. Diagram attribution is <strong>approximate</strong> — it comes
-              from reading each query&apos;s text
+              Which tables are taking the heat in this window — by rows, time, or calls. Attribution is
+              approximate (from query text)
               {engine === 'postgres'
-                ? ', and PostgreSQL counters are below for contrast. For the full catalog map, see the ORM tab.'
+                ? '; PostgreSQL table counters below are the ground truth when they disagree.'
                 : '.'}{' '}
-              <Link href="/design-lab/flow" className="underline">
-                Design lab
+              Full catalog map:{' '}
+              <Link href={`/instances/${instanceId}/orm`} className="underline">
+                ORM
               </Link>
-              : polish packs for this layout.
+              .
             </p>
           </div>
         </header>
@@ -169,47 +166,31 @@ export default async function FlowPage({
           <StatCard
             label="Write heat"
             value={formato(escriturasAtribuidas)}
-            hint={`attributed, window ${window.label}`}
+            hint={`attributed · ${window.label}`}
             tone="accent"
           />
           <StatCard
             label="Read heat"
             value={formato(lecturasAtribuidas)}
-            hint={`attributed, window ${window.label}`}
+            hint={`attributed · ${window.label}`}
           />
           <StatCard
-            label="Tables with traffic"
+            label="Hot tables"
             value={formatNumber(flow.tables.length)}
-            hint="touched by some query"
+            hint="with attributed traffic"
           />
           <StatCard
-            label="Attributed queries"
-            value={`${formatNumber(flow.attributed)} / ${formatNumber(flow.statements)}`}
-            hint={`${formatPct(cobertura, 0)} of total weight`}
+            label="Attribution coverage"
+            value={formatPct(cobertura, 0)}
+            hint={`${formatNumber(flow.attributed)} / ${formatNumber(flow.statements)} queries`}
             tone={cobertura >= 60 ? 'ok' : cobertura >= 25 ? 'warn' : 'neutral'}
           />
         </div>
 
-        {/* ------------------------------------------------------------ flujo */}
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Hot tables · writes &amp; reads</span>
+            <span className="panel-title">Where traffic lands · writes &amp; reads</span>
             <div className="flex flex-wrap items-center gap-1">
-              <Link
-                href={enlace({ vista: 'vivo' })}
-                className={`tag ${enVivo ? 'tag--ok' : 'tag--muted'}`}
-                title="what is moving now, last 5 minutes"
-              >
-                Live
-              </Link>
-              <Link
-                href={enlace({ vista: 'acumulado' })}
-                className={`tag ${enVivo ? 'tag--muted' : 'tag--info'}`}
-                title="total for the selected window"
-              >
-                Accumulated
-              </Link>
-              <span className="mx-1 text-foreground-muted">·</span>
               {WEIGHTS.map((opcion) => (
                 <Link
                   key={opcion.key}
@@ -234,40 +215,82 @@ export default async function FlowPage({
           </div>
 
           <div className="panel-body">
-            {enVivo ? (
-              <LiveFlow scope="instancia" instanceId={instanceId} weight={weight} unit={unidad} />
-            ) : (
-            <FlowSankey
-              nodes={flow.nodes}
-              links={flow.links}
-              unit={unidad}
-              emptyMessage={
-                flow.statements === 0
+            {flow.tables.length === 0 ? (
+              <div className="empty">
+                {flow.statements === 0
                   ? escriturasContadas > 0
                     ? 'Counters see writes but no query was recorded in pg_stat_statements. Often intentional exclusion: Búho tags monitor queries and does not attribute them.'
                     : "No application queries in the window. Búho's own queries do not count, so an instance that only receives monitoring looks empty here."
                   : weight === 'rows' && engine === 'mssql'
                     ? 'SQL Server does not count rows modified per query, so weighting writes by rows is zero. Try "Time" or "Calls".'
-                    : 'No traffic could be attributed to a table in this window.'
-              }
-            />
+                    : 'No traffic could be attributed to a table in this window.'}
+              </div>
+            ) : (
+              <LiveFlow
+                scope="instancia"
+                instanceId={instanceId}
+                weight={weight}
+                unit={unidad}
+                height={520}
+                animated={false}
+                windowMinutes={window.minutes}
+              />
             )}
             <p className="mt-2 text-[11px] text-foreground-muted">
-              Green bands are writes, blue bands are reads. When a query touches several tables, its weight is split
-              across them. System schemas are excluded. For the full database catalog, open the{' '}
-              <Link href={`/instances/${instanceId}/orm`} className="underline">
-                ORM
-              </Link>{' '}
-              tab.
+              Green = writes, blue = reads. Same packed layout as before, without moving particles.
+              Coverage {formatPct(cobertura, 0)} — the rest could not be pinned to a table from the statement text.
             </p>
           </div>
         </section>
 
         <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-3">
-          {/* ------------------------------------------------- por operación */}
+          <section className="panel xl:col-span-2">
+            <div className="panel-header">
+              <span className="panel-title">Hottest tables</span>
+              <span className="font-mono text-[10px] text-foreground-muted">
+                by {weight} · {window.label}
+              </span>
+            </div>
+            <div className="panel-body">
+              {hotTables.length === 0 ? (
+                <div className="empty">No attributed tables in the window.</div>
+              ) : (
+                <div className="table-scroll" style={{ maxHeight: '22rem' }}>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Table</th>
+                        <th className="text-right">Write</th>
+                        <th className="text-right">Read</th>
+                        <th className="text-right">Share</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {hotTables.slice(0, 25).map((tabla, index) => {
+                        const peso = pesoTabla(tabla);
+                        return (
+                          <tr key={tabla.relation}>
+                            <td className="num text-foreground-muted">{index + 1}</td>
+                            <td className="font-mono text-[11px]">{tabla.relation}</td>
+                            <td className="num">{formato(tabla.writeWeight ?? 0)}</td>
+                            <td className="num">{formato(tabla.readWeight ?? 0)}</td>
+                            <td className="num">
+                              {weightSum > 0 ? formatPct((peso / weightSum) * 100, 1) : '·'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
+
           <section className="panel xl:col-span-1">
             <div className="panel-header">
-              <span className="panel-title">Traffic mix per table</span>
+              <span className="panel-title">Traffic mix</span>
             </div>
             <div className="panel-body">
               {flow.tables.length === 0 ? (
@@ -284,86 +307,81 @@ export default async function FlowPage({
               )}
             </div>
           </section>
-
-          {/* ----------------------------------------------- contraste honesto */}
-          <section className="panel xl:col-span-2">
-            <div className="panel-header">
-              <span className="panel-title">
-                {engine === 'postgres'
-                  ? 'What PostgreSQL counters say'
-                  : 'Contrast with engine counters'}
-              </span>
-              <span className="font-mono text-[10px] text-foreground-muted">window {window.label}</span>
-            </div>
-            <div className="panel-body">
-              {engine !== 'postgres' ? (
-                <div className="empty">
-                  {engine === 'mariadb' ? 'MariaDB' : 'SQL Server'} does not expose per-table row counters like{' '}
-                  <span className="font-mono">pg_stat_user_tables</span>, so there is nothing here to contrast: on
-                  this engine the diagram is the only source and its attribution is approximate.
-                </div>
-              ) : counters.length === 0 ? (
-                <div className="empty">
-                  No two activity samples per table yet. The collector takes them every minute.
-                </div>
-              ) : (
-                <div className="table-scroll" style={{ maxHeight: '20rem' }}>
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Table</th>
-                        <th className="text-right">Inserted</th>
-                        <th className="text-right">Updated</th>
-                        <th className="text-right">HOT</th>
-                        <th className="text-right">Deleted</th>
-                        <th className="text-right">Sequential</th>
-                        <th className="text-right">By index</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {counters.slice(0, 20).map((fila) => {
-                        const hotPct =
-                          fila.updated > 0 ? (fila.hotUpdated / fila.updated) * 100 : null;
-                        return (
-                          <tr key={fila.relation}>
-                            <td className="font-mono text-[11px]">{fila.relation}</td>
-                            <td className="num">{formatNumber(Math.round(fila.inserted))}</td>
-                            <td className="num">{formatNumber(Math.round(fila.updated))}</td>
-                            <td className="num">
-                              {hotPct === null ? (
-                                '·'
-                              ) : (
-                                // Por debajo del 50 % de HOT, cada update está
-                                // reescribiendo indexs: es la señal más directa
-                                // de que sobran indexes en una tabla caliente.
-                                <span className={hotPct < 50 ? 'text-[var(--warning)]' : ''}>
-                                  {hotPct.toFixed(0)}%
-                                </span>
-                              )}
-                            </td>
-                            <td className="num">{formatNumber(Math.round(fila.deleted))}</td>
-                            <td className="num">{formatNumber(Math.round(fila.seqScans))}</td>
-                            <td className="num">{formatNumber(Math.round(fila.idxScans))}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              {engine === 'postgres' && (
-                <p className="mt-2 text-[11px] text-foreground-muted">
-                  These numbers do not depend on parsing any query. If they disagree with the diagram, trust them:
-                  attribution is lost with triggers, foreign-key cascades, and queries that fell out of{' '}
-                  <span className="font-mono">pg_stat_statements</span>. The HOT column is the share of updates that
-                  touched no index.
-                </p>
-              )}
-            </div>
-          </section>
         </div>
 
-        {/* ----------------------------------------------------------- calor */}
+        <section className="panel">
+          <div className="panel-header">
+            <span className="panel-title">
+              {engine === 'postgres'
+                ? 'Engine counters (ground truth)'
+                : 'Contrast with engine counters'}
+            </span>
+            <span className="font-mono text-[10px] text-foreground-muted">window {window.label}</span>
+          </div>
+          <div className="panel-body">
+            {engine !== 'postgres' ? (
+              <div className="empty">
+                {engine === 'mariadb' ? 'MariaDB' : 'SQL Server'} does not expose per-table row counters like{' '}
+                <span className="font-mono">pg_stat_user_tables</span>, so the diagram is the only source and its
+                attribution is approximate.
+              </div>
+            ) : counters.length === 0 ? (
+              <div className="empty">
+                No two activity samples per table yet. The collector takes them every minute.
+              </div>
+            ) : (
+              <div className="table-scroll" style={{ maxHeight: '20rem' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Table</th>
+                      <th className="text-right">Inserted</th>
+                      <th className="text-right">Updated</th>
+                      <th className="text-right">HOT</th>
+                      <th className="text-right">Deleted</th>
+                      <th className="text-right">Seq scan</th>
+                      <th className="text-right">Idx scan</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {counters.slice(0, 20).map((fila) => {
+                      const hotPct =
+                        fila.updated > 0 ? (fila.hotUpdated / fila.updated) * 100 : null;
+                      return (
+                        <tr key={fila.relation}>
+                          <td className="font-mono text-[11px]">{fila.relation}</td>
+                          <td className="num">{formatNumber(Math.round(fila.inserted))}</td>
+                          <td className="num">{formatNumber(Math.round(fila.updated))}</td>
+                          <td className="num">
+                            {hotPct === null ? (
+                              '·'
+                            ) : (
+                              <span className={hotPct < 50 ? 'text-[var(--warning)]' : ''}>
+                                {hotPct.toFixed(0)}%
+                              </span>
+                            )}
+                          </td>
+                          <td className="num">{formatNumber(Math.round(fila.deleted))}</td>
+                          <td className="num">{formatNumber(Math.round(fila.seqScans))}</td>
+                          <td className="num">{formatNumber(Math.round(fila.idxScans))}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {engine === 'postgres' && counters.length > 0 && (
+              <p className="mt-2 text-[11px] text-foreground-muted">
+                These do not depend on parsing SQL. If they disagree with the map above, trust them — attribution is
+                lost with triggers, FK cascades, and statements that left{' '}
+                <span className="font-mono">pg_stat_statements</span>. HOT below 50% usually means updates are
+                rewriting indexes.
+              </p>
+            )}
+          </div>
+        </section>
+
         <section className="panel">
           <div className="panel-header">
             <span className="panel-title">When it is used · {heatOption.label}</span>
@@ -384,11 +402,6 @@ export default async function FlowPage({
                   key={opcion}
                   href={enlace({ agg: opcion })}
                   className={`tag ${opcion === heatAgg ? 'tag--info' : 'tag--muted'}`}
-                  title={
-                    opcion === 'avg'
-                      ? 'what a typical hour looks like'
-                      : 'how bad it ever got at that hour'
-                  }
                 >
                   {opcion === 'avg' ? 'typical' : 'worst case'}
                 </Link>
@@ -425,24 +438,17 @@ export default async function FlowPage({
                       with {formatoCalor(cargada.value)}
                       {tranquila && (
                         <>
-                          , and quietest is{' '}
+                          ; quietest is{' '}
                           <strong>
                             {WEEKDAY_LABEL[tranquila.weekday]} at{' '}
                             {String(tranquila.hour).padStart(2, '0')}:00
                           </strong>{' '}
-                          with {formatoCalor(tranquila.value)} — a good maintenance window
+                          with {formatoCalor(tranquila.value)} — a maintenance window candidate
                         </>
                       )}
                       .
                     </>
                   )}
-                </p>
-                <p className="mt-1 text-[11px] text-foreground-muted">
-                  {heat.daysCovered < 14
-                    ? `Only ${Math.round(heat.daysCovered)} day${Math.round(heat.daysCovered) === 1 ? '' : 's'} of history: the grid does not yet distinguish Tuesday from Thursday. With two weeks it starts to mean something, and ${heat.emptyCells} cell${heat.emptyCells === 1 ? '' : 's'} still have no data.`
-                    : `${Math.round(heat.daysCovered)} days of history. Hatched cells have no data; pale ones were measured only once.`}{' '}
-                  Color is relative to this grid, so it does not compare across instances. The hour is the
-                  operator's, not the store's.
                 </p>
               </>
             )}

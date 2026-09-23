@@ -76,7 +76,12 @@ async function explain(formData: FormData) {
     back('A writing statement is not run with ANALYZE. The estimated plan shows the same structure.');
   }
   if (mode === 'generic') {
-    back('Generic plan is PostgreSQL-only. Use the estimated plan for MariaDB.');
+    // Generic plans are PostgreSQL-only (GENERIC_PLAN). MariaDB must use estimate.
+    const { getInstanceEngine } = await import('@/lib/estate');
+    const engine = await getInstanceEngine(instanceId);
+    if (engine !== 'postgres') {
+      back('Generic plan is PostgreSQL-only. Use the estimated plan for MariaDB.');
+    }
   }
 
   const requestId = await requestPlan(instanceId, sql, mode, session.username, queryid);
