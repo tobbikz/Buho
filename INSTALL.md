@@ -415,11 +415,10 @@ git pull
 ./install.sh --actualizar
 ```
 
-Eso construye sólo `collector` y `web` y los recrea. No ejecuta `up` del
-`store`: en Podman ese `up` vuelve a publicar el puerto (55432) aunque el
-contenedor ya lo tenga, y falla con `address already in use` antes de
-construir nada. El volumen `buho_store` no se toca, no es un `down`, y no
-regenera `.env`.
+Eso construye sólo `collector` y `web`. Antes de volver a crearlos los para y
+los borra: en Podman rootless `--force-recreate` intenta el puerto 3100
+mientras el contenedor viejo todavía lo tiene. No ejecuta `up` del `store`
+(ese mismo fallo, en el 55432) ni regenera `.env`. No hace falta `sudo`.
 `docker compose up -d` a secas no alcanza: reutiliza las imágenes viejas si no
 se pasó `--build`.
 

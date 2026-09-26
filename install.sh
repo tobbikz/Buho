@@ -150,7 +150,14 @@ if [[ "$SOLO_VERIFICAR" -eq 0 && "$ACTUALIZAR" -eq 1 ]]; then
   else
     aviso 'sin construir ni bajar: se recrean colector y consola con la imagen que ya está'
   fi
-  "${COMPOSE[@]}" up -d --no-deps --force-recreate collector web
+  # --force-recreate en Podman rootless publica 3100 antes de soltar el
+  # forward del contenedor viejo y falla con "address already in use".
+  # Parar y borrar primero libera el puerto; el store no entra en estos nombres.
+  paso 'Reemplazando colector y consola'
+  "${COMPOSE[@]}" stop collector web || true
+  "${COMPOSE[@]}" rm -f collector web || true
+  sleep 2
+  "${COMPOSE[@]}" up -d --no-deps collector web
   ok 'colector y consola recreados; el volumen del store no se tocó'
 elif [[ "$SOLO_VERIFICAR" -eq 0 ]]; then
   if [[ "$PULL" -eq 1 ]]; then
