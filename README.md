@@ -137,6 +137,7 @@ Read-only vía `pg_monitor`: acceso a estadísticas y configuración, **nunca** 
 | `none` (por defecto) | No se recogen recursos del host | nada |
 | `local` | Búho corre en el mismo host que la base | nada |
 | `ssh` | La base está en otro servidor | nada: un usuario de sólo lectura con acceso a `/proc` y `df` |
+| `docker` | Lab: el colector hace `docker exec` a un contenedor hermano | el CLI de Docker en la imagen del colector. Si el mirror de Alpine no responde al construir, la imagen igual arranca y este modo queda apagado |
 
 Sigue siendo *agentless*: no hay proceso residente en el servidor del cliente, sólo lectura de archivos. La conexión SSH usa `BatchMode=yes` para que una llave inválida falle y quede registrada, en vez de colgarse esperando una contraseña. `df` no se corre sobre el data directory (es 700 y propiedad de `postgres`): se sube al ancestro accesible, que está en el mismo filesystem.
 

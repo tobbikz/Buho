@@ -138,13 +138,9 @@ if [[ "$SOLO_VERIFICAR" -eq 0 && "$ACTUALIZAR" -eq 1 ]]; then
   paso 'Actualizando colector y consola (el store sigue corriendo)'
   # No hacer `up store`. En Podman eso intenta volver a publicar 55432 aunque
   # el contenedor ya lo tenga, y el script muere con "address already in use"
-  # antes de construir el colector y la consola.
-  if "${COMPOSE[@]}" ps --status running 2>/dev/null | grep -q store; then
-    ok 'el store ya está corriendo; no se reinicia'
-  else
-    aviso 'el store no figura como running. --actualizar no lo arranca.'
-    aviso 'si el puerto del store ya está ocupado, es el contenedor que ya corre.'
-  fi
+  # antes de construir el colector y la consola. `ps --status running` en el
+  # compose de Podman tampoco lista el servicio, así que no se usa como prueba.
+  ok 'el store no se toca'
   if [[ "$PULL" -eq 1 ]]; then
     "${COMPOSE[@]}" pull collector web
     ok 'imágenes de colector y consola bajadas'

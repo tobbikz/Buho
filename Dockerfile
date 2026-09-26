@@ -1,7 +1,18 @@
 FROM node:24-alpine
 
-# docker CLI for hostMetrics.source=docker (lab: docker exec into Maria containers)
-RUN apk add --no-cache docker-cli
+# docker CLI solo para hostMetrics.source=docker (lab: docker exec a un
+# contenedor hermano). En producción se lee /proc por local o ssh.
+# Si el mirror de Alpine no resuelve (DNS transitorio), el paquete "no existe"
+# y no debe tumbar la imagen del colector.
+RUN ok=0; \
+    for i in 1 2 3 4 5; do \
+      if apk add --no-cache docker-cli; then ok=1; break; fi; \
+      echo "apk docker-cli intento ${i} fallo; reintento en 8s"; \
+      sleep 8; \
+    done; \
+    if [ "$ok" != 1 ]; then \
+      echo "aviso: docker-cli no quedo instalado. hostMetrics.source=docker no va a funcionar."; \
+    fi
 
 WORKDIR /app
 
