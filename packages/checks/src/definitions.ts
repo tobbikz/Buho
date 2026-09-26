@@ -940,6 +940,32 @@ const weakPasswordEncryption: CheckDefinition = {
   },
 };
 
+/**
+ * Fuera del catálogo 1:1 con MariaDB/SQL Server: sólo PostgreSQL tiene
+ * suscripciones lógicas. Un suscriptor no tiene slots; el apply worker caído
+ * es el hallazgo (pid vacío en pg_stat_subscription).
+ */
+const logicalSubscriptionDown: CheckDefinition = {
+  id: 'logical_subscription_down',
+  title: 'Logical subscription not applying',
+  description: 'Subscriber apply worker is down',
+  sql: () => `
+    select subname
+      from pg_stat_subscription
+     group by subname
+    having not bool_or(pid is not null)`,
+  evaluate: (rows) =>
+    rows.map((row) => ({
+      severity: 'critical' as const,
+      object: text(row['subname']),
+      message: `Subscription ${text(row['subname'])} has no apply worker (pid is empty). It is not applying.`,
+      remediation:
+        'On the subscriber, check pg_stat_subscription and the log for the apply worker. Confirm the publisher slot (subslotname) still exists, the subscription is enabled, and max_logical_replication_workers is not exhausted. ALTER SUBSCRIPTION … DISABLE / ENABLE restarts the worker after the cause is fixed.',
+    })),
+};
+
+export const POSTGRES_ONLY_CHECKS: CheckDefinition[] = [logicalSubscriptionDown];
+
 export const CHECKS: CheckDefinition[] = [
   connectionSaturation,
   idleInTransaction,

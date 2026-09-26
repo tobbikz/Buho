@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AnomalyPanel } from '@/components/AnomalyPanel';
 import { FindingsPanel } from '@/components/FindingsPanel';
+import { InstanceEvents } from '@/components/InstanceEvents';
 import { IncidentPanel } from '@/components/IncidentPanel';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { ForeignSummary } from '@/components/ForeignSummary';
@@ -14,6 +15,7 @@ import { LabeledBars, type BarRow } from '@/components/LabeledBars';
 import { StatCard, toneForMinimum, toneForPct, toneForScore } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { TimeseriesPanel } from '@/components/TimeseriesPanel';
+import { TimeoutScatter } from '@/components/TimeoutScatter';
 import { Topbar } from '@/components/Topbar';
 import {
   formatAgo,
@@ -28,6 +30,7 @@ import {
 import { getAnomalies, getBaselineCoverage } from '@/lib/baselines';
 import { ENGINE_LABEL, getInstanceEngine } from '@/lib/estate';
 import { explainIncident } from '@/lib/incident';
+import { getTimeoutEvents } from '@/lib/logs';
 import { postureHint } from '@/lib/health-posture';
 import {
   getEvents,
@@ -217,11 +220,13 @@ export default async function InstancePage({
       io,
       checkpoints,
       tempFiles,
+      timeouts,
       findings,
       waitEvents,
       tables,
       deadTuples,
       slots,
+      subscriptions,
       events,
       host,
       hostCpu,
@@ -287,11 +292,19 @@ export default async function InstancePage({
           window.minutes,
           window.bucketSeconds,
         ),
+        getTimeoutEvents(instanceId, window.minutes),
         getFindings(instanceId),
         getLabeled(instanceId, 'wait_event_sessions', 10, 5),
         getLabeledPair(instanceId, 'table_total_bytes', 'table_index_bytes', 10, 30),
         getLabeledPair(instanceId, 'table_dead_tuples', 'table_dead_pct', 8, 30),
         getLabeled(instanceId, 'replication_slot_active', 10, 30),
+        getLabeledPair(
+          instanceId,
+          'replication_subscription_worker',
+          'replication_subscription_lag_seconds',
+          20,
+          30,
+        ),
         getEvents(instanceId, 10),
         // Recursos reales del host. Devuelve null si la instancia no los
         // declara, y en ese caso el Resumen sigue mostrando sólo las
@@ -320,11 +333,13 @@ export default async function InstancePage({
       io,
       checkpoints,
       tempFiles,
+      timeouts,
       findings,
       waitEvents,
       tables,
       deadTuples,
       slots,
+      subscriptions,
       events,
       host,
       hostCpu,
@@ -678,6 +693,27 @@ export default async function InstancePage({
             unit="count"
             series={[{ metric: 'blocked_sessions', label: 'Blocked', color: COLOR.error }]}
           />
+        </div>
+
+        <div className="chart-panel--full">
+          <TimeseriesPanel
+            title="I/O per second"
+            hint={windowHint}
+            data={data.io}
+            unit="rate"
+            height={260}
+            series={[
+              { metric: 'io_reads_per_sec', label: 'Reads', color: COLOR.warning },
+              { metric: 'io_writes_per_sec', label: 'Writes', color: COLOR.accent },
+            ]}
+          />
+        </div>
+
+        <div className="chart-panel--full">
+          <TimeoutScatter points={data.timeouts} height={240} />
+        </div>
+
+        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
           <TimeseriesPanel
             title="Active sessions by wait class"
             hint="CPU = running, not waiting"
@@ -695,16 +731,6 @@ export default async function InstancePage({
             data={data.cache}
             unit="pct"
             series={[{ metric: 'db_cache_hit_pct', label: 'Cache hit', color: COLOR.accent }]}
-          />
-          <TimeseriesPanel
-            title="I/O per second"
-            hint={windowHint}
-            data={data.io}
-            unit="rate"
-            series={[
-              { metric: 'io_reads_per_sec', label: 'Reads', color: COLOR.warning },
-              { metric: 'io_writes_per_sec', label: 'Writes', color: COLOR.accent },
-            ]}
           />
           <TimeseriesPanel
             title="Checkpoints"
@@ -779,36 +805,91 @@ export default async function InstancePage({
             <div className="panel-header">
               <span className="panel-title">Replication</span>
               <span className="font-mono text-[10px] text-foreground-muted">
+                {data.subscriptions.length} subscription{data.subscriptions.length === 1 ? '' : 's'}
+                {' · '}
                 {data.slots.length} slot{data.slots.length === 1 ? '' : 's'}
               </span>
             </div>
-            {data.slots.length === 0 ? (
-              <div className="empty">No replication slots.</div>
+            {data.subscriptions.length === 0 && data.slots.length === 0 ? (
+              <div className="empty">
+                No publisher slots and no logical subscriptions yet. A subscriber does not own slots —
+                those live on the publisher. Subscriptions appear after the collector reads
+                pg_stat_subscription.
+              </div>
             ) : (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Slot</th>
-                    <th>Type</th>
-                    <th>WAL</th>
-                    <th className="text-right">State</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.slots.map((slot) => (
-                    <tr key={slot.labels['slot']}>
-                      <td className="font-mono text-[11.5px]">{slot.labels['slot']}</td>
-                      <td className="font-mono text-[11px] text-foreground-secondary">{slot.labels['slot_type']}</td>
-                      <td className="font-mono text-[11px] text-foreground-secondary">{slot.labels['wal_status']}</td>
-                      <td className="text-right">
-                        <span className={`tag ${slot.value === 1 ? 'tag--ok' : 'tag--error'}`}>
-                          {slot.value === 1 ? 'active' : 'inactive'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <>
+                {data.subscriptions.length > 0 ? (
+                  <>
+                    {data.slots.length === 0 ? (
+                      <div className="panel-body border-b border-border text-[11.5px] text-foreground-secondary">
+                        This server is a logical subscriber. Replication slots live on the publisher, so
+                        zero slots here does not mean there is no replica.
+                      </div>
+                    ) : null}
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Subscription</th>
+                          <th className="text-right">Apply lag</th>
+                          <th className="text-right">Worker</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...data.subscriptions]
+                          .sort((a, b) => a.value - b.value || (a.labels['subscription'] ?? '').localeCompare(b.labels['subscription'] ?? ''))
+                          .map((row) => {
+                            const down = row.value !== 1;
+                            return (
+                              <tr key={row.labels['subscription']}>
+                                <td className="font-mono text-[11.5px]">{row.labels['subscription']}</td>
+                                <td className="num font-mono text-[11px]">
+                                  {row.valueB === null ? '—' : formatDuration(row.valueB)}
+                                </td>
+                                <td className="text-right">
+                                  <span className={`tag ${down ? 'tag--error' : 'tag--ok'}`}>
+                                    {down ? 'down' : 'applying'}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                    {data.subscriptions.some((row) => row.value !== 1) ? (
+                      <div className="panel-body border-t border-border text-[11.5px] text-foreground-secondary">
+                        Apply worker pid is empty: the subscription is not applying. Check the publisher
+                        slot and the subscriber log, then restart the worker.
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+                {data.slots.length > 0 ? (
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Slot</th>
+                        <th>Type</th>
+                        <th>WAL</th>
+                        <th className="text-right">State</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.slots.map((slot) => (
+                        <tr key={slot.labels['slot']}>
+                          <td className="font-mono text-[11.5px]">{slot.labels['slot']}</td>
+                          <td className="font-mono text-[11px] text-foreground-secondary">{slot.labels['slot_type']}</td>
+                          <td className="font-mono text-[11px] text-foreground-secondary">{slot.labels['wal_status']}</td>
+                          <td className="text-right">
+                            <span className={`tag ${slot.value === 1 ? 'tag--ok' : 'tag--error'}`}>
+                              {slot.value === 1 ? 'active' : 'inactive'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : null}
+              </>
             )}
             {inactiveSlots.length > 0 && (
               <div className="panel-body border-t border-border text-[11.5px] text-foreground-secondary">
@@ -825,31 +906,18 @@ export default async function InstancePage({
             {data.events.length === 0 ? (
               <div className="empty">No events recorded.</div>
             ) : (
-              <table className="data-table">
-                <tbody>
-                  {data.events.map((event, index) => (
-                    <tr key={`${event.ts}-${index}`}>
-                      <td className="font-mono text-[11px] text-foreground-muted" style={{ width: '5.5rem' }}>
-                        {formatClock(event.ts)}
-                      </td>
-                      <td style={{ width: '4.5rem' }}>
-                        <span
-                          className={`tag ${
-                            event.level === 'error'
-                              ? 'tag--error'
-                              : event.level === 'warn'
-                                ? 'tag--warn'
-                                : 'tag--muted'
-                          }`}
-                        >
-                          {event.level}
-                        </span>
-                      </td>
-                      <td className="text-[12px]">{event.message}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <InstanceEvents
+                events={data.events.map((event) => ({
+                  eventId: event.eventId,
+                  ts: event.ts.toISOString(),
+                  firstTs: event.firstTs ? new Date(event.firstTs).toISOString() : null,
+                  level: event.level,
+                  component: event.component,
+                  message: event.message,
+                  occurrences: event.occurrences ?? 1,
+                  detail: event.detail ?? null,
+                }))}
+              />
             )}
           </section>
         </div>

@@ -14,7 +14,7 @@ import {
   getInstanceInventory,
   type ReplicationRow as EstateReplicationRow,
 } from '@/lib/estate';
-import { getInstance, getSeries, getSeriesByLabel } from '@/lib/queries';
+import { getInstance, getLabeledPair, getSeries, getSeriesByLabel } from '@/lib/queries';
 import { getMariaReplicationSankey } from '@/lib/replication-sankey';
 import { shortPeerLabel, shortProcesslistState } from '@/lib/maria-labels';
 import {
@@ -283,8 +283,9 @@ export default async function ReplicationPage({
   let topology: ReplicationTopology | null;
   let lag: Awaited<ReturnType<typeof getSeriesByLabel>>;
   let standby: Awaited<ReturnType<typeof getSeries>>;
+  let liveSubs: Awaited<ReturnType<typeof getLabeledPair>>;
   try {
-    [topology, lag, standby] = await Promise.all([
+    [topology, lag, standby, liveSubs] = await Promise.all([
       getReplicationTopology(instanceId),
       getSeriesByLabel(
         instanceId,
@@ -300,6 +301,13 @@ export default async function ReplicationPage({
         window.minutes,
         window.bucket,
       ),
+      getLabeledPair(
+        instanceId,
+        'replication_subscription_worker',
+        'replication_subscription_lag_seconds',
+        20,
+        30,
+      ),
     ]);
   } catch (error) {
     return (
@@ -314,15 +322,36 @@ export default async function ReplicationPage({
 
   if (!topology) notFound();
 
+  if (liveSubs.length > 0) {
+    const liveSubscriptions: InstanceReplicationRow[] = liveSubs.map((row) => ({
+      role: 'subscription',
+      peer: row.labels['subscription'] ?? 'subscription',
+      state: row.value === 1 ? 'applying' : 'down',
+      lagBytes: null,
+      lagSeconds: row.valueB,
+      detail: {},
+      capturedAt: new Date(),
+    }));
+    topology = {
+      ...topology,
+      subscriptions: liveSubscriptions,
+      role:
+        topology.role === 'standalone' || topology.role === 'subscriber' ? 'subscriber' : topology.role,
+    };
+  }
+
   // On primary, all streaming peers are standbys; on standby, streamingPeers[0] is upstream.
   const standbyPeers = topology.role === 'primary' ? topology.streamingPeers : [];
   const upstreamPeer = topology.role === 'standby' ? topology.streamingPeers[0] ?? null : null;
   const slots = topology.slots;
+  const subscriptions = topology.subscriptions;
+  const downSubscriptions = subscriptions.filter((row) => row.state === 'down');
   const inactiveSlots = slots.filter(
     (row) => row.state === 'inactive' || row.state === 'inactivo',
   );
   const worstLag = standbyPeers.reduce((peak, row) => Math.max(peak, row.lagSeconds ?? 0), 0);
   const isStandby = topology.role === 'standby';
+  const isSubscriber = topology.role === 'subscriber';
   const standalone = topology.role === 'standalone';
 
   const lastPoint = standby.at(-1);
@@ -352,21 +381,23 @@ export default async function ReplicationPage({
         {standalone ? (
           <div className="notice">
             <strong>This instance has no replication configured.</strong> No connected standbys, not
-            in recovery, and no slots. If it should have a replica, that is already a finding: the{' '}
-            <span className="font-mono">replication_lag</span> overview check cannot warn about a
-            standby that never existed.
+            in recovery, no publisher slots, and no logical subscriptions. If it should have a replica,
+            that is already a finding: the <span className="font-mono">replication_lag</span> overview
+            check cannot warn about a standby that never existed.
           </div>
         ) : (
           <>
             <div className="stat-grid">
               <StatCard
                 label="Role"
-                value={isStandby ? 'Standby' : 'Primary'}
-                tone="neutral"
+                value={isStandby ? 'Standby' : isSubscriber ? 'Subscriber' : 'Primary'}
+                tone={isSubscriber && downSubscriptions.length > 0 ? 'error' : 'neutral'}
                 hint={
                   isStandby
                     ? 'replaying WAL'
-                    : `${standbyPeers.length} standby(s) connected`
+                    : isSubscriber
+                      ? 'logical apply — slots live on the publisher'
+                      : `${standbyPeers.length} standby(s) connected`
                 }
               />
               <StatCard
@@ -379,7 +410,7 @@ export default async function ReplicationPage({
                     : 'from pg_stat_replication.sync_state'
                 }
               />
-              {!isStandby && (
+              {!isStandby && !isSubscriber && (
                 <>
                   <StatCard
                     label="Standbys"
@@ -421,7 +452,27 @@ export default async function ReplicationPage({
                   />
                 </>
               )}
-              {(slots.length > 0 || !isStandby) && (
+              {isSubscriber && (
+                <>
+                  <StatCard
+                    label="Subscriptions"
+                    value={formatNumber(subscriptions.length)}
+                    tone={downSubscriptions.length > 0 ? 'error' : 'ok'}
+                    hint={
+                      downSubscriptions.length > 0
+                        ? `${downSubscriptions.length} apply worker down`
+                        : 'apply workers running'
+                    }
+                  />
+                  <StatCard
+                    label="Publisher slots"
+                    value={formatNumber(slots.length)}
+                    tone="neutral"
+                    hint="expected on the publisher, not here"
+                  />
+                </>
+              )}
+              {(slots.length > 0 || (!isStandby && !isSubscriber)) && (
                 <StatCard
                   label="Slots"
                   value={formatNumber(slots.length)}
@@ -586,6 +637,53 @@ export default async function ReplicationPage({
                 </tbody>
               </table>
             </div>
+          </section>
+        )}
+
+        {subscriptions.length > 0 && (
+          <section className="panel">
+            <div className="panel-header">
+              <span className="panel-title">Logical subscriptions · {subscriptions.length}</span>
+              <span className="font-mono text-[10px] text-foreground-muted">
+                subscriber side — the slot is on the publisher
+              </span>
+            </div>
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Subscription</th>
+                    <th className="text-right">Apply lag</th>
+                    <th className="text-right">Worker</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {subscriptions.map((row) => {
+                    const down = row.state === 'down';
+                    return (
+                      <tr key={row.peer}>
+                        <td className="font-mono text-[11.5px]">{row.peer}</td>
+                        <td className="num">
+                          {row.lagSeconds === null ? '—' : formatDuration(row.lagSeconds)}
+                        </td>
+                        <td className="text-right">
+                          <span className={`tag ${down ? 'tag--error' : 'tag--ok'}`}>
+                            {down ? 'down' : 'applying'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {downSubscriptions.length > 0 ? (
+              <div className="panel-body border-t border-border text-[11.5px] text-foreground-secondary">
+                Apply worker pid is empty, so this subscription is not applying. The slot named by
+                the subscription lives on the publisher and can still exist while the worker on this
+                server is dead.
+              </div>
+            ) : null}
           </section>
         )}
 

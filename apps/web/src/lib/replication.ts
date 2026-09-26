@@ -35,7 +35,7 @@ export interface ReplicationTopologyPeer {
 
 export interface ReplicationTopology {
   self: FleetReplicationNode;
-  role: 'primary' | 'standby' | 'standalone';
+  role: 'primary' | 'standby' | 'standalone' | 'subscriber';
   /** Dominant sync mode across connected standbys (async / sync / quorum / mixed). */
   syncMode: string | null;
   /** From this node: streaming standbys (primary) or upstream primary (standby). */
@@ -43,6 +43,8 @@ export interface ReplicationTopology {
   /** Other monitored instances that belong to this HA pair/cluster. */
   fleetPeers: Array<FleetReplicationNode & { relation: 'primary' | 'standby'; upstreamPeer: string | null }>;
   slots: InstanceReplicationRow[];
+  /** Logical subscriptions on this node (subscriber side — not publisher slots). */
+  subscriptions: InstanceReplicationRow[];
 }
 
 function mapReplicationRow(row: Record<string, unknown>): InstanceReplicationRow {
@@ -180,6 +182,7 @@ export async function getReplicationTopology(instanceId: number): Promise<Replic
   }
 
   const slots = localRows.filter((row) => row.role === 'slot');
+  const subscriptions = localRows.filter((row) => row.role === 'subscription');
   const standbyRows = localRows.filter((row) => row.role === 'standby' || row.role === 'replica');
   const upstream = localRows.find((row) => row.role === 'upstream');
 
@@ -336,8 +339,13 @@ export async function getReplicationTopology(instanceId: number): Promise<Replic
     }
   }
 
-  const role: ReplicationTopology['role'] =
-    self.inRecovery ? 'standby' : streamingPeers.length > 0 || slots.length > 0 ? 'primary' : 'standalone';
+  const role: ReplicationTopology['role'] = self.inRecovery
+    ? 'standby'
+    : streamingPeers.length > 0 || slots.length > 0
+      ? 'primary'
+      : subscriptions.length > 0
+        ? 'subscriber'
+        : 'standalone';
 
   return {
     self,
@@ -348,6 +356,7 @@ export async function getReplicationTopology(instanceId: number): Promise<Replic
     streamingPeers,
     fleetPeers,
     slots,
+    subscriptions,
   };
 }
 
@@ -419,7 +428,7 @@ export async function getReplicationLagTrends(
   const out: Record<string, number[]> = {};
   for (const row of rows) {
     const key = replicationRowKey(row.instanceId, row.role, row.peer);
-    if (row.role === 'slot' || row.role === 'primary') {
+    if (row.role === 'slot' || row.role === 'primary' || row.role === 'subscription') {
       out[key] = [];
       continue;
     }

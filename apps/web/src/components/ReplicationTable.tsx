@@ -21,6 +21,7 @@ const ROLE_LABEL: Record<string, string> = {
   upstream: 'Replicating from primary',
   replica: 'Async replica',
   slot: 'Replication slot',
+  subscription: 'Logical subscription',
   availability_group: 'Always On / AG',
 };
 

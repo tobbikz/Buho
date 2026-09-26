@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { CheckGroupCard } from '@/components/CheckGroupCard';
+import { ChecksBoard } from '@/components/ChecksBoard';
 import { CHECK_FILTERS, ChecksFilter, type CheckFilterKey } from '@/components/ChecksFilter';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
@@ -171,20 +171,22 @@ export default async function ChecksPage({
         <div className="checks-toolbar">
           <ChecksFilter current={filterKey} />
           <span className="checks-toolbar__count">
-            {groups.length} check{groups.length === 1 ? '' : 's'} · severity, then reach
+            {groups.length} check{groups.length === 1 ? '' : 's'} · severity, then reach · 8 per page
           </span>
         </div>
 
         <section className="panel checks-panel">
-          {groups.length === 0 ? (
-            <div className="empty">No findings at this severity in the latest check run.</div>
-          ) : (
-            <div className="check-list">
-              {groups.map((group) => (
-                <CheckGroupCard key={group.checkId} group={group} />
-              ))}
-            </div>
-          )}
+          <ChecksBoard
+            groups={groups.map((group) => ({
+              checkId: group.checkId,
+              title: group.title,
+              severity: group.severity,
+              instances: group.instances,
+              findings: group.findings,
+              remediation: group.remediation,
+              occurrences: group.occurrences.map(({ ts: _ts, ...entry }) => entry),
+            }))}
+          />
         </section>
 
         <section className="panel">

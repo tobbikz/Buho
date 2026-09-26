@@ -1,12 +1,11 @@
 import Link from 'next/link';
-import { SecurityFindingRow } from '@/components/SecurityFindingRow';
+import { SecurityFindingsBoard } from '@/components/SecurityFindingsBoard';
 import { Sparkline } from '@/components/Sparkline';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { formatAgo } from '@/lib/format';
 import {
   CATEGORY_LABEL,
-  SEVERITY_LABEL,
   engineLabel,
   getFindings,
   getPosture,
@@ -15,18 +14,9 @@ import {
   scoreTone,
   type Finding,
   type Posture,
-  type Severity,
 } from '@/lib/security';
 
 export const dynamic = 'force-dynamic';
-
-const ORDER: Severity[] = ['critica', 'alta', 'media', 'baja', 'no_verificable', 'ok'];
-
-function findingClass(severity: Severity): string {
-  if (severity === 'critica' || severity === 'alta') return 'finding--critical';
-  if (severity === 'media' || severity === 'baja') return 'finding--warning';
-  return 'finding--info';
-}
 
 export default async function SecurityPage() {
   let findings: Finding[];
@@ -66,11 +56,6 @@ export default async function SecurityPage() {
   const verified = posture.reduce((sum, row) => sum + row.verified, 0);
   const totalChecks = posture.reduce((sum, row) => sum + row.total, 0);
   const coveragePct = totalChecks > 0 ? Math.round((verified / totalChecks) * 100) : 0;
-
-  const grouped = ORDER.map((severity) => ({
-    severity,
-    items: findings.filter((finding) => finding.severity === severity),
-  })).filter((group) => group.items.length > 0 && group.severity !== 'ok');
 
   return (
     <div className="flex flex-col gap-[0.875rem]">
@@ -201,43 +186,21 @@ export default async function SecurityPage() {
         </table>
       </section>
 
-      {grouped.map((group) => (
-        <section className="panel" key={group.severity}>
-          <div className="panel-header">
-            <span className="panel-title">{SEVERITY_LABEL[group.severity]}</span>
-            <span
-              className={`tag ${
-                group.severity === 'critica' || group.severity === 'alta'
-                  ? 'tag--error'
-                  : group.severity === 'no_verificable'
-                    ? 'tag--muted'
-                    : 'tag--warn'
-              }`}
-            >
-              {group.items.length}
-            </span>
-            {group.severity === 'no_verificable' && (
-              <span className="text-[11px] text-foreground-muted">
-                Búho could not run these checks — that does not mean the server is safe
-              </span>
-            )}
-          </div>
-          <div className="panel-body p-0">
-            {group.items.map((finding) => (
-              <SecurityFindingRow
-                key={`${finding.instanceId}-${finding.checkId}`}
-                instanceId={finding.instanceId}
-                alias={finding.alias}
-                categoryLabel={CATEGORY_LABEL[finding.category] ?? finding.category}
-                title={finding.title}
-                detail={finding.detail}
-                remediation={finding.remediation}
-                severityClass={findingClass(finding.severity)}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
+      <SecurityFindingsBoard
+        findings={findings
+          .filter((finding) => finding.severity !== 'ok')
+          .map((finding) => ({
+            instanceId: finding.instanceId,
+            checkId: finding.checkId,
+            alias: finding.alias,
+            categoryLabel: CATEGORY_LABEL[finding.category] ?? finding.category,
+            title: finding.title,
+            detail: finding.detail,
+            remediation: finding.remediation,
+            severity:
+              finding.severity === 'ok' ? 'baja' : finding.severity,
+          }))}
+      />
     </div>
   );
 }

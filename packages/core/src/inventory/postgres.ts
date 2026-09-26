@@ -238,6 +238,32 @@ export async function collectPostgres(client: EngineClient): Promise<InventorySn
       });
     }
 
+    try {
+      const subscriptions = await client.query(
+        tagged(`select subname,
+                       bool_or(pid is not null) as worker_up,
+                       max(latest_end_time)     as latest_end_time
+                  from pg_stat_subscription
+                 group by subname`),
+      );
+      for (const row of subscriptions) {
+        const ended = row['latest_end_time'];
+        const at = ended instanceof Date ? ended : ended ? new Date(String(ended)) : null;
+        const lagSeconds =
+          at && !Number.isNaN(at.getTime()) ? Math.max(0, (Date.now() - at.getTime()) / 1000) : null;
+        const up = row['worker_up'] === true;
+        replication.push({
+          role: 'subscription',
+          peer: String(row['subname']),
+          state: up ? 'applying' : 'down',
+          lagSeconds,
+          detail: { worker: up ? 'up' : 'down' },
+        });
+      }
+    } catch {
+      // Sin permiso o sin la vista: el inventario de slots sigue valiendo.
+    }
+
     if (replication.length === 0) {
       replication.push({ role: 'primary', peer: '', state: 'no replicas or slots' });
     }

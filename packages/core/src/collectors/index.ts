@@ -370,6 +370,44 @@ const replicationStandby: MetricCollector = {
   },
 };
 
+/**
+ * Suscripciones lógicas vistas desde el suscriptor.
+ *
+ * Los slots viven en el publicador. Un servidor que sólo recibe (logical
+ * replication) tiene `pg_stat_subscription` y cero slots: decir "no hay
+ * réplica" es falso. `pid` vacío es el apply worker caído — el mismo síntoma
+ * que "apply worker pid is empty".
+ */
+const logicalSubscriptions: MetricCollector = {
+  id: 'logical_subscriptions',
+  tier: 'normal',
+  description: 'Suscripciones lógicas y si el apply worker está vivo',
+  sql: () => `
+    select subname,
+           bool_or(pid is not null) as worker_up,
+           max(latest_end_time)     as latest_end_time
+      from pg_stat_subscription
+     group by subname`,
+  toSamples: (rows) => {
+    const samples: Sample[] = [{ metric: 'replication_subscriptions_total', value: rows.length }];
+    for (const row of rows) {
+      const labels = { subscription: str(row['subname']) };
+      const up = row['worker_up'] === true;
+      samples.push({ metric: 'replication_subscription_worker', value: up ? 1 : 0, labels });
+      const ended = row['latest_end_time'];
+      const at = ended instanceof Date ? ended : ended ? new Date(String(ended)) : null;
+      if (at && !Number.isNaN(at.getTime())) {
+        samples.push({
+          metric: 'replication_subscription_lag_seconds',
+          value: Math.max(0, (Date.now() - at.getTime()) / 1000),
+          labels,
+        });
+      }
+    }
+    return samples;
+  },
+};
+
 const replicationSlots: MetricCollector = {
   id: 'replication_slots',
   tier: 'normal',
@@ -496,6 +534,7 @@ export const COLLECTORS: MetricCollector[] = [
   replication,
   replicationStandby,
   replicationSlots,
+  logicalSubscriptions,
   wal,
   checkpointer,
   io,

@@ -76,7 +76,13 @@ async function explain(formData: FormData) {
     back('A writing statement is not run with ANALYZE. The estimated plan shows the same structure.');
   }
   if (mode === 'generic') {
-    back('Generic plan is PostgreSQL-only. Use the estimated plan for MariaDB.');
+    const target = await getInstance(instanceId);
+    if (!target || target.engine !== 'postgres') {
+      back('Generic plan is PostgreSQL-only. Use the estimated plan for MariaDB.');
+    }
+    if (!(await supportsGenericPlan(instanceId))) {
+      back('This server is older than PostgreSQL 16, so EXPLAIN (GENERIC_PLAN) is not available.');
+    }
   }
 
   const requestId = await requestPlan(instanceId, sql, mode, session.username, queryid);

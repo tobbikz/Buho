@@ -549,7 +549,7 @@ create table if not exists buho.disk_objects (
 
 create table if not exists buho.replication_state (
   instance_id  bigint      not null references buho.instances (instance_id) on delete cascade,
-  -- 'primary' | 'standby' | 'slot' | 'replica' | 'availability_group'
+  -- 'primary' | 'standby' | 'slot' | 'replica' | 'availability_group' | 'subscription'
   role         text        not null,
   peer         text        not null default '',
   state        text,

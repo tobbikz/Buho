@@ -65,6 +65,7 @@ export type LogKind =
   | 'checkpoint'
   | 'autovacuum'
   | 'temp_file'
+  | 'timeout'
   | 'cancelled'
   | 'other';
 
@@ -145,6 +146,15 @@ function classify(message: string, level: string): LogKind {
   if (m.startsWith('checkpoint') || m.includes('checkpoints are occurring')) return 'checkpoint';
   if (m.startsWith('automatic vacuum') || m.startsWith('automatic analyze')) return 'autovacuum';
   if (m.startsWith('temporary file')) return 'temp_file';
+  if (
+    m.includes('statement timeout') ||
+    m.includes('lock timeout') ||
+    m.includes('idle-in-transaction timeout') ||
+    m.includes('idle-session timeout') ||
+    m.includes('idle session timeout')
+  ) {
+    return 'timeout';
+  }
   if (m.includes('canceling statement due to')) return 'cancelled';
   if (
     m.includes('connection authorized') ||

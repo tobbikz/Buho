@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import { IndexFindingsList } from '@/components/IndexFindingsList';
 import { IndexSuggestionCards } from '@/components/IndexSuggestionCards';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StatCard } from '@/components/StatCard';
@@ -205,6 +206,11 @@ export default async function IndexesPage({
   const wastedRows = suggestions.suggestions.reduce((sum, item) => sum + item.wastedRows, 0);
   const observedMs = suggestions.suggestions.reduce((sum, item) => sum + item.observedMs, 0);
   const unusedIndexes = allIndexes.filter((row) => row.status === 'unused');
+  const unusedFindings = findings.filter((finding) => finding.checkId.includes('unused'));
+  const redundantFindings = findings.filter((finding) => !finding.checkId.includes('unused'));
+  const unusedCount = summary.unused || unusedFindings.length;
+  const redundantCount = summary.redundant || redundantFindings.length;
+  const countsFromChecks = summary.total === 0 && findings.length > 0;
   const redundantIndexes = allIndexes.filter((row) => row.status === 'redundant');
   const invalidIndexes = allIndexes.filter((row) => row.status === 'invalid');
   const schemaGroups = groupBySchema(allIndexes);
@@ -309,26 +315,34 @@ export default async function IndexesPage({
             hint={
               summary.capturedAt
                 ? `total size ${formatBytes(summary.totalBytes)} · ${formatAgo(summary.capturedAt)}`
-                : engine === 'postgres' || engine === 'mariadb'
-                  ? 'inventory not collected yet'
-                  : 'inventory is PostgreSQL / MariaDB'
+                : countsFromChecks
+                  ? `${formatNumber(findings.length)} check findings below · inventory snapshot not collected yet`
+                  : engine === 'postgres' || engine === 'mariadb'
+                    ? 'inventory not collected yet'
+                    : 'inventory is PostgreSQL / MariaDB'
             }
           />
           <StatCard
             label="Unused"
-            value={formatNumber(summary.unused)}
-            tone={summary.unused > 0 ? 'warn' : 'ok'}
+            value={formatNumber(unusedCount)}
+            tone={unusedCount > 0 ? 'warn' : 'ok'}
             hint={
-              engine === 'mariadb'
-                ? 'secondary indexes with zero P_S reads (needs performance_schema)'
-                : 'large secondary indexes with zero scans'
+              summary.unused === 0 && unusedFindings.length > 0
+                ? 'from the last 24h check — inventory snapshot is still empty'
+                : engine === 'mariadb'
+                  ? 'secondary indexes with zero P_S reads (needs performance_schema)'
+                  : 'large secondary indexes with zero scans'
             }
           />
           <StatCard
             label="Redundant"
-            value={formatNumber(summary.redundant)}
-            tone={summary.redundant > 0 ? 'warn' : 'ok'}
-            hint="left prefix of another index on the same table"
+            value={formatNumber(redundantCount)}
+            tone={redundantCount > 0 ? 'warn' : 'ok'}
+            hint={
+              summary.redundant === 0 && redundantFindings.length > 0
+                ? 'from the last 24h check — inventory snapshot is still empty'
+                : 'left prefix of another index on the same table'
+            }
           />
           <StatCard
             label="Invalid"
@@ -694,29 +708,8 @@ export default async function IndexesPage({
               <span className="font-mono text-[10px] text-foreground-muted">last 24h</span>
             </div>
             {findings.length > 0 ? (
-              <div>
-                {findings.map((finding) => {
-                  const isUnused = finding.checkId.includes('unused');
-                  return (
-                  <article
-                    key={`${finding.checkId}-${finding.object}`}
-                    className={`finding finding--${isUnused ? 'warning' : 'info'}`}
-                  >
-                    <div>
-                      <span className={`tag ${isUnused ? 'tag--warn' : 'tag--info'}`}>
-                        {isUnused ? 'Unused' : 'Redundant'}
-                      </span>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="finding__title">
-                        {isUnused ? 'Unused index' : 'Redundant index prefix'}
-                      </div>
-                      <div className="finding__object font-mono">{finding.object}</div>
-                      <div className="finding__message">{finding.message}</div>
-                    </div>
-                  </article>
-                  );
-                })}
+              <div className="panel-body">
+                <IndexFindingsList findings={findings} />
               </div>
             ) : (
               <div className="panel-body">

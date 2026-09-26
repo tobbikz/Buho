@@ -214,7 +214,8 @@ Opciones:
 | --- | --- |
 | `./install.sh` | instalar o actualizar (compila en el host) |
 | `./install.sh --pull` | **bajar imágenes publicadas; el cliente no compila** |
-| `./install.sh --sin-build` | reiniciar sin reconstruir ni bajar |
+| `./install.sh --actualizar` | reconstruir colector y consola; **el store no se reinicia** |
+| `./install.sh --sin-build` | `up -d` con las imágenes ya presentes, sin reconstruir |
 | `./install.sh --verificar` | comprobar una instalación existente |
 
 ### Sin compilar (lo que se vende)
@@ -407,12 +408,21 @@ export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho-monitor/web:1.3.1
 ./install.sh --pull
 ```
 
-Desarrollador / fork:
+Desarrollador / fork, cuando el código ya está en este checkout:
 
 ```bash
 git pull
-./install.sh                # build local
+./install.sh --actualizar
 ```
+
+Eso construye sólo `collector` y `web` y los recrea. El contenedor `store` y el
+volumen `buho_store` siguen corriendo: no es un `down`, y no regenera `.env`.
+`docker compose up -d` a secas no alcanza: reutiliza las imágenes viejas si no
+se pasó `--build`.
+
+`./install.sh` sin flags también actualiza, pero hace `up -d` de todo el
+compose. Si la definición del store cambió, Compose puede recrear ese
+contenedor (el volumen se conserva igual). `--actualizar` no lo toca.
 
 El esquema se migra solo al arrancar el colector (`store.migrate()`).
 Tras un pull grande: `BUHO_STORE_URL=... npm run migrate` si se corre fuera de Docker.

@@ -44,6 +44,7 @@ const FILTERS: { key: string; label: string; kinds: LogKind[] }[] = [
       'checkpoint',
       'autovacuum',
       'temp_file',
+      'timeout',
       'cancelled',
       'other',
     ],
@@ -52,7 +53,7 @@ const FILTERS: { key: string; label: string; kinds: LogKind[] }[] = [
 
 function kindTone(kind: LogKind): string {
   if (kind === 'fatal' || kind === 'deadlock') return 'tag--error';
-  if (kind === 'error' || kind === 'cancelled' || kind === 'lock_wait') return 'tag--warn';
+  if (kind === 'error' || kind === 'cancelled' || kind === 'timeout' || kind === 'lock_wait') return 'tag--warn';
   return 'tag--muted';
 }
 

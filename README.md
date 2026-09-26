@@ -80,12 +80,13 @@ En producción sin `BUHO_AUTH_PASSWORD` la consola **no sirve ninguna página**:
 Pantallas de F1:
 
 - **Resumen de flota** — score, críticos, avisos, conexiones, cache hit, commits/s y frescura del dato por instancia.
-- **Detalle de instancia** — capabilities, indicadores con **CPU y memoria del host, throughput DML**, health score, conexiones, cache hit, commits/s, bloqueos, edad de XID, tuplas muertas y uptime; series con ventana de 15 m a 7 días (conexiones, transacciones/s, WAL/s, bloqueos, CPU y memoria del host, throughput DML, sesiones activas por clase de espera, cache hit, I/O/s, derrame a temporales), hallazgos con remediación, wait events, tablas más grandes, tuplas muertas, slots de replicación y eventos del colector.
+- **Detalle de instancia** — capabilities, indicadores con **CPU y memoria del host, throughput DML**, health score, conexiones, cache hit, commits/s, bloqueos, edad de XID, tuplas muertas y uptime; series con ventana de 15 m a 7 días (conexiones, transacciones/s, WAL/s, bloqueos, CPU y memoria del host, throughput DML, sesiones activas por clase de espera, cache hit, I/O/s, derrame a temporales), hallazgos agrupados por severidad y por check (paginados, remediación una vez por grupo), wait events, tablas más grandes, tuplas muertas, slots de replicación y eventos del colector (cada fila se abre y muestra componente, ocurrencias, primera y última vez, mensaje y detalle).
 - **Parque** (`/estate`) — inventario de flota en siete dominios: **Backups**, **Disco**, **Jobs**, **Replicación**, **Configuración**, **Licencias** y **Versiones**. Es la sección multi-motor: cubre PostgreSQL, MariaDB y SQL Server.
 - **Análisis** — cualquiera de las ~93 series del store en un gráfico de líneas: selector agrupado por familia con filtro de texto, **un gráfico por unidad** (mezclar sesiones y bytes en un eje aplasta la serie chica), desglose por etiqueta para una métrica sola y agregación entre etiquetas elegible. La selección viaja en la URL, así que el enlace *es* el gráfico.
 - **Consultas** — top 25 por tiempo total, llamadas, media o filas en la ventana elegida, con % del tiempo, cache hit, temporales y WAL por consulta, sparkline de tendencia por fila y el texto completo desplegable. Cuando falta `pg_stat_statements`, la pantalla explica qué correr y si hace falta reiniciar.
 - **Host** — CPU (uso, espera de I/O y CPU robada por el hipervisor), memoria, swap, carga por núcleo y disco del filesystem del data directory. Es opcional: si la instancia no lo declara, la pantalla explica cómo activarlo en lugar de mostrar charts vacíos.
 - **Bloqueos** — árbol bloqueador → esperando con las dos queries y la transacción culpable, más el historial de episodios resueltos de las últimas 24 h.
+- **Catálogo** (`/instances/[id]/orm`) — el grafo se arma por esquema (las tablas en un girasol alrededor de su anillo) y se queda quieto. Cambiar Structure / Traffic / Both no rearranca la simulación.
 
 Refresco por polling cada 30 s, con botones de pausa y refresco manual: la tabla que estás leyendo no se mueve sola si no quieres. El topbar no muestra contador de frescura (re-renderizaba cada segundo para decir algo que el dato ya dice); la frescura por instancia está en la tabla de flota y en el encabezado del detalle.
 
@@ -522,7 +523,9 @@ una base de producción.
 El modo genérico es lo que permite explicar el texto que trae
 `pg_stat_statements`, normalizado con `$1`, sin reconstruir valores a mano. Sin
 valores concretos el planificador no usa estadísticas de selectividad, así que
-las estimaciones son las genéricas; la pantalla lo dice.
+las estimaciones son las genéricas; la pantalla lo dice. La consola acepta ese
+modo en PostgreSQL 16 o posterior; el aviso de “sólo PostgreSQL” aparece cuando
+el motor es MariaDB.
 
 `ANALYZE` tiene tres guardas y no una: sólo lectura pura —un
 `WITH x AS (INSERT … RETURNING …)` empieza con `WITH` y se rechaza—, todo dentro
@@ -624,8 +627,11 @@ adivinarse, porque un DDL que no compila destruye la confianza en la pantalla
 entera.
 
 Cada sugerencia trae su contraindicación al lado y la evidencia debajo, con enlace
-a la consulta que la motivó. Al pie aparece lo que los chequeos ya dicen de los
-índices de esa instancia: antes de agregar uno conviene ver si sobra alguno.
+a la consulta que la motivó. Al pie aparecen los hallazgos de los chequeos de
+índices (unused y redundant), agrupados por esquema y paginados. Si el snapshot
+de inventario todavía no llegó, los KPI de Unused y Redundant salen de esos
+chequeos en vez de quedarse en cero. El total de índices sigue esperando el
+snapshot: los chequeos no enumeran los que están sanos.
 
 `pg_stat_progress_vacuum` da el avance del vacuum en curso por fases, que es lo
 que contesta la pregunta real durante un incidente: si conviene esperar o matarlo.
@@ -650,15 +656,18 @@ Se lee distinto según el rol, y eso importa:
 La conexión de un standby hacia su primario se marca como `upstream`, no como
 `standby`: verla listada como su propio standby fue confuso en la primera versión.
 
+Un **suscriptor lógico** no está en recovery y no tiene slots: los slots viven en
+el publicador. Búho lee `pg_stat_subscription`. Si el apply worker no tiene pid,
+la suscripción sale como `down` (el mismo caso que “apply worker pid is empty”).
+
 ---
 
 ## Chequeos de toda la flota
 
-Los 22 chequeos se veían instancia por instancia, lo que obliga a recorrer la
-lista para saber qué arreglar primero. Esta pantalla los agrupa por chequeo y
-ordena por severidad y por **cuántas instancias toca cada uno**: el mismo
-problema en cinco servidores es una sola decisión, y arreglar lo de arriba
-resuelve más con el mismo esfuerzo.
+Los chequeos de la flota se agrupan por tipo de problema y se parten en secciones de
+severidad (crítico, aviso, info). Dentro de un chequeo, las filas van por grupo de
+instancia y luego por alias, de a 12 por página; cada sección muestra 8 chequeos
+por página. La remediación se escribe una sola vez, al pie del grupo.
 
 ---
 
@@ -765,6 +774,13 @@ lunes. Eso es lo que el cliente de consultoría DBAOps paga.
 Baja `collector` y `web` desde GHCR (`ghcr.io/tobbikz/buho-monitor/...`) y
 levanta el store. El cliente no necesita Node ni `docker build`. Las imágenes se
 publican al etiquetar un release (`v0.3.0`) con el workflow de GitHub Actions.
+
+En un checkout que ya está corriendo, aplicar código nuevo sin reiniciar el store:
+
+```bash
+git pull
+./install.sh --actualizar
+```
 
 ## Comparar dos momentos, capacidad, topología e incidentes (v0.4)
 
