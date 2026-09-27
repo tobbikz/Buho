@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { InstanceTabs } from '@/components/InstanceTabs';
+import { SubscriptionTable } from '@/components/SubscriptionTable';
 import { NotesPanel } from '@/components/NotesPanel';
 import { ReplicationSankey } from '@/components/ReplicationSankey';
 import { StatCard } from '@/components/StatCard';
@@ -648,35 +649,15 @@ export default async function ReplicationPage({
                 subscriber side — the slot is on the publisher
               </span>
             </div>
-            <div className="table-scroll">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Subscription</th>
-                    <th className="text-right">Apply lag</th>
-                    <th className="text-right">Worker</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {subscriptions.map((row) => {
-                    const down = row.state === 'down';
-                    return (
-                      <tr key={row.peer}>
-                        <td className="font-mono text-[11.5px]">{row.peer}</td>
-                        <td className="num">
-                          {row.lagSeconds === null ? '—' : formatDuration(row.lagSeconds)}
-                        </td>
-                        <td className="text-right">
-                          <span className={`tag ${down ? 'tag--error' : 'tag--ok'}`}>
-                            {down ? 'down' : 'applying'}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <SubscriptionTable
+              instanceId={instanceId}
+              rows={subscriptions.map((row) => ({
+                name: row.peer,
+                workerUp: row.state !== 'down',
+                lagSeconds: row.lagSeconds,
+              }))}
+              alerts={[]}
+            />
             {downSubscriptions.length > 0 ? (
               <div className="panel-body border-t border-border text-[11.5px] text-foreground-secondary">
                 Apply worker pid is empty, so this subscription is not applying. The slot named by

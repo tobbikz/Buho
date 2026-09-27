@@ -663,6 +663,9 @@ La conexión de un standby hacia su primario se marca como `upstream`, no como
 Un **suscriptor lógico** no está en recovery y no tiene slots: los slots viven en
 el publicador. Búho lee `pg_stat_subscription`. Si el apply worker no tiene pid,
 la suscripción sale como `down` (el mismo caso que “apply worker pid is empty”).
+La fila de la suscripción se abre al hacer click: el chevron y el nombre son el
+control, y el detalle dice si el worker de la última muestra está arriba y si
+queda alguna alerta abierta de cuando el pid estuvo vacío.
 
 ---
 
