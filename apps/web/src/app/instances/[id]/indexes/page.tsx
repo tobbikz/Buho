@@ -246,7 +246,7 @@ export default async function IndexesPage({
     if (fragmented) inventory = { ...inventory, total: inventory.rows.length };
     tableGroups = await getIndexTableGroups(instanceId, {
       schema: footprintSchema,
-      q: footprintQuery || null,
+      q: footprintQuery || undefined,
       page: footprintPage,
       size: FOOTPRINT_PAGE_SIZE,
     });
