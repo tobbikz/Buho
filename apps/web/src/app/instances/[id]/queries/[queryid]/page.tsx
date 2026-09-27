@@ -292,7 +292,7 @@ export default async function QueryPlanPage({
             <span className="text-[11px] text-foreground-muted">
               {[
                 statement.truncated
-                  ? 'cortada a 4000 caracteres'
+                  ? 'stored text was cut off'
                   : parameterized
                     ? 'normalizada por pg_stat_statements'
                     : 'with concrete values',
@@ -345,10 +345,9 @@ export default async function QueryPlanPage({
 
             {statement.truncated ? (
               <p className="text-[12px] text-warning">
-                Búho guarda hasta 4000 caracteres del texto de cada consulta, y esta llegaba más lejos. No se
-                puede explicar un fragmento: al planificador le falta el final de la sentencia. Para verla, hay
-                que tomar el texto completo de{' '}
-                <span className="font-mono">pg_stat_statements</span> en la instancia y explicarla a mano.
+                This copy of the statement was stored cut off, so EXPLAIN cannot see the end of it. PostgreSQL
+                statements are now kept in full; this row is replaced the next time the collector samples{' '}
+                <span className="font-mono">pg_stat_statements</span>.
               </p>
             ) : kind === 'utilitaria' ? (
               <p className="text-[12px] text-foreground-secondary">

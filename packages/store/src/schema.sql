@@ -246,15 +246,14 @@ create index if not exists lock_episodes_recent
 
 -- ---------------------------------------------------- análisis por consulta
 
--- El texto normalizado se guarda una vez por queryid, no en cada muestra: son
--- hasta 4 KB por fila y no cambian.
+-- El texto normalizado se guarda una vez por queryid, no en cada muestra.
+-- Se guarda completo: un corte a mitad de sentencia no se puede explicar.
 create table if not exists buho.statement_texts (
   instance_id   bigint      not null references buho.instances (instance_id) on delete cascade,
   queryid       bigint      not null,
   query         text        not null,
-  -- El texto se guardó cortado a 4000 caracteres. Importa saberlo: una consulta
-  -- incompleta no se puede explicar, y mostrarla sin avisar hace creer que eso
-  -- es todo lo que ejecuta la aplicación.
+  -- Filas viejas pueden seguir marcadas: el colector las reescribe en el
+  -- siguiente ciclo. Los otros motores todavía pueden cortar el texto.
   truncated     boolean     not null default false,
   first_seen_at timestamptz not null,
   last_seen_at  timestamptz not null,

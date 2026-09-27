@@ -35,6 +35,7 @@ export interface FleetInstance {
   cacheHitPct: number | null;
   xidAgePct: number | null;
   commitsPerSec: number | null;
+  rollbacksPerSec: number | null;
   replicationLagSeconds: number | null;
   cpuPct: number | null;
   memUsedPct: number | null;
@@ -70,6 +71,7 @@ metrics as (
          min(value) filter (where metric = 'db_cache_hit_pct')              as cache_hit_pct,
          max(value) filter (where metric = 'xid_age_pct')                   as xid_age_pct,
          sum(value) filter (where metric = 'db_xact_commit_per_sec')        as commits_per_sec,
+         sum(value) filter (where metric = 'db_xact_rollback_per_sec')      as rollbacks_per_sec,
          sum(value) filter (where metric in (
            'db_tup_inserted_per_sec', 'db_tup_updated_per_sec', 'db_tup_deleted_per_sec'
          ))                                                                  as dml_tuples_per_sec,
@@ -105,7 +107,7 @@ select i.instance_id, i.alias, i.host, i.port, i.database, i.environment, i.engi
        coalesce(s.info, 0)     as info,
        m.connections_used_pct, m.connections_total, m.connections_max,
        m.uptime_seconds, m.blocked_sessions, m.max_blocked_seconds, m.cache_hit_pct, m.xid_age_pct,
-       m.commits_per_sec, m.dml_tuples_per_sec, m.replication_lag_seconds,
+       m.commits_per_sec, m.rollbacks_per_sec, m.dml_tuples_per_sec, m.replication_lag_seconds,
        m.host_cpu_pct, m.host_mem_used_pct, m.mongo_mem_resident_mb,
        m.queries_per_sec, m.mongo_ops_per_sec
   from buho.instances i
@@ -125,6 +127,7 @@ const FLEET_METRICS = [
   'db_cache_hit_pct',
   'xid_age_pct',
   'db_xact_commit_per_sec',
+  'db_xact_rollback_per_sec',
   'db_tup_inserted_per_sec',
   'db_tup_updated_per_sec',
   'db_tup_deleted_per_sec',
@@ -171,6 +174,7 @@ function toFleetInstance(row: Record<string, unknown>): FleetInstance {
     cacheHitPct: num(row['cache_hit_pct']),
     xidAgePct: num(row['xid_age_pct']),
     commitsPerSec: num(row['commits_per_sec']),
+    rollbacksPerSec: num(row['rollbacks_per_sec']),
     dmlTuplesPerSec: num(row['dml_tuples_per_sec']),
     replicationLagSeconds: num(row['replication_lag_seconds']),
     cpuPct: num(row['host_cpu_pct']),

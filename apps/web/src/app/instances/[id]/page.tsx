@@ -414,7 +414,12 @@ export default async function InstancePage({
 
   const tableRows: BarRow[] = data.tables.map((row) => ({
     label: `${row.labels['schema']}.${row.labels['table']}`,
-    sub: row.valueB !== null ? `indexes ${formatBytes(row.valueB)}` : undefined,
+    sub: [
+      row.labels['partitions'] ? `${row.labels['partitions']} partitions` : null,
+      row.valueB !== null ? `indexes ${formatBytes(row.valueB)}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ') || undefined,
     value: row.value,
     display: formatBytes(row.value),
   }));
@@ -540,12 +545,23 @@ export default async function InstancePage({
             hint="insert + update + delete tuples"
             tone="accent"
           />
-          <StatCard
-            label="Commits/s"
-            value={formatCompactNumber(instance.commitsPerSec, 1)}
-            tone="accent"
-            hint="from transaction counters"
-          />
+          <div className="stat stat--accent stat--split">
+            <div className="stat-split">
+              <div className="stat-split__side">
+                <div className="stat__label">Commits/s</div>
+                <div className="stat__value">{formatCompactNumber(instance.commitsPerSec, 1)}</div>
+              </div>
+              <div className="stat-split__side">
+                <div className="stat__label">Rollbacks/s</div>
+                <div
+                  className={`stat__value${(instance.rollbacksPerSec ?? 0) > 0 ? ' stat__value--warn' : ''}`}
+                >
+                  {formatCompactNumber(instance.rollbacksPerSec, 1)}
+                </div>
+              </div>
+            </div>
+            <div className="stat__hint">from transaction counters</div>
+          </div>
           <StatCard
             label="Cache hit"
             value={formatPct(instance.cacheHitPct, 2)}

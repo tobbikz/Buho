@@ -5,6 +5,7 @@ import { StoreError } from '@/components/StoreError';
 import { TimeseriesPanel } from '@/components/TimeseriesPanel';
 import { Topbar } from '@/components/Topbar';
 import { formatAgo, formatClock, formatDuration, formatNumber } from '@/lib/format';
+import { explainLock } from '@/lib/lock-reason';
 import { getInstance, getLockEpisodes, getSeries, type LockEpisode } from '@/lib/queries';
 import { getInstanceEngine } from '@/lib/estate';
 
@@ -42,8 +43,15 @@ function LockTree({ episode }: { episode: LockEpisode }) {
       ? `cadena de ${episode.blockerPids.length} bloqueadores: ${episode.blockerPids.join(', ')}`
       : null;
 
+  const why = explainLock(episode);
+
   return (
     <div className="lock-tree">
+      <div className="lock-why">
+        {why.map((line) => (
+          <p key={line}>{line}</p>
+        ))}
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <span className={`tag ${episode.active ? 'tag--error' : 'tag--muted'}`}>
           {episode.active ? 'activo' : 'resuelto'}
@@ -224,49 +232,40 @@ export default async function LocksPage({ params }: { params: Promise<{ id: stri
           {history.length === 0 ? (
             <div className="empty">Sin bloqueos registrados en las last 24 h.</div>
           ) : (
-            <div className="table-scroll">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Inicio</th>
-                    <th className="text-right">Duration</th>
-                    <th>Object</th>
-                    <th>Modo</th>
-                    <th>Esperaba</th>
-                    <th>Bloqueaba</th>
-                    <th>Blocked query</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.map((episode) => (
-                    <tr key={episode.episodeId}>
-                      <td className="font-mono text-[11px] text-foreground-muted">
-                        {formatClock(episode.firstSeenAt)}
-                      </td>
-                      <td className="num">{formatDuration(episode.waitSeconds)}</td>
-                      <td className="font-mono text-[11px]">{episode.lockObject ?? '—'}</td>
-                      <td className="font-mono text-[11px] text-foreground-secondary">{episode.lockMode ?? '—'}</td>
-                      <td className="font-mono text-[11px]">
-                        pid {episode.waiterPid}
-                        {episode.waiterApplication && (
-                          <span className="text-foreground-muted"> · {episode.waiterApplication}</span>
-                        )}
-                      </td>
-                      <td className="font-mono text-[11px]">
-                        {episode.blockerPid ? `pid ${episode.blockerPid}` : '—'}
-                        {episode.blockerApplication && (
-                          <span className="text-foreground-muted"> · {episode.blockerApplication}</span>
-                        )}
-                      </td>
-                      <td className="max-w-[24rem]">
-                        <div className="truncate font-mono text-[11px]" title={episode.waiterQuery}>
-                          {episode.waiterQuery}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="lock-list">
+              <div className="lock-list__head">
+                <span />
+                <span>Start</span>
+                <span className="text-right">Duration</span>
+                <span>Mode</span>
+                <span>Waiter</span>
+                <span>Blocker</span>
+                <span>Blocked query</span>
+              </div>
+              {history.map((episode) => (
+                <details key={episode.episodeId} className="lock-ep">
+                  <summary className="lock-ep__summary">
+                    <span className="sub-row__chevron" aria-hidden />
+                    <span className="font-mono text-[11px] text-foreground-muted">
+                      {formatClock(episode.firstSeenAt)}
+                    </span>
+                    <span className="text-right font-mono text-[11px]">{formatDuration(episode.waitSeconds)}</span>
+                    <span className="font-mono text-[11px]">{episode.lockMode ?? '—'}</span>
+                    <span className="truncate font-mono text-[11px]">
+                      pid {episode.waiterPid}
+                      {episode.waiterApplication ? ` · ${episode.waiterApplication}` : ''}
+                    </span>
+                    <span className="truncate font-mono text-[11px]">
+                      {episode.blockerPid ? `pid ${episode.blockerPid}` : '—'}
+                      {episode.blockerApplication ? ` · ${episode.blockerApplication}` : ''}
+                    </span>
+                    <span className="truncate font-mono text-[11px] text-foreground-secondary">
+                      {episode.waiterQuery}
+                    </span>
+                  </summary>
+                  <LockTree episode={episode} />
+                </details>
+              ))}
             </div>
           )}
         </section>

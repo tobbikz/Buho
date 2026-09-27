@@ -80,7 +80,7 @@ En producción sin `BUHO_AUTH_PASSWORD` la consola **no sirve ninguna página**:
 Pantallas de F1:
 
 - **Resumen de flota** — score, críticos, avisos, conexiones, cache hit, commits/s y frescura del dato por instancia.
-- **Detalle de instancia** — capabilities, indicadores con **CPU y memoria del host, throughput DML**, health score, conexiones, cache hit, commits/s, bloqueos, edad de XID, tuplas muertas y uptime; series con ventana de 15 m a 7 días (conexiones, transacciones/s, WAL/s, bloqueos, CPU y memoria del host, throughput DML, sesiones activas por clase de espera, cache hit, I/O/s, derrame a temporales), hallazgos agrupados por severidad y por check (paginados, remediación una vez por grupo), wait events, tablas más grandes, tuplas muertas, slots de replicación y eventos del colector (cada fila se abre y muestra componente, ocurrencias, primera y última vez, mensaje y detalle).
+- **Detalle de instancia** — capabilities, indicadores con **CPU y memoria del host, throughput DML**, health score, conexiones, cache hit, commits/s y rollbacks/s en la misma tarjeta, bloqueos, edad de XID, tuplas muertas y uptime; series con ventana de 15 m a 7 días (conexiones, transacciones/s, WAL/s, bloqueos, CPU y memoria del host, throughput DML, sesiones activas por clase de espera, cache hit, I/O/s, derrame a temporales), hallazgos agrupados por severidad y por check (paginados, remediación una vez por grupo), wait events, tablas más grandes (las particiones sumadas en la tabla padre), tuplas muertas, slots de replicación y eventos del colector (cada fila se abre y muestra componente, ocurrencias, primera y última vez, mensaje y detalle).
 - **Parque** (`/estate`) — inventario de flota en siete dominios: **Backups**, **Disco**, **Jobs**, **Replicación**, **Configuración**, **Licencias** y **Versiones**. Es la sección multi-motor: cubre PostgreSQL, MariaDB y SQL Server.
 - **Análisis** — cualquiera de las ~93 series del store en un gráfico de líneas: selector agrupado por familia con filtro de texto, **un gráfico por unidad** (mezclar sesiones y bytes en un eje aplasta la serie chica), desglose por etiqueta para una métrica sola y agregación entre etiquetas elegible. La selección viaja en la URL, así que el enlace *es* el gráfico.
 - **Consultas** — top 25 por tiempo total, llamadas, media o filas en la ventana elegida, con % del tiempo, cache hit, temporales y WAL por consulta, sparkline de tendencia por fila y el texto completo desplegable. Cuando falta `pg_stat_statements`, la pantalla explica qué correr y si hace falta reiniciar.
@@ -120,7 +120,7 @@ Read-only vía `pg_monitor`: acceso a estadísticas y configuración, **nunca** 
 
 **El colector es un proceso aparte de la web.** Un scheduler de larga vida no sobrevive los reloads ni el ciclo de vida de Next.js, y un reinicio de la consola no debe pausar la recolección.
 
-**Los bloqueos se guardan como episodios, no como muestras.** La identidad de un episodio es `(instancia, pid que espera, inicio de su query)`: mientras el bloqueo sigue vivo se actualiza la misma fila. La UI muestra "un bloqueo de 4 minutos" en vez de veinticuatro muestras del mismo bloqueo.
+**Los bloqueos se guardan como episodios, no como muestras.** La identidad de un episodio es `(instancia, pid que espera, inicio de su query)`: mientras el bloqueo sigue vivo se actualiza la misma fila. La UI muestra "un bloqueo de 4 minutos" en vez de veinticuatro muestras del mismo bloqueo. Al abrir un episodio resuelto se explica el modo que pedía el que espera, con qué lock choca, y si el bloqueador seguía ejecutando o tenía la transacción abierta.
 
 **`pg_stat_activity` es del clúster, no de la base conectada.** La captura de bloqueos filtra por `datname = current_database()`; sin eso, dos entradas del config apuntando a dos bases del mismo servidor registran el mismo bloqueo dos veces. Lo mismo aplica a `pg_stat_statements`, que filtra por `dbid`.
 
@@ -500,7 +500,7 @@ botón que falla al apretarlo es peor que ningún botón.
 | Lectura (`SELECT`, `WITH` sin escritura, `TABLE`, `VALUES`) | plan estimado y `ANALYZE` |
 | Escritura (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, `CREATE TABLE AS`) | sólo plan estimado |
 | Utilitaria (`ALTER`, `CREATE INDEX`, `VACUUM`, `SET`, `TRUNCATE`, `BEGIN`…) | ninguno |
-| Texto recortado a 4000 caracteres | ninguno |
+| Texto guardado cortado (filas viejas, u otro motor) | ninguno |
 | Normalizada con `$1` | sólo plan genérico, y sólo en PG 16+ |
 
 Las utilitarias no es que Búho no las intente: **la gramática de `EXPLAIN` no las
@@ -548,9 +548,11 @@ no hay filas reales que comparar, y la pantalla lo dice en vez de callarse.
 
 ### Límites
 
-- Un texto de consulta recortado a 4000 caracteres no se puede explicar: al
-  planificador le falta el final de la sentencia. La consulta aparece marcada y
-  sin botón, en vez de fallar con un error de sintaxis.
+- En PostgreSQL el texto de `pg_stat_statements` se guarda completo, una vez
+  por queryid, para poder leerlo y explicarlo. Una fila que todavía diga
+  cortada es una copia anterior: el siguiente ciclo del colector la reemplaza.
+  Si otro motor sigue entregando el texto cortado, la consulta aparece marcada
+  y sin botón, en vez de fallar con un error de sintaxis.
 - Antes de PostgreSQL 16 no existe `GENERIC_PLAN`, así que las consultas
   normalizadas hay que explicarlas a mano reemplazando los parámetros.
 - El colector se conecta con su propio `search_path`: una consulta sobre tablas

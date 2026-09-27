@@ -281,21 +281,57 @@ const tableActivity: MetricCollector = {
 const tableSizes: MetricCollector = {
   id: 'table_sizes',
   tier: 'slow',
-  description: 'Tablas más grandes de la base conectada',
-  sql: () => `
+  description: 'Tablas más grandes de la base conectada, con las particiones sumadas en el padre',
+  sql: (caps) => {
+    // pg_partition_tree exists since PostgreSQL 12. Leaves are the relations
+    // that actually store rows, so a monthly partition is not its own table.
+    const sizeExpr =
+      caps.versionNum >= 120_000
+        ? `coalesce((
+             select sum(pg_total_relation_size(t.relid))
+               from pg_partition_tree(c.oid) t
+              where t.isleaf
+           ), 0)`
+        : `pg_total_relation_size(c.oid) + coalesce((
+             select sum(pg_total_relation_size(i.inhrelid))
+               from pg_inherits i
+              where i.inhparent = c.oid
+           ), 0)`;
+    const indexExpr =
+      caps.versionNum >= 120_000
+        ? `coalesce((
+             select sum(pg_indexes_size(t.relid))
+               from pg_partition_tree(c.oid) t
+              where t.isleaf
+           ), 0)`
+        : `pg_indexes_size(c.oid) + coalesce((
+             select sum(pg_indexes_size(i.inhrelid))
+               from pg_inherits i
+              where i.inhparent = c.oid
+           ), 0)`;
+    const partsExpr =
+      caps.versionNum >= 120_000
+        ? `(select count(*) from pg_partition_tree(c.oid) t where t.relid <> c.oid)`
+        : `(select count(*) from pg_inherits i where i.inhparent = c.oid)`;
+    return `
     select n.nspname as schema, c.relname as table,
-           pg_total_relation_size(c.oid) as total_bytes,
-           pg_indexes_size(c.oid)        as index_bytes
+           ${sizeExpr}  as total_bytes,
+           ${indexExpr} as index_bytes,
+           ${partsExpr} as partitions
       from pg_class c
       join pg_namespace n on n.oid = c.relnamespace
      where c.relkind in ('r', 'p')
+       and not c.relispartition
        and n.nspname not in ('pg_catalog', 'information_schema')
-     order by pg_total_relation_size(c.oid) desc
-     limit 20`,
+     order by 3 desc
+     limit 20`;
+  },
   toSamples: (rows) => {
     const samples: Sample[] = [];
     for (const row of rows) {
-      const labels = { schema: str(row['schema']), table: str(row['table']) };
+      const parts = num(row['partitions']);
+      const labels: Record<string, string> = { schema: str(row['schema']), table: str(row['table']) };
+      if (parts > 1) labels['partitions'] = String(parts);
       samples.push({ metric: 'table_total_bytes', value: num(row['total_bytes']), labels });
       samples.push({ metric: 'table_index_bytes', value: num(row['index_bytes']), labels });
     }
