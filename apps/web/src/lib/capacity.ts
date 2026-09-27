@@ -58,7 +58,7 @@ function forecastLine(history: CapacityPoint[], fit: LinearFit | null): Capacity
   if (!fit || history.length === 0) return [];
   const last = history[history.length - 1]!;
   const dayMs = 86_400_000;
-  const horizonDays = 90;
+  const horizonDays = 28;
   const steps = 12;
   const points: CapacityPoint[] = [{ bucket: last.bucket, value: last.value }];
   for (let step = 1; step <= steps; step += 1) {

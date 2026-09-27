@@ -964,7 +964,73 @@ const logicalSubscriptionDown: CheckDefinition = {
     })),
 };
 
-export const POSTGRES_ONLY_CHECKS: CheckDefinition[] = [logicalSubscriptionDown];
+const neverAnalyzed: CheckDefinition = {
+  id: 'never_analyzed',
+  title: 'Tables never analyzed',
+  description: 'User tables with rows and no ANALYZE at all',
+  sql: () => `
+    select schemaname as schema_name, relname as table_name, n_live_tup as live_tuples
+      from pg_stat_user_tables
+     where last_analyze is null
+       and last_autoanalyze is null
+       and n_live_tup > 1000
+     order by n_live_tup desc
+     limit 20`,
+  evaluate: (rows) =>
+    rows.map((row) => ({
+      severity: 'warning' as const,
+      object: `${text(row['schema_name'])}.${text(row['table_name'])}`,
+      message: `${num(row['live_tuples']).toLocaleString('en-US')} live rows and neither ANALYZE nor autoanalyze has ever run.`,
+      remediation:
+        'ANALYZE the table. Until statistics exist, the planner guesses row counts and the vacuum bloat estimate stays empty.',
+      value: num(row['live_tuples']),
+    })),
+};
+
+const bloatedIndexes: CheckDefinition = {
+  id: 'bloated_indexes',
+  title: 'Indexes larger than their table',
+  description: 'Secondary indexes at least twice the heap and over 64 MB',
+  sql: () => `
+    select n.nspname as schema_name,
+           c.relname as table_name,
+           i.relname as index_name,
+           pg_relation_size(i.oid) as index_bytes,
+           pg_relation_size(c.oid) as heap_bytes
+      from pg_index x
+      join pg_class i on i.oid = x.indexrelid
+      join pg_class c on c.oid = x.indrelid
+      join pg_namespace n on n.oid = c.relnamespace
+     where c.relkind = 'r'
+       and not c.relispartition
+       and not x.indisprimary
+       and n.nspname not in ('pg_catalog', 'information_schema')
+       and pg_relation_size(i.oid) > 64 * 1024 * 1024
+       and pg_relation_size(c.oid) > 0
+       and pg_relation_size(i.oid) > pg_relation_size(c.oid) * 2
+     order by pg_relation_size(i.oid) desc
+     limit 15`,
+  evaluate: (rows) =>
+    rows.map((row) => {
+      const indexBytes = num(row['index_bytes']);
+      const heapBytes = num(row['heap_bytes']);
+      const ratio = heapBytes > 0 ? indexBytes / heapBytes : 0;
+      return {
+        severity: ratio >= 4 ? ('warning' as const) : ('info' as const),
+        object: `${text(row['schema_name'])}.${text(row['index_name'])}`,
+        message: `Index is ${formatBytes(indexBytes)} on a ${formatBytes(heapBytes)} heap (${ratio.toFixed(1)}×). PostgreSQL does not publish leaf fragmentation; this size gap is the bloat signal.`,
+        remediation:
+          'REINDEX CONCURRENTLY the index, or drop it if another index already covers the same columns. A secondary index several times the heap is usually bloat or a duplicate.',
+        value: ratio,
+      };
+    }),
+};
+
+export const POSTGRES_ONLY_CHECKS: CheckDefinition[] = [
+  logicalSubscriptionDown,
+  neverAnalyzed,
+  bloatedIndexes,
+];
 
 export const CHECKS: CheckDefinition[] = [
   connectionSaturation,

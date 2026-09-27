@@ -195,6 +195,27 @@ export async function getIndexPage(
   return { rows: rows.map(toRow), total: Number(countRows[0]?.total ?? 0) };
 }
 
+/** Secondary indexes at least twice the heap and over 64 MB. PostgreSQL has no leaf-fragmentation counter. */
+export async function getBloatedIndexes(instanceId: number, limit = 40): Promise<IndexRow[]> {
+  const rows = await query(
+    `select i.*
+       from buho.index_objects i
+       join buho.vacuum_tables t
+         on t.instance_id = i.instance_id
+        and t.schema_name = i.schema_name
+        and t.table_name = i.table_name
+      where i.instance_id = $1
+        and not i.is_primary
+        and t.heap_bytes > 0
+        and i.size_bytes > 64 * 1024 * 1024
+        and i.size_bytes > t.heap_bytes * 2
+      order by i.size_bytes desc
+      limit $2`,
+    [instanceId, limit],
+  );
+  return rows.map(toRow);
+}
+
 export async function getIndexInventory(
   instanceId: number,
   filter: 'all' | IndexStatus = 'all',

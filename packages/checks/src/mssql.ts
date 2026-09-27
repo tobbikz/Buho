@@ -744,6 +744,39 @@ const coberturaBackupsSemana: ForeignCheckDefinition = {
     }),
 };
 
+const indexFragmentation: ForeignCheckDefinition = {
+  id: 'mssql_index_fragmentation',
+  title: 'Fragmented indexes',
+  description: 'LIMITED physical stats on the connected database, indexes over 30% and 1000 pages',
+  sql: () => `
+    select top 15
+           s.name as schema_name,
+           t.name as table_name,
+           i.name as index_name,
+           ps.avg_fragmentation_in_percent as frag_pct,
+           ps.page_count
+      from sys.dm_db_index_physical_stats(db_id(), null, null, null, 'LIMITED') ps
+      join sys.indexes i on i.object_id = ps.object_id and i.index_id = ps.index_id
+      join sys.tables t on t.object_id = ps.object_id
+      join sys.schemas s on s.schema_id = t.schema_id
+     where ps.index_id > 0
+       and ps.page_count > 1000
+       and ps.avg_fragmentation_in_percent >= 30
+     order by ps.avg_fragmentation_in_percent desc`,
+  evaluate: (rows) =>
+    rows.map((row) => {
+      const pct = num(row['frag_pct']);
+      return {
+        severity: pct >= 50 ? ('warning' as const) : ('info' as const),
+        object: `${text(row['schema_name'])}.${text(row['index_name'])}`,
+        message: `${text(row['schema_name'])}.${text(row['table_name'])} index ${text(row['index_name'])} is ${pct.toFixed(0)}% fragmented (${num(row['page_count']).toLocaleString('en-US')} pages).`,
+        remediation:
+          'ALTER INDEX … REORGANIZE under 30% is usually enough; REBUILD when fragmentation stays above 30% and the index is large. This scan is LIMITED and only the database the monitor is connected to.',
+        value: pct,
+      };
+    }),
+};
+
 export const MSSQL_CHECKS: ForeignCheckDefinition[] = [
   ...MSSQL_PARITY_CHECKS,
   // MSSQL-specific extras beyond the PG 1:1 set (unique value; do not replace parity ids).
@@ -753,4 +786,5 @@ export const MSSQL_CHECKS: ForeignCheckDefinition[] = [
   esperas,
   indices,
   jobs,
+  indexFragmentation,
 ];

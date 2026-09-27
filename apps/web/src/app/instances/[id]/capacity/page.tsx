@@ -122,9 +122,7 @@ export default async function CapacityPage({ params }: { params: Promise<{ id: s
         </div>
 
         <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
-          {visible
-            .filter((f) => f.resource !== 'disco')
-            .map((f) => (
+          {visible.map((f) => (
               <section
                 key={f.resource}
                 className="panel"
@@ -141,10 +139,14 @@ export default async function CapacityPage({ params }: { params: Promise<{ id: s
                 }}
               >
                 <div className="panel-header">
-                  <span className="panel-title">{f.label}</span>
+                  <span className="panel-title">
+                    {f.label}
+                    <span className="ml-2 font-mono text-[12px] text-foreground">{formatValue(f)}</span>
+                  </span>
                   <span className="font-mono text-[10px] text-foreground-muted">
                     R²={f.rSquared === null ? '—' : f.rSquared.toFixed(2)} · threshold{' '}
                     {f.unit === 'bytes' ? formatBytes(f.threshold) : formatPct(f.threshold, 0)}
+                    {' · '}28d
                   </span>
                 </div>
                 <div className="panel-body text-[13px] leading-relaxed text-foreground-secondary">
@@ -179,64 +181,6 @@ export default async function CapacityPage({ params }: { params: Promise<{ id: s
               </section>
             ))}
         </div>
-
-        {visible
-          .filter((f) => f.resource === 'disco')
-          .map((f) => (
-            <div key={f.resource} className="chart-panel--full mt-[0.875rem]">
-              <section
-                className="panel"
-                style={{
-                  borderLeft: `3px solid ${
-                    f.tone === 'error'
-                      ? 'var(--error)'
-                      : f.tone === 'warn'
-                        ? 'var(--warning)'
-                        : f.tone === 'ok'
-                          ? 'var(--success)'
-                          : 'var(--border)'
-                  }`,
-                }}
-              >
-                <div className="panel-header">
-                  <span className="panel-title">{f.label}</span>
-                  <span className="font-mono text-[10px] text-foreground-muted">
-                    R²={f.rSquared === null ? '—' : f.rSquared.toFixed(2)} · threshold{' '}
-                    {f.unit === 'bytes' ? formatBytes(f.threshold) : formatPct(f.threshold, 0)}
-                  </span>
-                </div>
-                <div className="panel-body text-[13px] leading-relaxed text-foreground-secondary">
-                  {f.summary}
-                </div>
-                {f.history.length > 0 ? (
-                  <TimeseriesPanel
-                    title=""
-                    data={capacityChart(f)}
-                    unit={f.unit === 'bytes' ? 'bytes' : 'pct'}
-                    height={180}
-                    threshold={{
-                      value: f.threshold,
-                      label: f.unit === 'bytes' ? formatBytes(f.threshold) : formatPct(f.threshold, 0),
-                    }}
-                    series={[
-                      {
-                        metric: f.resource,
-                        label: f.label,
-                        color: '#1f5f8b',
-                        filled: true,
-                      },
-                      {
-                        metric: 'forecast',
-                        label: 'Projected',
-                        color: '#9a4a00',
-                        dashed: true,
-                      },
-                    ]}
-                  />
-                ) : null}
-              </section>
-            </div>
-          ))}
       </div>
     </>
   );

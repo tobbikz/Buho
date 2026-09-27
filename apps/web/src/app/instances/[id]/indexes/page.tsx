@@ -11,6 +11,7 @@ import { getInstanceEngine } from '@/lib/estate';
 import { getInstance } from '@/lib/queries';
 import { getIndexFindings, getIndexSuggestions } from '@/lib/advisor';
 import {
+  getBloatedIndexes,
   getIndexInventory,
   getIndexPage,
   getIndexSchemaGroups,
@@ -158,6 +159,7 @@ export default async function IndexesPage({
   let redundantIndexes: IndexRow[];
   let invalidIndexes: IndexRow[];
 
+  const fragmented = filterParam === 'bloated';
   const activeFilter: 'all' | IndexStatus =
     filterParam === 'unused' || filterParam === 'redundant' || filterParam === 'invalid' || filterParam === 'ok'
       ? filterParam
@@ -210,7 +212,10 @@ export default async function IndexesPage({
   const countsFromChecks = summary.total === 0 && findings.length > 0;
   const activeSchema = schemaParam && schemaGroups.some((row) => row.schema === schemaParam) ? schemaParam : null;
   try {
-    inventory = await getIndexPage(instanceId, activeFilter, activeSchema, q, sort, dir, page, INDEX_PAGE_SIZE);
+    inventory = fragmented
+      ? { rows: await getBloatedIndexes(instanceId, INDEX_PAGE_SIZE), total: 0 }
+      : await getIndexPage(instanceId, activeFilter, activeSchema, q, sort, dir, page, INDEX_PAGE_SIZE);
+    if (fragmented) inventory = { ...inventory, total: inventory.rows.length };
   } catch (error) {
     return (
       <>
@@ -481,7 +486,7 @@ export default async function IndexesPage({
 
             <section className="panel">
               <div className="panel-header">
-                <span className="panel-title">All indexes</span>
+                <span className="panel-title">{fragmented ? 'Larger than the table' : 'All indexes'}</span>
                 <span className="font-mono text-[10px] text-foreground-muted">
                   {summary.capturedAt ? `as of ${formatAgo(summary.capturedAt)} · size desc` : ''}
                 </span>
@@ -492,11 +497,17 @@ export default async function IndexesPage({
                     <Link
                       key={filter}
                       href={buildIndexesHref(instanceId, filter, activeSchema, { q, sort, dir })}
-                      className={activeFilter === filter ? 'tag tag--info' : 'btn-secondary'}
+                      className={!fragmented && activeFilter === filter ? 'tag tag--info' : 'btn-secondary'}
                     >
                       {filter === 'all' ? 'All statuses' : STATUS_LABEL[filter]}
                     </Link>
                   ))}
+                  <Link
+                    href={`/instances/${instanceId}/indexes?filter=bloated`}
+                    className={fragmented ? 'tag tag--info' : 'btn-secondary'}
+                  >
+                    Fragmented
+                  </Link>
                 </div>
                 <div className="mb-4 flex flex-wrap gap-2">
                   <Link
@@ -554,11 +565,9 @@ export default async function IndexesPage({
                 </form>
 
                 <p className="mb-4 text-[11px] text-foreground-muted">
-                  Page {currentPage} of {pageCount} · {formatNumber(inventory.total)} index
-                  {inventory.total === 1 ? '' : 'es'}
-                  {activeFilter !== 'all' ? ` · status ${STATUS_LABEL[activeFilter]}` : ''}
-                  {activeSchema ? ` · schema ${activeSchema}` : ''}. The list is paged so the browser does not
-                  render the whole inventory at once.
+                  {fragmented
+                    ? 'PostgreSQL does not publish leaf fragmentation. These are secondary indexes at least twice the heap and over 64 MB, joined to the vacuum snapshot. SQL Server fragmentation is a check (LIMITED, connected database only).'
+                    : `Page ${currentPage} of ${pageCount} · ${formatNumber(inventory.total)} index${inventory.total === 1 ? '' : 'es'}${activeFilter !== 'all' ? ` · status ${STATUS_LABEL[activeFilter]}` : ''}${activeSchema ? ` · schema ${activeSchema}` : ''}. The list is paged so the browser does not render the whole inventory at once.`}
                 </p>
                 <IndexTable rows={inventory.rows} />
                 <div className="mt-3 flex gap-2">

@@ -3,12 +3,17 @@ import { notFound } from 'next/navigation';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StoreError } from '@/components/StoreError';
 import { OrmGraph } from '@/components/OrmGraph';
+import { StatCard } from '@/components/StatCard';
 import { TopologyBubbles } from '@/components/TopologyBubbles';
 import { Topbar } from '@/components/Topbar';
 import { formatBytes, formatNumber } from '@/lib/format';
 import { catalogModel, getCatalog } from '@/lib/catalog';
 import { getInstanceEngine } from '@/lib/estate';
+import { getOrmModel } from '@/lib/orm';
+import type { OrmLayer } from '@/lib/orm-types';
+import { formatUnit, type Unit } from '@/lib/units';
 import { getInstance } from '@/lib/queries';
+import type { FlowWeight } from '@buho/core';
 import {
   diffTopologyWeeks,
   getTopologyWeek,
@@ -32,16 +37,225 @@ export default async function TopologyPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ d?: string; snap?: string; vista?: string; q?: string; schema?: string }>;
+  searchParams: Promise<{
+    d?: string;
+    snap?: string;
+    vista?: string;
+    q?: string;
+    schema?: string;
+    peso?: string;
+    v?: string;
+    capa?: string;
+  }>;
 }) {
   const { id } = await params;
-  const { d, snap, vista, q, schema: schemaParam } = await searchParams;
+  const { d, snap, vista, q, schema: schemaParam, peso, v, capa } = await searchParams;
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
 
   const engine = (await getInstanceEngine(instanceId)) ?? 'postgres';
   const direction = d === 'lectura' ? 'lectura' : 'escritura';
-  const view = vista === 'tabla' ? 'tabla' : vista === 'trafico' || vista === 'burbujas' ? 'burbujas' : 'catalog';
+  const view =
+    vista === 'trafico' ? 'trafico' : vista === 'tabla' ? 'tabla' : vista === 'burbujas' ? 'burbujas' : 'catalog';
+
+  if (view === 'trafico') {
+    const weights: { key: FlowWeight; label: string }[] = [
+      { key: 'rows', label: 'Rows' },
+      { key: 'time', label: 'Time' },
+      { key: 'calls', label: 'Calls' },
+    ];
+    const windows = [
+      { key: '1h', label: '1 h', minutes: 60 },
+      { key: '6h', label: '6 h', minutes: 360 },
+      { key: '24h', label: '24 h', minutes: 1440 },
+      { key: '7d', label: '7 d', minutes: 10080 },
+    ];
+    const layers: { key: OrmLayer; label: string }[] = [
+      { key: 'ambos', label: 'Both' },
+      { key: 'estructura', label: 'Keys only' },
+      { key: 'trafico', label: 'Heat only' },
+    ];
+    const weight = (weights.find((entry) => entry.key === peso)?.key ?? 'rows') as FlowWeight;
+    const window = windows.find((entry) => entry.key === v) ?? windows[2]!;
+    const layer = (layers.find((entry) => entry.key === capa)?.key ?? 'ambos') as OrmLayer;
+    const unit: Unit = weight === 'time' ? 'ms' : 'count';
+    const link = (changes: Record<string, string> = {}) => {
+      const query = new URLSearchParams({
+        vista: 'trafico',
+        peso: weight,
+        v: window.key,
+        capa: layer,
+        ...changes,
+      });
+      return `/instances/${instanceId}/topology?${query.toString()}`;
+    };
+
+    let instance;
+    let model;
+    let schemaChoices: string[] = [];
+    try {
+      instance = await getInstance(instanceId);
+      if (!instance) notFound();
+      model = await getOrmModel(instanceId, window.minutes, weight, engine);
+      schemaChoices = model.schemas.map((schema) => schema.name);
+      const picked = schemaChoices.includes(schemaParam ?? '') ? schemaParam! : '';
+      if (picked) {
+        const schemas = model.schemas.filter((schema) => schema.name === picked);
+        const nodes = model.nodes.filter((node) =>
+          node.kind === 'schema' ? node.label === picked : node.schema === picked,
+        );
+        const ids = new Set(nodes.map((node) => node.id));
+        const links = model.links.filter((link) => ids.has(link.source) && ids.has(link.target));
+        model = {
+          ...model,
+          schemas,
+          nodes,
+          links,
+          totalTables: schemas[0]?.tableCount ?? 0,
+          foreignKeys: links.filter((link) => link.kind === 'fk').length,
+        };
+      }
+    } catch (error) {
+      return (
+        <>
+          <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
+          <div className="page">
+            <StoreError message={error instanceof Error ? error.message : String(error)} />
+          </div>
+        </>
+      );
+    }
+    if (!instance) notFound();
+
+    return (
+      <>
+        <Topbar
+          crumbs={[
+            { label: 'Fleet', href: '/' },
+            { label: instance.alias, href: `/instances/${instanceId}` },
+            { label: 'Catalog' },
+          ]}
+        />
+        <div className="page">
+          <header className="page-header">
+            <div>
+              <h1 className="page-title">Catalog · {instance.alias}</h1>
+              <p className="page-sub">
+                Foreign keys with attributed traffic. Structure lists every schema and table without heat.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              <Link href={`/instances/${instanceId}/topology`} className="tag tag--muted">
+                Structure
+              </Link>
+              <span className="tag tag--info">Traffic</span>
+            </div>
+          </header>
+          <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
+          <div className="stat-grid">
+            <StatCard label="Schemas" value={formatNumber(model.schemas.length)} hint="in this view" />
+            <StatCard label="Tables" value={formatNumber(model.totalTables)} hint="user tables" />
+            <StatCard label="Foreign keys" value={formatNumber(model.foreignKeys)} hint="structural links" />
+            <StatCard
+              label="Tables with traffic"
+              value={formatNumber(model.attributedTables)}
+              hint={`window ${window.label}`}
+              tone={model.attributedTables > 0 ? 'accent' : 'neutral'}
+            />
+          </div>
+          <section className="panel">
+            <div className="panel-header">
+              <span className="panel-title">Traffic</span>
+              <div className="flex flex-wrap items-center gap-1">
+                {layers.map((option) => (
+                  <Link
+                    key={option.key}
+                    href={link({ capa: option.key })}
+                    className={`tag ${option.key === layer ? 'tag--info' : 'tag--muted'}`}
+                  >
+                    {option.label}
+                  </Link>
+                ))}
+                <span className="mx-1 text-foreground-muted">·</span>
+                {weights.map((option) => (
+                  <Link
+                    key={option.key}
+                    href={link({ peso: option.key })}
+                    className={`tag ${option.key === weight ? 'tag--info' : 'tag--muted'}`}
+                  >
+                    {option.label}
+                  </Link>
+                ))}
+                <span className="mx-1 text-foreground-muted">·</span>
+                {windows.map((option) => (
+                  <Link
+                    key={option.key}
+                    href={link({ v: option.key })}
+                    className={`tag ${option.key === window.key ? 'tag--info' : 'tag--muted'}`}
+                  >
+                    {option.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+            <form action={`/instances/${instanceId}/topology`} className="border-b border-border">
+              <div className="panel-body flex flex-wrap items-center gap-2">
+                <input type="hidden" name="vista" value="trafico" />
+                <input type="hidden" name="capa" value={layer} />
+                <input type="hidden" name="peso" value={weight} />
+                <input type="hidden" name="v" value={window.key} />
+                <label className="text-[11px] uppercase tracking-wide text-foreground-muted" htmlFor="catalog-schema">
+                  Schema
+                </label>
+                <select
+                  id="catalog-schema"
+                  name="schema"
+                  defaultValue={schemaChoices.includes(schemaParam ?? '') ? schemaParam : ''}
+                  className="rounded-[3px] border border-border bg-[var(--surface)] px-2 py-1 font-mono text-[12px]"
+                >
+                  <option value="">All schemas</option>
+                  {schemaChoices.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <button type="submit" className="tag tag--info">
+                  Filter
+                </button>
+                {schemaParam ? (
+                  <Link href={link()} className="tag tag--muted">
+                    clear
+                  </Link>
+                ) : null}
+              </div>
+            </form>
+            <div className="panel-body">
+              {model.totalTables === 0 ? (
+                <div className="empty">No tables in the catalog yet. Wait for the collector vacuum scan.</div>
+              ) : (
+                <OrmGraph model={model} instanceId={instanceId} unit={unit} layer={layer} />
+              )}
+              {model.attributedTables > 0 ? (
+                <p className="mt-2 text-[11px] text-foreground-muted">
+                  {formatUnit(
+                    model.nodes.reduce((sum, node) => sum + node.writeHeat, 0),
+                    unit,
+                  )}{' '}
+                  write and{' '}
+                  {formatUnit(
+                    model.nodes.reduce((sum, node) => sum + node.readHeat, 0),
+                    unit,
+                  )}{' '}
+                  read on foreign-key links in the last {window.label}.
+                </p>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      </>
+    );
+  }
 
   if (view === 'catalog') {
     let instance;
@@ -89,13 +303,9 @@ export default async function TopologyPage({
         <div className="page">
           <header className="page-header">
             <div>
-              <h1 className="page-title">Topology · {instance.alias}</h1>
+              <h1 className="page-title">Catalog · {instance.alias}</h1>
               <p className="page-sub">
-                Every user schema and table. Partitions are rolled into the parent. Traffic lives on{' '}
-                <Link href={`/instances/${instanceId}/flow`} className="underline">
-                  Flow
-                </Link>
-                .
+                Every user schema and table, without traffic. Partitions are rolled into the parent.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-1">

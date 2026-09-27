@@ -19,10 +19,12 @@ import {
   type BloatMode,
 } from '@/lib/bloat';
 import {
+  countVacuumTables,
   getVacuumProgress,
   getVacuumTables,
   getVacuumTotals,
   type VacuumOrder,
+  type VacuumView,
   type VacuumProgressRow,
   type VacuumTableRow,
 } from '@/lib/vacuum';
@@ -172,10 +174,11 @@ export default async function VacuumPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ orden?: string; error?: string; page?: string }>;
+  searchParams: Promise<{ orden?: string; error?: string; page?: string; vista?: string }>;
 }) {
   const { id } = await params;
-  const { orden, error: notice, page: pageParam } = await searchParams;
+  const { orden, error: notice, page: pageParam, vista } = await searchParams;
+  const view: VacuumView = vista === 'analyze' ? 'analyze' : 'todas';
   const page = Math.max(1, Number(pageParam) || 1);
 
   const instanceId = Number(id);
@@ -208,6 +211,7 @@ export default async function VacuumPage({
   ];
 
   let tables: VacuumTableRow[];
+  let listed = 0;
   let progress: VacuumProgressRow[];
   let totals: Awaited<ReturnType<typeof getVacuumTotals>>;
   let series: Awaited<ReturnType<typeof getSeries>>;
@@ -215,8 +219,9 @@ export default async function VacuumPage({
   let session: Awaited<ReturnType<typeof currentSession>>;
   let pgstattuple: Awaited<ReturnType<typeof getPgstattupleState>>;
   try {
-    [tables, progress, totals, series, measurements, session, pgstattuple] = await Promise.all([
-      getVacuumTables(instanceId, order, VACUUM_PAGE_SIZE, (page - 1) * VACUUM_PAGE_SIZE),
+    [tables, listed, progress, totals, series, measurements, session, pgstattuple] = await Promise.all([
+      getVacuumTables(instanceId, order, VACUUM_PAGE_SIZE, (page - 1) * VACUUM_PAGE_SIZE, view),
+      countVacuumTables(instanceId, view),
       getVacuumProgress(instanceId),
       getVacuumTotals(instanceId),
       getSeries(instanceId, ['bloat_estimated_bytes', 'vacuum_running'], 1440, 300),
@@ -350,11 +355,24 @@ export default async function VacuumPage({
         />
 
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/instances/${instanceId}/vacuum?orden=${order}`}
+            className={`tag ${view === 'todas' ? 'tag--info' : 'tag--muted'}`}
+          >
+            All tables
+          </Link>
+          <Link
+            href={`/instances/${instanceId}/vacuum?vista=analyze&orden=${order}`}
+            className={`tag ${view === 'analyze' ? 'tag--info' : 'tag--muted'}`}
+          >
+            Missing ANALYZE
+          </Link>
+          <span className="mx-1 text-foreground-muted">·</span>
           <span className="text-[11px] uppercase tracking-wide text-foreground-muted">Sort by</span>
           {ORDERS.map((entry) => (
             <a
               key={entry.key}
-              href={`/instances/${instanceId}/vacuum?orden=${entry.key}`}
+              href={`/instances/${instanceId}/vacuum?orden=${entry.key}${view === 'analyze' ? '&vista=analyze' : ''}`}
               className={`tag ${entry.key === order ? 'tag--info' : 'tag--muted'}`}
             >
               {entry.label}
@@ -364,7 +382,9 @@ export default async function VacuumPage({
 
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Tables · {formatNumber(totals.tables)}</span>
+            <span className="panel-title">
+              {view === 'analyze' ? 'Never analyzed' : 'Tables'} · {formatNumber(listed)}
+            </span>
             <span className="font-mono text-[10px] text-foreground-muted">
               {totals.capturedAt ? `snapshot ${formatAgo(totals.capturedAt)}` : 'no snapshot'}
             </span>
@@ -494,23 +514,23 @@ export default async function VacuumPage({
               </table>
             </div>
           )}
-          {totals.tables > VACUUM_PAGE_SIZE ? (
+          {listed > VACUUM_PAGE_SIZE ? (
             <div className="panel-body flex items-center justify-between gap-2 border-t border-border">
               <span className="font-mono text-[11px] text-foreground-muted">
-                Page {page} of {Math.max(1, Math.ceil(totals.tables / VACUUM_PAGE_SIZE))}
+                Page {page} of {Math.max(1, Math.ceil(listed / VACUUM_PAGE_SIZE))}
               </span>
               <span className="flex gap-2">
                 {page > 1 ? (
                   <Link
-                    href={`/instances/${instanceId}/vacuum?orden=${order}&page=${page - 1}`}
+                    href={`/instances/${instanceId}/vacuum?orden=${order}&page=${page - 1}${view === 'analyze' ? '&vista=analyze' : ''}`}
                     className="tag tag--muted"
                   >
                     Previous
                   </Link>
                 ) : null}
-                {page * VACUUM_PAGE_SIZE < totals.tables ? (
+                {page * VACUUM_PAGE_SIZE < listed ? (
                   <Link
-                    href={`/instances/${instanceId}/vacuum?orden=${order}&page=${page + 1}`}
+                    href={`/instances/${instanceId}/vacuum?orden=${order}&page=${page + 1}${view === 'analyze' ? '&vista=analyze' : ''}`}
                     className="tag tag--muted"
                   >
                     Next

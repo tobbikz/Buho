@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
+import { statementKind } from '@buho/core';
 import { InstanceTabs } from '@/components/InstanceTabs';
+import { PollWhilePending } from '@/components/PollWhilePending';
 import { StatCard } from '@/components/StatCard';
 import { StatementsTable } from '@/components/StatementsTable';
 import { StoreError } from '@/components/StoreError';
@@ -18,7 +20,25 @@ import {
   type TopStatement,
 } from '@/lib/queries';
 import { getInstanceEngine } from '@/lib/estate';
+import { getPlanRequest, requestPlan } from '@/lib/plans';
+import { currentSession } from '@/lib/session';
 import { getLatestSessions } from '@/lib/sessions';
+
+async function explainLiveQuery(formData: FormData): Promise<void> {
+  'use server';
+  const session = await currentSession();
+  const instanceId = Number(formData.get('instanceId'));
+  const pid = String(formData.get('pid') ?? '');
+  const sql = String(formData.get('sql') ?? '').trim();
+  const back = `/instances/${instanceId}/queries?vista=live&pid=${encodeURIComponent(pid)}`;
+  if (!sql) redirect(`${back}&error=${encodeURIComponent('This session has no query text to explain.')}`);
+  const kind = statementKind(sql);
+  if (kind === 'utilitaria') {
+    redirect(`${back}&error=${encodeURIComponent('This statement has no query plan.')}`);
+  }
+  const requestId = await requestPlan(instanceId, sql, 'estimate', session.username, null);
+  redirect(`${back}&plan=${requestId}`);
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -153,10 +173,19 @@ export default async function QueriesPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ w?: string; order?: string; monitor?: string; buscar?: string; vista?: string }>;
+  searchParams: Promise<{
+    w?: string;
+    order?: string;
+    monitor?: string;
+    buscar?: string;
+    vista?: string;
+    plan?: string;
+    pid?: string;
+    error?: string;
+  }>;
 }) {
   const { id } = await params;
-  const { w, order, monitor, buscar, vista } = await searchParams;
+  const { w, order, monitor, buscar, vista, plan, pid, error: planError } = await searchParams;
   const live = vista === 'live';
   const filtro = buscar?.trim() ? buscar.trim() : null;
 
@@ -204,9 +233,20 @@ export default async function QueriesPage({
   let slow: TopStatement[] = [];
   let slowSeries: Awaited<ReturnType<typeof getSeries>> = [];
   let failure: string | null = null;
+  let planText: string | null = null;
+  let planState: string | null = null;
+  let planMessage: string | null = planError ?? null;
   try {
     if (live) {
       latest = await getLatestSessions(instanceId);
+      if (plan) {
+        const requested = await getPlanRequest(Number(plan));
+        if (requested && requested.instanceId === instanceId) {
+          planText = requested.planText;
+          planState = requested.state;
+          planMessage = requested.error ?? planMessage;
+        }
+      }
     } else {
     [statements, load] = await Promise.all([
       getTopStatements(instanceId, window.minutes, selectedOrder, !showMonitorQueries, 25, filtro),
@@ -304,6 +344,12 @@ export default async function QueriesPage({
                 {latest?.at ? formatAgo(latest.at) : 'no snapshot'}
               </span>
             </div>
+            {planMessage ? (
+              <div className="panel-body text-[12px]" style={{ color: 'var(--warning)' }}>
+                {planMessage}
+              </div>
+            ) : null}
+            {planState === 'pendiente' || planState === 'corriendo' ? <PollWhilePending /> : null}
             {!latest || latest.sessions.length === 0 ? (
               <div className="empty">No session snapshot in the last 10 minutes.</div>
             ) : (
@@ -315,26 +361,45 @@ export default async function QueriesPage({
                       <th>Session</th>
                       <th className="text-right">Query</th>
                       <th>Text</th>
+                      <th>Plan</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {latest.sessions.map((session) => (
-                      <tr key={session.pid}>
-                        <td className="font-mono text-[11px]">{session.state}</td>
-                        <td className="font-mono text-[11px]">
-                          pid {session.pid}
-                          {session.application ? ` · ${session.application}` : ''}
-                        </td>
-                        <td className="num">
-                          {session.queryMs === null ? '—' : formatDuration(session.queryMs / 1000)}
-                        </td>
-                        <td className="max-w-[36rem] font-mono text-[11px]">
-                          <div className="truncate" title={session.query ?? ''}>
-                            {session.query?.trim() || '—'}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {latest.sessions.map((session) => {
+                      const open = pid === String(session.pid);
+                      return (
+                        <tr key={session.pid}>
+                          <td className="font-mono text-[11px]">{session.state}</td>
+                          <td className="font-mono text-[11px]">
+                            pid {session.pid}
+                            {session.application ? ` · ${session.application}` : ''}
+                          </td>
+                          <td className="num">
+                            {session.queryMs === null ? '—' : formatDuration(session.queryMs / 1000)}
+                          </td>
+                          <td className="max-w-[28rem] font-mono text-[11px]">
+                            <div className="truncate" title={session.query ?? ''}>
+                              {session.query?.trim() || '—'}
+                            </div>
+                            {open && planText ? (
+                              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap border border-border bg-surface-muted p-2 text-[10.5px]">
+                                {planText}
+                              </pre>
+                            ) : null}
+                          </td>
+                          <td>
+                            <form action={explainLiveQuery}>
+                              <input type="hidden" name="instanceId" value={instanceId} />
+                              <input type="hidden" name="pid" value={session.pid} />
+                              <input type="hidden" name="sql" value={session.query ?? ''} />
+                              <button type="submit" className="tag tag--muted" disabled={!session.query?.trim()}>
+                                Estimated plan
+                              </button>
+                            </form>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

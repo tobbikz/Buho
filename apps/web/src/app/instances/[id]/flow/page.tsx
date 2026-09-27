@@ -192,8 +192,8 @@ export default async function FlowPage({
           />
         </div>
 
-        <div className="flex flex-col gap-[0.875rem]">
-        <section className="panel" style={{ order: 2 }}>
+        <div className="grid grid-cols-1 items-start gap-[0.875rem] xl:grid-cols-4">
+        <section className="panel xl:col-span-3">
           <div className="panel-header">
             <span className="panel-title">Hot tables · writes &amp; reads</span>
             <div className="flex flex-wrap items-center gap-1">
@@ -265,7 +265,7 @@ export default async function FlowPage({
           </div>
         </section>
 
-        <section className="panel" style={{ order: 1 }}>
+        <section className="panel xl:col-span-1">
           <div className="panel-header">
             <span className="panel-title">When it is used · {heatOption.label}</span>
             <div className="flex flex-wrap items-center gap-1">

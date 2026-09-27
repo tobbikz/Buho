@@ -27,8 +27,7 @@ export function InstanceTabs({
           { href: `${base}/indexes`, label: 'Indexes' },
           { href: `${base}/extensions`, label: 'Extensions' },
           { href: `${base}/flow`, label: 'Flow' },
-          { href: `${base}/orm`, label: 'ORM' },
-          { href: `${base}/topology`, label: 'Topology' },
+          { href: `${base}/topology`, label: 'Catalog' },
           { href: `${base}/sessions`, label: 'Sessions' },
           { href: `${base}/capacity`, label: 'Capacity' },
           { href: `${base}/host`, label: 'Host' },
@@ -71,8 +70,7 @@ export function InstanceTabs({
               ]
             : []),
           { href: `${base}/flow`, label: 'Flow' },
-          { href: `${base}/orm`, label: 'ORM' },
-          { href: `${base}/topology`, label: 'Topology' },
+          { href: `${base}/topology`, label: 'Catalog' },
           { href: `${base}/sessions`, label: 'Sessions' },
           { href: `${base}/capacity`, label: 'Capacity' },
           { href: `${base}/host`, label: 'Host' },
@@ -86,7 +84,16 @@ export function InstanceTabs({
   return (
     <nav className="tabs tabs--scroll" aria-label="Instance sections">
       {tabs.map((tab) => (
-        <Link key={tab.href} href={tab.href} className={`tab ${pathname === tab.href ? 'is-active' : ''}`}>
+        <Link
+          key={tab.href}
+          href={tab.href}
+          className={`tab ${
+            pathname === tab.href ||
+            (tab.href.endsWith('/topology') && (pathname.endsWith('/topology') || pathname.endsWith('/orm')))
+              ? 'is-active'
+              : ''
+          }`}
+        >
           {tab.label}
           {tab.badge ? <span className="tag tag--error">{tab.badge}</span> : null}
         </Link>
