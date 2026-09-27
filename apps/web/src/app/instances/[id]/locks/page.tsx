@@ -47,7 +47,7 @@ function session(
     <div className={`lock-node lock-node--${role}`}>
       <div className="lock-node__head">
         <span className="lock-node__role" style={{ color: role === 'blocker' ? 'var(--error)' : 'var(--warning)' }}>
-          {role === 'blocker' ? 'Bloquea' : 'Espera'}
+          {role === 'blocker' ? 'Blocks' : 'Waits'}
         </span>
         <span className="font-mono text-[11px] font-semibold">pid {pid ?? '?'}</span>
         <span className="font-mono text-[10px] text-foreground-muted">
@@ -78,7 +78,7 @@ function LockTree({
 }) {
   const chain =
     episode.blockerPids.length > 1
-      ? `cadena de ${episode.blockerPids.length} bloqueadores: ${episode.blockerPids.join(', ')}`
+      ? `chain of ${episode.blockerPids.length} blockers: ${episode.blockerPids.join(', ')}`
       : null;
 
   const why = explainLock(episode);
@@ -92,15 +92,15 @@ function LockTree({
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <span className={`tag ${episode.active ? 'tag--error' : 'tag--muted'}`}>
-          {episode.active ? 'activo' : 'resuelto'}
+          {episode.active ? 'active' : 'resolved'}
         </span>
         <span className="font-mono text-[12px] font-semibold">{formatDuration(episode.waitSeconds)}</span>
         <span className="text-[11.5px] text-foreground-secondary">
-          esperando <span className="font-mono">{episode.lockMode ?? 'lock'}</span> sobre{' '}
+          waiting for <span className="font-mono">{episode.lockMode ?? 'lock'}</span> on{' '}
           <span className="font-mono">{episode.lockObject ?? 'unknown object'}</span>
         </span>
         <span className="font-mono text-[10px] text-foreground-muted">
-          desde {formatClock(episode.firstSeenAt)} · {episode.samples} muestra
+          since {formatClock(episode.firstSeenAt)} · {episode.samples} sample
           {episode.samples === 1 ? '' : 's'}
         </span>
       </div>
@@ -110,7 +110,7 @@ function LockTree({
         episode.blockerPid,
         episode.blockerUser,
         episode.blockerApplication,
-        `${episode.blockerState ?? 'estado desconocido'}${
+        `${episode.blockerState ?? 'unknown state'}${
           episode.blockerXactSeconds !== null
             ? ` · transaction open ${formatDuration(episode.blockerXactSeconds)}`
             : ''
@@ -118,7 +118,7 @@ function LockTree({
         episode.blockerQuery,
       )}
 
-      <div className="lock-arrow">└─ bloquea a</div>
+      <div className="lock-arrow">└─ blocks</div>
 
       {session(
         'waiter',
@@ -246,8 +246,8 @@ export default async function LocksPage({
           <div>
             <h1 className="page-title">Locks · {instance.alias}</h1>
             <p className="page-sub">
-              Episodios de las last 24 h. Un episodio es una sesión esperando un lock, no un sampling: mientras
-              el bloqueo vive se actualiza la misma fila.
+              Episodes from the last 24 h. An episode is one session waiting on a lock, not a sample: while the
+              block lasts, the same row is updated.
             </p>
           </div>
         </header>
@@ -321,7 +321,7 @@ export default async function LocksPage({
             <span className="font-mono text-[10px] text-foreground-muted">last 24 h</span>
           </div>
           {history.length === 0 ? (
-            <div className="empty">Sin bloqueos registrados en las last 24 h.</div>
+            <div className="empty">No lock episodes in the last 24 h.</div>
           ) : (
             <div className="lock-list">
               <div className="lock-list__head">

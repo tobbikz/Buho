@@ -36,17 +36,25 @@ const COLOR: Record<string, string> = {
 
 const ORDEN = ['CPU', 'IO', 'Lock', 'LWLock', 'IPC', 'BufferPin', 'Timeout', 'Client', 'Extension', 'Activity'];
 
+function tickLabel(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString('en', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export function WaitStack({
   buckets,
   height = 190,
   emptyMessage,
-  elapsed = [],
 }: {
   buckets: StackBucket[];
   height?: number;
   emptyMessage: string;
-  /** Session-time in each class, already formatted. */
-  elapsed?: { type: string; label: string }[];
 }) {
   if (buckets.length === 0) {
     return <div className="empty">{emptyMessage}</div>;
@@ -109,22 +117,14 @@ export function WaitStack({
         })}
       </svg>
 
-      {elapsed.length > 0 ? (
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
-          {elapsed.map((entry) => (
-            <div key={entry.type} className="border border-border px-2 py-1.5">
-              <div className="flex items-center gap-1 text-[10px] text-foreground-muted">
-                <span
-                  className="inline-block h-[8px] w-[8px] rounded-[1px]"
-                  style={{ background: COLOR[entry.type] ?? '#7a869a' }}
-                />
-                <span className="font-mono">{entry.type}</span>
-              </div>
-              <div className="mt-0.5 font-mono text-[13px] text-foreground">{entry.label}</div>
-            </div>
+      <div className="mt-1 flex justify-between gap-2 font-mono text-[10px] text-foreground-muted">
+        {[0, 0.25, 0.5, 0.75, 1]
+          .map((share) => Math.min(buckets.length - 1, Math.round(share * (buckets.length - 1))))
+          .filter((index, position, all) => all.indexOf(index) === position)
+          .map((index) => (
+            <span key={index}>{tickLabel(buckets[index]!.bucket)}</span>
           ))}
-        </div>
-      ) : null}
+      </div>
     </div>
   );
 }

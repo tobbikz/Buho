@@ -56,9 +56,9 @@ const COMET_SAMPLES = 6;
  */
 const DEMO_TABLE_COUNT = 0;
 
-/** Viewport packing — never grow the canvas taller than the stage. */
-const MIN_TABLE_ROW = 13;
-const TABLE_COL_WIDTH = 122;
+/** Readable cards. Extra tables move to the next page instead of overlapping. */
+const CARD_PITCH_Y = 58;
+const CARD_PITCH_X = 176;
 
 const WRITE = '#0a6e42';
 const READ = '#005eb8';
@@ -184,6 +184,8 @@ interface PackMeta {
   tableCols: number;
   hiddenCount: number;
   visibleTables: number;
+  page: number;
+  pages: number;
 }
 
 type GroupMode = 'table' | 'schema';
@@ -345,7 +347,9 @@ export function LiveFlow({
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const snapshotRef = useRef<Snapshot | null>(null);
-  const packMetaRef = useRef<PackMeta>({ tableCols: 1, hiddenCount: 0, visibleTables: 0 });
+  const packMetaRef = useRef<PackMeta>({ tableCols: 1, hiddenCount: 0, visibleTables: 0, page: 1, pages: 1 });
+  const pageRef = useRef(0);
+  const [flowNav, setFlowNav] = useState({ page: 1, pages: 1, total: 0 });
   const smoothLinksRef = useRef<LiveLink[]>([]);
   const referenceRef = useRef(1);
   const unitRef = useRef(unit);
@@ -485,71 +489,21 @@ export function LiveFlow({
       const utilY = Math.max(alto - topPad - botPad, 80);
       const margenIzq = 108;
       const tableBand = Math.max(ancho - margenIzq - 36, 160);
-      const maxCols = Math.max(1, Math.min(6, Math.floor(tableBand / TABLE_COL_WIDTH)));
-      const maxRows = Math.max(4, Math.floor(utilY / MIN_TABLE_ROW));
-      const capacity = maxCols * maxRows;
-
-      let visible = tables;
-      let hiddenCount = 0;
-      let othersWrite = 0;
-      let othersRead = 0;
-      let displayNodes = snap.nodes;
-      let displayLinks = enlaces;
-      let othersIndex = -1;
-
-      if (tables.length > capacity) {
-        const keep = Math.max(1, capacity - 1);
-        const head = tables.slice(0, keep);
-        const tail = tables.slice(keep);
-        hiddenCount = tail.length;
-        for (const idx of tail) {
-          othersWrite += writeIn.get(idx) ?? 0;
-          othersRead += readIn.get(idx) ?? 0;
-        }
-
-        displayNodes = [...snap.nodes];
-        othersIndex = displayNodes.length;
-        displayNodes.push({
-          name: 'table:__others__',
-          depth: 2,
-          label: `+${hiddenCount} more`,
-        });
-
-        const writeApp = apps.find((i) => snap.nodes[i]!.name.includes('writes'));
-        const readApp = apps.find((i) => snap.nodes[i]!.name.includes('writes') === false);
-        displayLinks = enlaces.filter((enlace) => {
-          const src = snap.nodes[enlace.source];
-          const dst = snap.nodes[enlace.target];
-          if (!src || !dst) return false;
-          if (dst.depth >= 2 && tail.includes(enlace.target)) return false;
-          if (src.depth >= 2 && tail.includes(enlace.source)) return false;
-          return true;
-        });
-        if (othersWrite > 0 && writeApp !== undefined) {
-          displayLinks.push({
-            source: writeApp,
-            target: othersIndex,
-            value: othersWrite,
-            kind: 'write',
-          });
-        }
-        if (othersRead > 0 && readApp !== undefined) {
-          displayLinks.push({
-            source: readApp,
-            target: othersIndex,
-            value: othersRead,
-            kind: 'read',
-          });
-        }
-
-        visible = [...head, othersIndex];
-        pesoDe.set(othersIndex, othersWrite + othersRead);
-        writeIn.set(othersIndex, othersWrite);
-        readIn.set(othersIndex, othersRead);
-      }
+      const maxCols = Math.max(1, Math.min(4, Math.floor(tableBand / CARD_PITCH_X)));
+      const maxRows = Math.max(1, Math.floor(utilY / CARD_PITCH_Y));
+      const pageSize = Math.max(1, maxCols * maxRows);
+      const pages = Math.max(1, Math.ceil(tables.length / pageSize));
+      if (pageRef.current >= pages) pageRef.current = pages - 1;
+      if (pageRef.current < 0) pageRef.current = 0;
+      const page = pageRef.current;
+      const visible = tables.slice(page * pageSize, page * pageSize + pageSize);
+      const hidden = new Set(tables.filter((indice) => !visible.includes(indice)));
+      const displayNodes = snap.nodes;
+      const displayLinks = enlaces.filter((enlace) => !hidden.has(enlace.source) && !hidden.has(enlace.target));
+      const hiddenCount = tables.length - visible.length;
 
       const tableCols = Math.min(maxCols, Math.max(1, Math.ceil(visible.length / maxRows)));
-      const rowsPerCol = Math.ceil(visible.length / tableCols);
+      const rowsPerCol = Math.ceil(visible.length / tableCols) || 1;
       const nodos: NodePos[] = [];
 
       const placeApps = () => {
@@ -577,7 +531,7 @@ export function LiveFlow({
         const row = orden % rowsPerCol;
         const inCol = Math.min(rowsPerCol, visible.length - col * rowsPerCol);
         const paso = utilY / (inCol + 1);
-        const x = ancho - 16 - TABLE_COL_WIDTH / 2 - (tableCols - 1 - col) * TABLE_COL_WIDTH;
+        const x = ancho - 16 - CARD_PITCH_X / 2 - (tableCols - 1 - col) * CARD_PITCH_X;
         const nodo = displayNodes[indice]!;
         nodos[indice] = {
           x,
@@ -588,15 +542,15 @@ export function LiveFlow({
           name: nodo.name,
           writeIn: writeIn.get(indice) ?? 0,
           readIn: readIn.get(indice) ?? 0,
-          isOthers: indice === othersIndex,
-          othersCount: indice === othersIndex ? hiddenCount : undefined,
         };
       });
 
       const meta: PackMeta = {
         tableCols,
         hiddenCount,
-        visibleTables: visible.length - (hiddenCount > 0 ? 1 : 0),
+        visibleTables: visible.length,
+        page: page + 1,
+        pages,
       };
 
       return {
@@ -711,9 +665,12 @@ export function LiveFlow({
       if (
         packMetaRef.current.hiddenCount !== packed.meta.hiddenCount ||
         packMetaRef.current.tableCols !== packed.meta.tableCols ||
-        packMetaRef.current.visibleTables !== packed.meta.visibleTables
+        packMetaRef.current.visibleTables !== packed.meta.visibleTables ||
+        packMetaRef.current.page !== packed.meta.page ||
+        packMetaRef.current.pages !== packed.meta.pages
       ) {
         packMetaRef.current = packed.meta;
+        setFlowNav({ page: packed.meta.page, pages: packed.meta.pages, total: packed.meta.visibleTables + packed.meta.hiddenCount });
       }
 
       // Tag schema aggregates + heat crowns.
@@ -866,9 +823,8 @@ export function LiveFlow({
       }
 
       const pulso = 0;
-      const tableCount = packed.meta.visibleTables + (packed.meta.hiddenCount > 0 ? 1 : 0);
-      const compact = tableCount > 6;
-      const micro = tableCount > 20 || packed.meta.tableCols > 1;
+      const compact = true;
+      const micro = false;
 
       nodos.forEach((nodo) => {
         if (!nodo) return;
@@ -1001,8 +957,8 @@ export function LiveFlow({
             return;
           }
 
-          const cardW = compact ? 132 : 158;
-          const cardH = compact ? 44 : 76;
+          const cardW = compact ? 160 : 158;
+          const cardH = compact ? 48 : 76;
           const x = nodo.x - cardW / 2;
           const y = nodo.y - cardH / 2;
           nodo.hitX = x;
@@ -1022,7 +978,7 @@ export function LiveFlow({
           ctx.textAlign = 'left';
           ctx.textBaseline = 'top';
           if (compact) {
-            const label = table.length > 14 ? `${table.slice(0, 13)}…` : table;
+            const label = table.length > 18 ? `${table.slice(0, 17)}…` : table;
             ctx.font = '600 11px ui-monospace, SFMono-Regular, monospace';
             ctx.fillStyle = THEME.label;
             ctx.fillText(label, x + 10, y + 8);
@@ -1060,7 +1016,7 @@ export function LiveFlow({
       if (packed.meta.hiddenCount > 0 || packed.meta.tableCols > 1) {
         ctx.fillStyle = THEME.labelMuted;
         ctx.fillText(
-          `showing ${packed.meta.visibleTables}${packed.meta.hiddenCount ? ` + ${packed.meta.hiddenCount} more` : ''} · ${packed.meta.tableCols} col`,
+          `page ${packed.meta.page}/${packed.meta.pages} · ${packed.meta.visibleTables} of ${packed.meta.visibleTables + packed.meta.hiddenCount}`,
           inset + 300,
           alto - inset - 6,
         );
@@ -1150,14 +1106,20 @@ export function LiveFlow({
             <button
               type="button"
               className={`tag ${groupMode === 'table' ? 'tag--info' : 'tag--muted'}`}
-              onClick={() => setGroupMode('table')}
+              onClick={() => {
+                pageRef.current = 0;
+                setGroupMode('table');
+              }}
             >
               By table
             </button>
             <button
               type="button"
               className={`tag ${groupMode === 'schema' ? 'tag--info' : 'tag--muted'}`}
-              onClick={() => setGroupMode('schema')}
+              onClick={() => {
+                pageRef.current = 0;
+                setGroupMode('schema');
+              }}
             >
               By schema
             </button>
@@ -1188,6 +1150,33 @@ export function LiveFlow({
                 Demo · {DEMO_TABLE_COUNT}
               </div>
             )}
+            {flowNav.pages > 1 ? (
+              <>
+                <button
+                  type="button"
+                  className="tag tag--muted"
+                  disabled={flowNav.page <= 1}
+                  onClick={() => {
+                    pageRef.current = Math.max(0, pageRef.current - 1);
+                  }}
+                >
+                  Previous
+                </button>
+                <span className="font-mono text-[10px] text-foreground-muted">
+                  {flowNav.page}/{flowNav.pages}
+                </span>
+                <button
+                  type="button"
+                  className="tag tag--muted"
+                  disabled={flowNav.page >= flowNav.pages}
+                  onClick={() => {
+                    pageRef.current = Math.min(flowNav.pages - 1, pageRef.current + 1);
+                  }}
+                >
+                  Next
+                </button>
+              </>
+            ) : null}
             <button
               type="button"
               className="tag tag--muted"

@@ -7,7 +7,7 @@ import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { Topbar } from '@/components/Topbar';
 import { WaitStack } from '@/components/WaitStack';
-import { formatDuration, formatNumber, formatPct } from '@/lib/format';
+import { formatNumber, formatPct } from '@/lib/format';
 import { explainIncident } from '@/lib/incident';
 import { getInstance } from '@/lib/queries';
 import {
@@ -17,22 +17,6 @@ import {
   getWaitTimeline,
   WAIT_TYPE_HELP,
 } from '@/lib/sessions';
-
-const WAIT_ORDER = ['CPU', 'IO', 'Lock', 'LWLock', 'IPC', 'Timeout', 'Client'];
-const SAMPLE_SECONDS = 10;
-
-function waitElapsed(waits: { waitType: string; sessions: number }[]) {
-  const seconds = new Map<string, number>();
-  for (const wait of waits) {
-    seconds.set(wait.waitType, (seconds.get(wait.waitType) ?? 0) + wait.sessions * SAMPLE_SECONDS);
-  }
-  const named = WAIT_ORDER.filter((type) => seconds.has(type));
-  const rest = [...seconds.keys()].filter((type) => !WAIT_ORDER.includes(type));
-  return [...named, ...rest].map((type) => ({
-    type,
-    label: formatDuration(seconds.get(type) ?? 0),
-  }));
-}
 
 export const dynamic = 'force-dynamic';
 
@@ -121,8 +105,8 @@ export default async function SessionsPage({
           <div>
             <h1 className="page-title">Sessions and waits · {instancia.alias}</h1>
             <p className="page-sub">
-              En qué se va el tiempo del servidor —CPU, disco, bloqueos, red— y qué estaba corriendo en un momento
-              concreto. Sale de una foto cada diez segundos (
+              Where server time goes — CPU, disk, locks, network — and what was running at a given moment.
+              It comes from a snapshot every ten seconds (
               {instancia.engine === 'mariadb'
                 ? <span className="font-mono">PROCESSLIST</span>
                 : instancia.engine === 'mssql'
@@ -154,7 +138,7 @@ export default async function SessionsPage({
             tone="accent"
           />
           <StatCard
-            label="Trabajando (CPU)"
+            label="On CPU"
             value={cpu ? formatPct(cpu.share * 100, 0) : '·'}
             hint="of session time, not waiting"
           />
@@ -194,13 +178,13 @@ export default async function SessionsPage({
                 byType: cubo.byType,
                 total: cubo.total,
               }))}
-              elapsed={waitElapsed(esperas.waits)}
               emptyMessage="No session samples in this window yet. Sampling writes every ten seconds; if the instance was just added, wait a minute."
             />
             <p className="mt-2 text-[11px] text-foreground-muted">
-              Height is <strong>sessions at once</strong>, not summed waits: so you can compare against
-              número de cores del servidor. Si la barra verde supera los cores, el cuello es CPU; si crece la roja,
-              son transactions que se pisan y no hay hardware que lo arregle.
+              Height is <strong>sessions at once</strong>, not summed waits, so you can compare it with the
+              server&apos;s core count. If the green bar passes the core count, the bottleneck is CPU. If the red
+              bar grows, transactions are blocking each other and more hardware will not fix it. Dates under the
+              chart are when that sample was taken.
             </p>
           </div>
         </section>
@@ -213,7 +197,7 @@ export default async function SessionsPage({
               label: espera.waitEvent ? `${espera.waitType} · ${espera.waitEvent}` : espera.waitType,
               sub: WAIT_TYPE_HELP[espera.waitType],
               value: espera.share,
-              display: `${formatPct(espera.share * 100, 1)} · ${espera.averageSessions.toFixed(2)} ses.`,
+              display: `${formatPct(espera.share * 100, 1)} · ${espera.averageSessions.toFixed(2)} sess.`,
               tone:
                 espera.waitType === 'Lock'
                   ? 'error'
@@ -236,17 +220,17 @@ export default async function SessionsPage({
                   reconoce el momento cuando lo ve descrito. */}
               {momentos.length === 0 ? (
                 <div className="empty">
-                  Nada llamativo en la window. Sólo se guardan las sessions que esperan un bloqueo, las que llevan más
-                  de un segundo corriendo y las transactions de más de un minuto; si no hubo ninguna, esto queda vacío
-                  y es una buena noticia.
+                  Nothing stood out in this window. Only sessions waiting on a lock, queries running longer than a
+                  second, and transactions open longer than a minute are kept. An empty list means none of those
+                  happened.
                 </div>
               ) : (
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Momento</th>
+                      <th>When</th>
                       <th className="text-right">Sessions</th>
-                      <th className="text-right">Bloqueadas</th>
+                      <th className="text-right">Blocked</th>
                       <th className="text-right">Longest</th>
                     </tr>
                   </thead>
@@ -327,7 +311,7 @@ export default async function SessionsPage({
                           )}
                           {sesion.blockedBy ? (
                             <span className="ml-1 font-mono text-[10px] text-foreground-muted">
-                              por {sesion.blockedBy}
+                              by {sesion.blockedBy}
                             </span>
                           ) : null}
                         </td>
@@ -345,9 +329,9 @@ export default async function SessionsPage({
               </div>
             )}
             <p className="mt-2 text-[11px] text-foreground-muted">
-              El texto de cada consulta está cortado a 900 caracteres: guardar consultas enteras cada diez segundos
-              llenaría el store, y para reconocer qué corría alcanza con el principio. La columna «por» dice qué PID
-              tenía el bloqueo, que es por dónde empieza cualquier investigación de contención.
+              Each query is stored up to 900 characters. Keeping the full text every ten seconds would fill the
+              store, and the start of the statement is enough to recognize it. The &quot;by&quot; value is the PID
+              that held the lock.
             </p>
           </div>
         </section>

@@ -118,7 +118,36 @@ export async function getIndexSchemaGroups(instanceId: number): Promise<IndexSch
   }));
 }
 
-export async function getIndexTableGroups(instanceId: number, limit = 12): Promise<IndexTableGroup[]> {
+export async function getIndexTableGroups(
+  instanceId: number,
+  opts: { schema?: string | null; q?: string; page?: number; size?: number } = {},
+): Promise<{ rows: IndexTableGroup[]; total: number }> {
+  const size = Math.min(Math.max(opts.size ?? 20, 1), 100);
+  const page = Math.max(opts.page ?? 1, 1);
+  const where = ['instance_id = $1'];
+  const params: unknown[] = [instanceId];
+  if (opts.schema) {
+    params.push(opts.schema);
+    where.push(`schema_name = $${params.length}`);
+  }
+  if (opts.q) {
+    params.push(`%${opts.q}%`);
+    where.push(`(schema_name ilike $${params.length} or table_name ilike $${params.length})`);
+  }
+  const filter = where.join(' and ');
+  const counted = await query<{ total: string }>(
+    `select count(*)::bigint as total
+       from (
+         select schema_name, table_name
+           from buho.index_objects
+          where ${filter}
+          group by schema_name, table_name
+       ) grouped`,
+    params,
+  );
+  const total = Number(counted[0]?.total ?? 0);
+  const limitAt = params.length + 1;
+  const offsetAt = params.length + 2;
   const rows = await query<{
     schema_name: string;
     table_name: string;
@@ -133,20 +162,23 @@ export async function getIndexTableGroups(instanceId: number, limit = 12): Promi
             count(*) filter (where status <> 'ok')::bigint as flagged,
             coalesce(sum(idx_scan), 0)::bigint as scans
        from buho.index_objects
-      where instance_id = $1
+      where ${filter}
       group by schema_name, table_name
       order by bytes desc
-      limit $2`,
-    [instanceId, limit],
+      limit $${limitAt} offset $${offsetAt}`,
+    [...params, size, (page - 1) * size],
   );
-  return rows.map((row) => ({
-    schema: row.schema_name,
-    table: row.table_name,
-    indexes: Number(row.indexes),
-    bytes: Number(row.bytes),
-    flagged: Number(row.flagged),
-    scans: Number(row.scans),
-  }));
+  return {
+    total,
+    rows: rows.map((row) => ({
+      schema: row.schema_name,
+      table: row.table_name,
+      indexes: Number(row.indexes),
+      bytes: Number(row.bytes),
+      flagged: Number(row.flagged),
+      scans: Number(row.scans),
+    })),
+  };
 }
 
 const INDEX_SORT = {

@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import { FootprintFilters, IndexFilters } from '@/components/IndexFilters';
 import { IndexFindingsList } from '@/components/IndexFindingsList';
 import { IndexSuggestionCards } from '@/components/IndexSuggestionCards';
 import { InstanceTabs } from '@/components/InstanceTabs';
@@ -52,12 +53,21 @@ function IndexDefinition({ row }: { row: IndexRow }) {
 }
 
 const INDEX_PAGE_SIZE = 40;
+const FOOTPRINT_PAGE_SIZE = 20;
 
 function buildIndexesHref(
   instanceId: number,
-  filter: 'all' | IndexStatus,
+  filter: 'all' | IndexStatus | 'bloated',
   schema: string | null,
-  opts?: { q?: string; sort?: string; dir?: 'asc' | 'desc'; page?: number },
+  opts?: {
+    q?: string;
+    sort?: string;
+    dir?: 'asc' | 'desc';
+    page?: number;
+    fp?: string | null;
+    ft?: string;
+    fpage?: number;
+  },
 ): string {
   const params = new URLSearchParams();
   if (filter !== 'all') params.set('filter', filter);
@@ -66,6 +76,9 @@ function buildIndexesHref(
   if (opts?.sort) params.set('sort', opts.sort);
   if (opts?.dir) params.set('dir', opts.dir);
   if (opts?.page && opts.page > 1) params.set('page', String(opts.page));
+  if (opts?.fp) params.set('fp', opts.fp);
+  if (opts?.ft) params.set('ft', opts.ft);
+  if (opts?.fpage && opts.fpage > 1) params.set('fpage', String(opts.fpage));
   const query = params.toString();
   return query ? `/instances/${instanceId}/indexes?${query}` : `/instances/${instanceId}/indexes`;
 }
@@ -138,11 +151,23 @@ export default async function IndexesPage({
     sort?: string;
     dir?: string;
     page?: string;
+    fp?: string;
+    ft?: string;
+    fpage?: string;
   }>;
 }) {
   const { id } = await params;
-  const { filter: filterParam, schema: schemaParam, q: qParam, sort: sortParam, dir: dirParam, page: pageParam } =
-    await searchParams;
+  const {
+    filter: filterParam,
+    schema: schemaParam,
+    q: qParam,
+    sort: sortParam,
+    dir: dirParam,
+    page: pageParam,
+    fp: fpParam,
+    ft: ftParam,
+    fpage: fpageParam,
+  } = await searchParams;
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
 
@@ -153,7 +178,7 @@ export default async function IndexesPage({
   let findings: Awaited<ReturnType<typeof getIndexFindings>>;
   let summary: Awaited<ReturnType<typeof getIndexSummary>>;
   let schemaGroups: IndexSchemaGroup[];
-  let tableGroups: IndexTableGroup[];
+  let tableGroups: { rows: IndexTableGroup[]; total: number };
   let inventory: { rows: IndexRow[]; total: number };
   let unusedIndexes: IndexRow[];
   let redundantIndexes: IndexRow[];
@@ -173,14 +198,13 @@ export default async function IndexesPage({
   const page = Math.max(1, Number(pageParam) || 1);
 
   try {
-    [instance, suggestions, findings, summary, schemaGroups, tableGroups, unusedIndexes, redundantIndexes, invalidIndexes] =
+    [instance, suggestions, findings, summary, schemaGroups, unusedIndexes, redundantIndexes, invalidIndexes] =
       await Promise.all([
         getInstance(instanceId),
         getIndexSuggestions(instanceId),
         getIndexFindings(instanceId),
         getIndexSummary(instanceId),
         getIndexSchemaGroups(instanceId),
-        getIndexTableGroups(instanceId, 12),
         getIndexInventory(instanceId, 'unused', 25),
         getIndexInventory(instanceId, 'redundant', 25),
         getIndexInventory(instanceId, 'invalid', 25),
@@ -211,11 +235,21 @@ export default async function IndexesPage({
   const redundantCount = summary.redundant || redundantFindings.length;
   const countsFromChecks = summary.total === 0 && findings.length > 0;
   const activeSchema = schemaParam && schemaGroups.some((row) => row.schema === schemaParam) ? schemaParam : null;
+  const footprintSchema = fpParam && schemaGroups.some((row) => row.schema === fpParam) ? fpParam : null;
+  const footprintQuery = typeof ftParam === 'string' ? ftParam.trim() : '';
+  const footprintPage = Math.max(1, Number(fpageParam) || 1);
+  const listFilter: 'all' | IndexStatus | 'bloated' = fragmented ? 'bloated' : activeFilter;
   try {
     inventory = fragmented
       ? { rows: await getBloatedIndexes(instanceId, INDEX_PAGE_SIZE), total: 0 }
       : await getIndexPage(instanceId, activeFilter, activeSchema, q, sort, dir, page, INDEX_PAGE_SIZE);
     if (fragmented) inventory = { ...inventory, total: inventory.rows.length };
+    tableGroups = await getIndexTableGroups(instanceId, {
+      schema: footprintSchema,
+      q: footprintQuery || null,
+      page: footprintPage,
+      size: FOOTPRINT_PAGE_SIZE,
+    });
   } catch (error) {
     return (
       <>
@@ -228,6 +262,11 @@ export default async function IndexesPage({
   }
   const pageCount = Math.max(1, Math.ceil(inventory.total / INDEX_PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
+  const footprintPages = Math.max(1, Math.ceil(tableGroups.total / FOOTPRINT_PAGE_SIZE));
+  const footprintCurrent = Math.min(footprintPage, footprintPages);
+  const footprintSchemas = footprintSchema
+    ? schemaGroups.filter((row) => row.schema === footprintSchema)
+    : schemaGroups;
 
   function ToggleSortLink({
     label,
@@ -240,7 +279,13 @@ export default async function IndexesPage({
     const nextDir: 'asc' | 'desc' = isActive ? (dir === 'asc' ? 'desc' : 'asc') : 'desc';
     return (
       <Link
-        href={buildIndexesHref(instanceId, activeFilter, activeSchema, { q, sort: keyName, dir: nextDir })}
+        href={buildIndexesHref(instanceId, listFilter, activeSchema, {
+          q,
+          sort: keyName,
+          dir: nextDir,
+          fp: footprintSchema,
+          ft: footprintQuery,
+        })}
         className={isActive ? 'tag tag--info' : 'btn-secondary'}
       >
         {label} {isActive ? (dir === 'asc' ? '↑' : '↓') : ''}
@@ -346,13 +391,95 @@ export default async function IndexesPage({
           </section>
         ) : (
           <>
-            <details className="panel">
-              <summary className="panel-header cursor-pointer">
-                <span className="panel-title">Footprint by schema and table</span>
-                <span className="font-mono text-[10px] text-foreground-muted">collapsed</span>
-              </summary>
+            <section className="panel">
+              <div className="panel-header">
+                <span className="panel-title">{fragmented ? 'Larger than the table' : 'All indexes'}</span>
+                <span className="font-mono text-[10px] text-foreground-muted">
+                  {summary.capturedAt ? `as of ${formatAgo(summary.capturedAt)} · size desc` : ''}
+                </span>
+              </div>
               <div className="panel-body">
-                <div className="table-scroll">
+                <IndexFilters
+                  action={`/instances/${instanceId}/indexes`}
+                  status={listFilter}
+                  schema={activeSchema}
+                  schemas={schemaGroups}
+                  q={q}
+                  sort={sort}
+                  dir={dir}
+                  footprintSchema={footprintSchema}
+                  footprintQuery={footprintQuery}
+                />
+                <div className="mb-4 flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-[11px] text-foreground-muted">Sort</span>
+                  <ToggleSortLink label="Size" keyName="size" />
+                  <ToggleSortLink label="Scans" keyName="scans" />
+                  <ToggleSortLink label="Index" keyName="name" />
+                  <ToggleSortLink label="Table" keyName="table" />
+                </div>
+
+                <p className="mb-4 text-[11px] text-foreground-muted">
+                  {fragmented
+                    ? 'PostgreSQL does not publish leaf fragmentation. These are secondary indexes at least twice the heap and over 64 MB, joined to the vacuum snapshot. SQL Server fragmentation is a check (LIMITED, connected database only).'
+                    : `Page ${currentPage} of ${pageCount} · ${formatNumber(inventory.total)} index${inventory.total === 1 ? '' : 'es'}${activeFilter !== 'all' ? ` · status ${STATUS_LABEL[activeFilter]}` : ''}${activeSchema ? ` · schema ${activeSchema}` : ''}. The list is paged so the browser does not render the whole inventory at once.`}
+                </p>
+                <IndexTable rows={inventory.rows} />
+                <div className="mt-3 flex gap-2">
+                  {currentPage > 1 ? (
+                    <Link
+                      href={buildIndexesHref(instanceId, listFilter, activeSchema, {
+                        q,
+                        sort,
+                        dir,
+                        page: currentPage - 1,
+                        fp: footprintSchema,
+                        ft: footprintQuery,
+                      })}
+                      className="btn-secondary"
+                    >
+                      Previous
+                    </Link>
+                  ) : null}
+                  {currentPage < pageCount ? (
+                    <Link
+                      href={buildIndexesHref(instanceId, listFilter, activeSchema, {
+                        q,
+                        sort,
+                        dir,
+                        page: currentPage + 1,
+                        fp: footprintSchema,
+                        ft: footprintQuery,
+                      })}
+                      className="btn-secondary"
+                    >
+                      Next
+                    </Link>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="panel-header">
+                <span className="panel-title">Footprint by schema and table</span>
+                <span className="font-mono text-[10px] text-foreground-muted">
+                  {formatNumber(tableGroups.total)} tables
+                </span>
+              </div>
+              <div className="panel-body">
+                <FootprintFilters
+                  action={`/instances/${instanceId}/indexes`}
+                  status={listFilter}
+                  schema={activeSchema}
+                  q={q}
+                  sort={sort}
+                  dir={dir}
+                  page={currentPage}
+                  schemas={schemaGroups}
+                  footprintSchema={footprintSchema}
+                  footprintQuery={footprintQuery}
+                />
+                <div className="table-scroll" style={{ maxHeight: '16rem' }}>
                   <table className="data-table">
                     <thead>
                       <tr>
@@ -363,7 +490,7 @@ export default async function IndexesPage({
                       </tr>
                     </thead>
                     <tbody>
-                      {schemaGroups.map((row) => (
+                      {footprintSchemas.map((row) => (
                         <tr key={row.schema}>
                           <td className="font-mono text-[11px]">{row.schema}</td>
                           <td className="num">{formatNumber(row.indexes)}</td>
@@ -386,7 +513,7 @@ export default async function IndexesPage({
                       </tr>
                     </thead>
                     <tbody>
-                      {tableGroups.map((row) => (
+                      {tableGroups.rows.map((row) => (
                         <tr key={`${row.schema}.${row.table}`}>
                           <td className="font-mono text-[11px]">
                             {row.schema}.{row.table}
@@ -400,122 +527,42 @@ export default async function IndexesPage({
                     </tbody>
                   </table>
                 </div>
-              </div>
-            </details>
-
-            <section className="panel">
-              <div className="panel-header">
-                <span className="panel-title">{fragmented ? 'Larger than the table' : 'All indexes'}</span>
-                <span className="font-mono text-[10px] text-foreground-muted">
-                  {summary.capturedAt ? `as of ${formatAgo(summary.capturedAt)} · size desc` : ''}
-                </span>
-              </div>
-              <div className="panel-body">
-                <div className="mb-4 flex flex-wrap gap-2">
-                  {(['all', 'redundant', 'unused', 'invalid', 'ok'] as const).map((filter) => (
-                    <Link
-                      key={filter}
-                      href={buildIndexesHref(instanceId, filter, activeSchema, { q, sort, dir })}
-                      className={!fragmented && activeFilter === filter ? 'tag tag--info' : 'btn-secondary'}
-                    >
-                      {filter === 'all' ? 'All statuses' : STATUS_LABEL[filter]}
-                    </Link>
-                  ))}
-                  <Link
-                    href={`/instances/${instanceId}/indexes?filter=bloated`}
-                    className={fragmented ? 'tag tag--info' : 'btn-secondary'}
-                  >
-                    Fragmented
-                  </Link>
-                </div>
-                <div className="mb-4 flex flex-wrap gap-2">
-                  <Link
-                    href={buildIndexesHref(instanceId, activeFilter, null, { q, sort, dir })}
-                    className={activeSchema === null ? 'tag tag--info' : 'btn-secondary'}
-                  >
-                    All schemas
-                  </Link>
-                  {schemaGroups.map((group) => (
-                    <Link
-                      key={group.schema}
-                      href={buildIndexesHref(instanceId, activeFilter, group.schema, { q, sort, dir })}
-                      className={activeSchema === group.schema ? 'tag tag--info' : 'btn-secondary'}
-                    >
-                      {group.schema} ({formatNumber(group.indexes)})
-                    </Link>
-                  ))}
-                </div>
-                <div className="mb-4 flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] text-foreground-muted font-mono">Sort</span>
-                  <ToggleSortLink label="Size" keyName="size" />
-                  <ToggleSortLink label="Scans" keyName="scans" />
-                  <ToggleSortLink label="Index" keyName="name" />
-                  <ToggleSortLink label="Table" keyName="table" />
-                </div>
-
-                <form
-                  method="get"
-                  className="mb-4 flex flex-wrap items-center gap-2"
-                  action={`/instances/${instanceId}/indexes`}
-                >
-                  <input type="hidden" name="filter" value={activeFilter} />
-                  {activeSchema && <input type="hidden" name="schema" value={activeSchema} />}
-                  <input type="hidden" name="sort" value={sort} />
-                  <input type="hidden" name="dir" value={dir} />
-                  <input
-                    type="text"
-                    name="q"
-                    defaultValue={q}
-                    placeholder="Search index / table / definition…"
-                    className="input"
-                    style={{ flex: '1 1 240px' }}
-                  />
-                  <button type="submit" className="btn-secondary">
-                    Search
-                  </button>
-                  {q ? (
-                    <Link
-                      href={buildIndexesHref(instanceId, activeFilter, activeSchema, { q: '', sort, dir })}
-                      className="btn-secondary"
-                    >
-                      Clear
-                    </Link>
-                  ) : null}
-                </form>
-
-                <p className="mb-4 text-[11px] text-foreground-muted">
-                  {fragmented
-                    ? 'PostgreSQL does not publish leaf fragmentation. These are secondary indexes at least twice the heap and over 64 MB, joined to the vacuum snapshot. SQL Server fragmentation is a check (LIMITED, connected database only).'
-                    : `Page ${currentPage} of ${pageCount} · ${formatNumber(inventory.total)} index${inventory.total === 1 ? '' : 'es'}${activeFilter !== 'all' ? ` · status ${STATUS_LABEL[activeFilter]}` : ''}${activeSchema ? ` · schema ${activeSchema}` : ''}. The list is paged so the browser does not render the whole inventory at once.`}
-                </p>
-                <IndexTable rows={inventory.rows} />
                 <div className="mt-3 flex gap-2">
-                  {currentPage > 1 ? (
+                  {footprintCurrent > 1 ? (
                     <Link
-                      href={buildIndexesHref(instanceId, activeFilter, activeSchema, {
+                      href={buildIndexesHref(instanceId, listFilter, activeSchema, {
                         q,
                         sort,
                         dir,
-                        page: currentPage - 1,
+                        page: currentPage,
+                        fp: footprintSchema,
+                        ft: footprintQuery,
+                        fpage: footprintCurrent - 1,
                       })}
                       className="btn-secondary"
                     >
                       Previous
                     </Link>
                   ) : null}
-                  {currentPage < pageCount ? (
+                  {footprintCurrent < footprintPages ? (
                     <Link
-                      href={buildIndexesHref(instanceId, activeFilter, activeSchema, {
+                      href={buildIndexesHref(instanceId, listFilter, activeSchema, {
                         q,
                         sort,
                         dir,
-                        page: currentPage + 1,
+                        page: currentPage,
+                        fp: footprintSchema,
+                        ft: footprintQuery,
+                        fpage: footprintCurrent + 1,
                       })}
                       className="btn-secondary"
                     >
                       Next
                     </Link>
                   ) : null}
+                  <span className="font-mono text-[11px] text-foreground-muted">
+                    Page {footprintCurrent} of {footprintPages}
+                  </span>
                 </div>
               </div>
             </section>

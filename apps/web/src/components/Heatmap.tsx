@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { WEEKDAY_LABEL, type HeatCell } from '@/lib/heat-types';
 import { formatUnit, type Unit } from '@/lib/units';
 
@@ -54,6 +54,21 @@ export function Heatmap({
     return mapa;
   }, [cells]);
 
+  const [pantallaCompleta, setPantallaCompleta] = useState(false);
+  useEffect(() => {
+    if (!pantallaCompleta) return;
+    const onKey = (evento: KeyboardEvent) => {
+      if (evento.key === 'Escape') setPantallaCompleta(false);
+    };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [pantallaCompleta]);
+
   const horas = Array.from({ length: 24 }, (_, hora) => hora);
   // Lunes primero: la semana laboral se lee mejor junta, y el fin de semana
   // abajo es donde uno busca la window de mantenimiento.
@@ -62,7 +77,24 @@ export function Heatmap({
   const cellStyle = fill ? { width: '100%', height: '100%' } : { width: 20, height: 16 };
 
   return (
-    <div className={fill ? 'flex h-full min-h-0 flex-1 flex-col overflow-x-auto' : 'overflow-x-auto'}>
+    <div
+      className={
+        pantallaCompleta
+          ? 'fixed inset-0 z-[200] flex flex-col overflow-auto bg-[var(--surface)] p-4'
+          : fill
+            ? 'relative flex h-full min-h-0 flex-1 flex-col overflow-x-auto'
+            : 'relative overflow-x-auto'
+      }
+    >
+      <div className={pantallaCompleta ? 'mb-2 flex justify-end' : 'absolute right-0 top-0 z-10'}>
+        <button
+          type="button"
+          className="tag tag--muted"
+          onClick={() => setPantallaCompleta((valor) => !valor)}
+        >
+          {pantallaCompleta ? 'Exit fullscreen' : 'Fullscreen'}
+        </button>
+      </div>
       <table className={`border-separate ${fill ? 'h-full w-full flex-1' : ''}`} style={{ borderSpacing: '2px' }}>
         <thead>
           <tr>
@@ -108,7 +140,7 @@ export function Heatmap({
                     <div
                       title={
                         `${WEEKDAY_LABEL[dia]} ${String(hora).padStart(2, '0')}:00 · ${formatUnit(celda.value, unit)}` +
-                        ` · ${celda.samples} hora${celda.samples === 1 ? '' : 's'} medida${celda.samples === 1 ? '' : 's'}` +
+                        ` · ${celda.samples} measured hour${celda.samples === 1 ? '' : 's'}` +
                         (pocoFiable ? ' · sparse data' : '')
                       }
                       style={{

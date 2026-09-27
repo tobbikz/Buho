@@ -7,7 +7,8 @@ import { StatCard } from '@/components/StatCard';
 import { TopologyBubbles } from '@/components/TopologyBubbles';
 import { Topbar } from '@/components/Topbar';
 import { formatBytes, formatNumber } from '@/lib/format';
-import { catalogModel, getCatalog, getCatalogColumns } from '@/lib/catalog';
+import { SchemaColumnMap } from '@/components/SchemaColumnMap';
+import { catalogModel, getCatalog, getCatalogColumnsBySchema } from '@/lib/catalog';
 import { getInstanceEngine } from '@/lib/estate';
 import { getOrmModel } from '@/lib/orm';
 import type { OrmLayer } from '@/lib/orm-types';
@@ -87,8 +88,7 @@ export default async function TopologyPage({
     const schemaNames = [...new Set(catalog.map((row) => row.schema))].sort();
     const schemaName = schemaNames.includes(schemaParam ?? '') ? (schemaParam ?? '') : (schemaNames[0] ?? '');
     const tables = catalog.filter((row) => row.schema === schemaName);
-    const tableName = tables.some((row) => row.table === q) ? (q ?? '') : (tables[0]?.table ?? '');
-    const columns = schemaName && tableName ? await getCatalogColumns(instanceId, schemaName, tableName) : [];
+    const columnsByTable = schemaName ? await getCatalogColumnsBySchema(instanceId, schemaName) : new Map();
     return (
       <>
         <Topbar
@@ -103,7 +103,7 @@ export default async function TopologyPage({
             <div>
               <h1 className="page-title">Columns · {instance.alias}</h1>
               <p className="page-sub">
-                Schema, table, column, and type. This page is the catalog inventory. Traffic stays on the graph.
+                Pick a schema. Its tables sit around the name. Open a table to read its columns and types.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-1">
@@ -117,85 +117,19 @@ export default async function TopologyPage({
             </div>
           </header>
           <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
-          {catalog.length === 0 ? (
+          {catalog.length === 0 || !schemaName ? (
             <div className="empty">The catalog is filled on the collector vacuum cycle, about every two minutes.</div>
           ) : (
-            <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-[16rem_1fr]">
-              <form action={`/instances/${instanceId}/topology`} className="panel">
-                <div className="panel-body flex flex-col gap-2">
-                  <input type="hidden" name="vista" value="detalle" />
-                  <label className="text-[11px] uppercase tracking-wide text-foreground-muted" htmlFor="detail-schema">
-                    Schema
-                  </label>
-                  <select
-                    id="detail-schema"
-                    name="schema"
-                    defaultValue={schemaName}
-                    className="rounded-[3px] border border-border bg-[var(--surface)] px-2 py-1 font-mono text-[12px]"
-                  >
-                    {schemaNames.map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-                  <label className="text-[11px] uppercase tracking-wide text-foreground-muted" htmlFor="detail-table">
-                    Table
-                  </label>
-                  <select
-                    id="detail-table"
-                    name="q"
-                    defaultValue={tableName}
-                    className="rounded-[3px] border border-border bg-[var(--surface)] px-2 py-1 font-mono text-[12px]"
-                  >
-                    {tables.map((row) => (
-                      <option key={row.table} value={row.table}>
-                        {row.table}
-                      </option>
-                    ))}
-                  </select>
-                  <button type="submit" className="btn-secondary">
-                    Show columns
-                  </button>
-                </div>
-              </form>
-              <section className="panel">
-                <div className="panel-header">
-                  <span className="panel-title">
-                    {schemaName}.{tableName}
-                  </span>
-                  <span className="font-mono text-[10px] text-foreground-muted">
-                    {columns.length === 0 ? 'waiting for the next catalog sample' : `${columns.length} columns`}
-                  </span>
-                </div>
-                {columns.length === 0 ? (
-                  <div className="empty">
-                    Column types arrive with the next collector cycle. Table size is already in the catalog.
-                  </div>
-                ) : (
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th className="text-right">#</th>
-                        <th>Column</th>
-                        <th>Type</th>
-                        <th>Null</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {columns.map((column) => (
-                        <tr key={column.column}>
-                          <td className="num">{column.position}</td>
-                          <td className="font-mono text-[11.5px]">{column.column}</td>
-                          <td className="font-mono text-[11.5px]">{column.dataType}</td>
-                          <td className="text-[11px]">{column.notNull ? 'not null' : 'null'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </section>
-            </div>
+            <SchemaColumnMap
+              instanceId={instanceId}
+              schema={schemaName}
+              schemas={schemaNames}
+              tables={tables.map((row) => ({
+                name: row.table,
+                sizeBytes: row.sizeBytes,
+                columns: columnsByTable.get(row.table) ?? [],
+              }))}
+            />
           )}
         </div>
       </>
