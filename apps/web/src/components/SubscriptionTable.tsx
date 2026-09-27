@@ -1,15 +1,35 @@
 import Link from 'next/link';
-import { formatDuration } from '@/lib/format';
+import { formatBytes, formatDuration } from '@/lib/format';
 
 export interface SubscriptionRow {
   name: string;
   workerUp: boolean;
   lagSeconds: number | null;
+  /** WAL received but not yet applied, measured on this subscriber. */
+  lagBytes: number | null;
 }
 
 export interface SubscriptionAlert {
   object: string;
   message: string;
+}
+
+function lagLabel(row: SubscriptionRow): string {
+  if (row.lagBytes === 0 || row.lagSeconds === 0) return 'caught up';
+  if (row.lagBytes !== null && row.lagBytes > 0 && row.lagSeconds === null) return formatBytes(row.lagBytes);
+  if (row.lagSeconds !== null && row.lagSeconds > 0) return formatDuration(row.lagSeconds);
+  return '—';
+}
+
+function lagExplanation(row: SubscriptionRow): string {
+  if (row.lagBytes === 0 || row.lagSeconds === 0) {
+    return ' Apply is caught up: the apply LSN has reached the WAL this server already received.';
+  }
+  if (row.lagBytes !== null && row.lagBytes > 0) {
+    const time = row.lagSeconds !== null && row.lagSeconds > 0 ? ` (${formatDuration(row.lagSeconds)})` : '';
+    return ` ${formatBytes(row.lagBytes)} of received WAL is not applied yet${time}.`;
+  }
+  return ' No received LSN and no apply LSN yet, so this subscriber cannot compute lag.';
 }
 
 /**
@@ -42,7 +62,7 @@ export function SubscriptionTable({
             <summary className="sub-row__summary">
               <span className="sub-row__chevron" aria-hidden />
               <span className="sub-row__name">{row.name}</span>
-              <span className="sub-row__lag">{row.lagSeconds === null ? '—' : formatDuration(row.lagSeconds)}</span>
+              <span className="sub-row__lag">{lagLabel(row)}</span>
               <span className="sub-row__worker">
                 <span className={`tag ${row.workerUp ? 'tag--ok' : 'tag--error'}`}>
                   {row.workerUp ? 'applying' : 'down'}
@@ -54,9 +74,7 @@ export function SubscriptionTable({
                 {row.workerUp
                   ? 'The latest sample has an apply worker pid. The subscription is applying.'
                   : 'The latest sample has an empty apply worker pid. Nothing is being applied.'}
-                {row.lagSeconds === null
-                  ? ' No apply timestamp yet, so lag is unknown.'
-                  : ` Apply lag is ${formatDuration(row.lagSeconds)}, measured from latest_end_time.`}
+                {lagExplanation(row)}
               </p>
               <p>
                 Alerts fire only while that pid is empty. This row is the sample from the last minute.
@@ -73,9 +91,10 @@ export function SubscriptionTable({
                 <p>No open check right now for {row.name}.</p>
               )}
               <p>
-                Slots for this subscription live on the publisher, not here. Búho does not read
-                pg_subscription (the monitor role is usually denied), so the slot name and the last
-                error text are not on this row.
+                This lag is measured on the subscriber: WAL already received minus WAL already
+                applied (`received_lsn` versus `latest_end_lsn`). The publisher clock is not on
+                this server. Slots live on the publisher. Búho does not read pg_subscription, so
+                the slot name and the last error text are not on this row.
               </p>
               <Link href={`/instances/${instanceId}/replication`}>Open the replication page</Link>
             </div>

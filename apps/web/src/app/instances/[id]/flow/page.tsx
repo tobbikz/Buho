@@ -74,7 +74,9 @@ export default async function FlowPage({
   const weight = (WEIGHTS.find((entrada) => entrada.key === peso)?.key ?? 'rows') as FlowWeight;
   const window = WINDOWS.find((entrada) => entrada.key === v) ?? WINDOWS[2]!;
   const enVivo = vista === 'vivo';
-  const heatOption = HEAT_OPTIONS.find((entrada) => entrada.key === calor) ?? HEAT_OPTIONS[0]!;
+  const heatChoices =
+    engine === 'postgres' ? HEAT_OPTIONS.filter((option) => option.key !== 'batch') : HEAT_OPTIONS;
+  const heatOption = heatChoices.find((entrada) => entrada.key === calor) ?? heatChoices[0]!;
   const heatWindow = HEAT_WINDOWS.find((entrada) => entrada.key === cv) ?? HEAT_WINDOWS[1]!;
   const heatAgg: HeatAgg = agg === 'max' ? 'max' : 'avg';
 
@@ -190,8 +192,8 @@ export default async function FlowPage({
           />
         </div>
 
-        <div className="grid grid-cols-1 items-start gap-[0.875rem] xl:grid-cols-2">
-        <section className="panel">
+        <div className="flex flex-col gap-[0.875rem]">
+        <section className="panel" style={{ order: 2 }}>
           <div className="panel-header">
             <span className="panel-title">Hot tables · writes &amp; reads</span>
             <div className="flex flex-wrap items-center gap-1">
@@ -263,11 +265,11 @@ export default async function FlowPage({
           </div>
         </section>
 
-        <section className="panel">
+        <section className="panel" style={{ order: 1 }}>
           <div className="panel-header">
             <span className="panel-title">When it is used · {heatOption.label}</span>
             <div className="flex flex-wrap items-center gap-1">
-              {HEAT_OPTIONS.map((opcion) => (
+              {heatChoices.map((opcion) => (
                 <Link
                   key={opcion.key}
                   href={enlace({ calor: opcion.key })}

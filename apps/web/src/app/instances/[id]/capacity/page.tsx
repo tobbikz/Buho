@@ -21,6 +21,21 @@ function formatValue(f: CapacityForecast): string {
   return f.unit === 'bytes' ? formatBytes(f.current) : formatPct(f.current, 1);
 }
 
+function capacityChart(f: CapacityForecast): Array<{ bucket: number; [key: string]: number | null }> {
+  const rows = new Map<number, { bucket: number; value: number | null; forecast: number | null }>();
+  for (const point of f.history) {
+    rows.set(point.bucket, { bucket: point.bucket, value: point.value, forecast: null });
+  }
+  for (const point of f.projection) {
+    const existing = rows.get(point.bucket);
+    if (existing) existing.forecast = point.value;
+    else rows.set(point.bucket, { bucket: point.bucket, value: null, forecast: point.value });
+  }
+  return [...rows.values()]
+    .sort((a, b) => a.bucket - b.bucket)
+    .map((row) => ({ bucket: row.bucket, [f.resource]: row.value, forecast: row.forecast }));
+}
+
 function formatRate(f: CapacityForecast): string {
   if (f.dailyRate === null) return '—';
   const abs = Math.abs(f.dailyRate);
@@ -138,18 +153,25 @@ export default async function CapacityPage({ params }: { params: Promise<{ id: s
                 {f.history.length > 0 ? (
                   <TimeseriesPanel
                     title=""
-                    data={f.history.map((p) => ({
-                      bucket: p.bucket,
-                      [f.resource]: p.value,
-                    }))}
+                    data={capacityChart(f)}
                     unit={f.unit === 'bytes' ? 'bytes' : 'pct'}
                     height={150}
+                    threshold={{
+                      value: f.threshold,
+                      label: f.unit === 'bytes' ? formatBytes(f.threshold) : formatPct(f.threshold, 0),
+                    }}
                     series={[
                       {
                         metric: f.resource,
                         label: f.label,
                         color: '#1f5f8b',
                         filled: true,
+                      },
+                      {
+                        metric: 'forecast',
+                        label: 'Projected',
+                        color: '#9a4a00',
+                        dashed: true,
                       },
                     ]}
                   />
@@ -189,18 +211,25 @@ export default async function CapacityPage({ params }: { params: Promise<{ id: s
                 {f.history.length > 0 ? (
                   <TimeseriesPanel
                     title=""
-                    data={f.history.map((p) => ({
-                      bucket: p.bucket,
-                      [f.resource]: p.value,
-                    }))}
+                    data={capacityChart(f)}
                     unit={f.unit === 'bytes' ? 'bytes' : 'pct'}
                     height={180}
+                    threshold={{
+                      value: f.threshold,
+                      label: f.unit === 'bytes' ? formatBytes(f.threshold) : formatPct(f.threshold, 0),
+                    }}
                     series={[
                       {
                         metric: f.resource,
                         label: f.label,
                         color: '#1f5f8b',
                         filled: true,
+                      },
+                      {
+                        metric: 'forecast',
+                        label: 'Projected',
+                        color: '#9a4a00',
+                        dashed: true,
                       },
                     ]}
                   />

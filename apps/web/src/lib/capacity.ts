@@ -41,6 +41,8 @@ export interface CapacityForecast {
   rSquared: number | null;
   /** Serie diaria usada (para el gráfico). */
   history: CapacityPoint[];
+  /** Last real point plus the fitted line forward, so the chart shows the growth. */
+  projection: CapacityPoint[];
   /** One-line English summary for the panel. */
   summary: string;
   tone: 'ok' | 'warn' | 'error' | 'neutral';
@@ -50,6 +52,22 @@ interface LinearFit {
   slopePerMs: number;
   intercept: number;
   rSquared: number;
+}
+
+function forecastLine(history: CapacityPoint[], fit: LinearFit | null): CapacityPoint[] {
+  if (!fit || history.length === 0) return [];
+  const last = history[history.length - 1]!;
+  const dayMs = 86_400_000;
+  const horizonDays = 90;
+  const steps = 12;
+  const points: CapacityPoint[] = [{ bucket: last.bucket, value: last.value }];
+  for (let step = 1; step <= steps; step += 1) {
+    const bucket = last.bucket + (horizonDays * dayMs * step) / steps;
+    const value = fit.intercept + fit.slopePerMs * bucket;
+    if (!Number.isFinite(value)) continue;
+    points.push({ bucket, value: Math.max(0, value) });
+  }
+  return points;
 }
 
 function fitLinear(points: CapacityPoint[]): LinearFit | null {
@@ -127,6 +145,7 @@ export function project(
       exhaustAt: null,
       rSquared: null,
       history,
+      projection: [],
       summary: `No history yet to project ${label.toLowerCase()}.`,
       tone: 'neutral',
     };
@@ -198,6 +217,7 @@ export function project(
     exhaustAt,
     rSquared: fit?.rSquared ?? null,
     history,
+    projection: forecastLine(history, fit),
     summary,
     tone,
   };

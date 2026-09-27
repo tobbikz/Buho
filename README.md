@@ -81,7 +81,11 @@ Pantallas de F1:
 
 - **Resumen de flota** — score, críticos, avisos, conexiones, cache hit, commits/s y frescura del dato por instancia.
 - **Detalle de instancia** — capabilities, indicadores con **CPU y memoria del host, throughput DML**, health score, conexiones, cache hit, commits/s y rollbacks/s en la misma tarjeta, bloqueos, edad de XID, tuplas muertas y uptime; series con ventana de 15 m a 7 días (conexiones, transacciones/s, WAL/s, bloqueos, CPU y memoria del host, throughput DML, sesiones activas por clase de espera, cache hit, I/O/s, derrame a temporales), hallazgos agrupados por severidad y por check (paginados, remediación una vez por grupo), wait events, tablas más grandes (las particiones sumadas en la tabla padre; una fila vieja de partición no se vuelve a mostrar al lado), tuplas muertas, slots de replicación y eventos del colector (cada fila se abre y muestra componente, ocurrencias, primera y última vez, mensaje y detalle).
-- **Flow** — el diagrama y la rejilla de “cuándo se usa” van juntos arriba. La rejilla abre en transacciones, que PostgreSQL sí publica; “batch requests” es de SQL Server y MariaDB. Si el rollup de una hora todavía no cerró, se arma con los buckets de 5 minutos.
+- **Flow** — la rejilla de “cuándo se usa” va primero. En PostgreSQL no aparece “batch requests” (ese contador es de SQL Server y MariaDB) y abre en transacciones. Cada recuadro del flujo en vivo muestra escritura y lectura, y el click abre el detalle.
+- **Capacity** — el gráfico dibuja la recta proyectada y el umbral, no sólo el texto del pronóstico.
+- **Locks / Vacuum** — listas paginadas. El episodio de lock abre el plan estimado de la consulta que espera. La fila de vacuum abre edad de XID, pases de autovacuum y la nota de bloat.
+- **XID age** — el indicador del resumen usa la última muestra de 36 horas. El colector la refresca en el ciclo lento, no una vez por hora.
+- **Apply lag** — en un suscriptor se mide el WAL recibido que todavía no se aplicó. Cero bytes es “caught up”. El reloj del publicador no está en ese servidor.
 - **Queries** — Analytical es la ventana retenida; Live es la última foto de sesiones.
 - **Indexes** — el inventario se pagina. La pestaña no vuelca todos los índices al navegador.
 - **ORM** — filtro por esquema y por nombre; lo que no coincide sale del grafo.

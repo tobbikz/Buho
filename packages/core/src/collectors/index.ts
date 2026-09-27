@@ -169,7 +169,7 @@ const databaseSizes: MetricCollector = {
 
 const wraparound: MetricCollector = {
   id: 'wraparound',
-  tier: 'hourly',
+  tier: 'slow',
   description: 'Edad de los XID frente a autovacuum_freeze_max_age',
   sql: () => `
     select datname,
@@ -421,7 +421,9 @@ const logicalSubscriptions: MetricCollector = {
   sql: () => `
     select subname,
            bool_or(pid is not null) as worker_up,
-           max(latest_end_time)     as latest_end_time
+           max(latest_end_time) as latest_end_time,
+           max(pg_wal_lsn_diff(received_lsn, latest_end_lsn))
+             filter (where received_lsn is not null and latest_end_lsn is not null) as pending_bytes
       from pg_stat_subscription
      group by subname`,
   toSamples: (rows) => {
@@ -430,14 +432,31 @@ const logicalSubscriptions: MetricCollector = {
       const labels = { subscription: str(row['subname']) };
       const up = row['worker_up'] === true;
       samples.push({ metric: 'replication_subscription_worker', value: up ? 1 : 0, labels });
-      const ended = row['latest_end_time'];
-      const at = ended instanceof Date ? ended : ended ? new Date(String(ended)) : null;
-      if (at && !Number.isNaN(at.getTime())) {
+      const pending = row['pending_bytes'];
+      const pendingBytes = pending === null || pending === undefined ? null : num(pending);
+      if (pendingBytes !== null) {
         samples.push({
-          metric: 'replication_subscription_lag_seconds',
-          value: Math.max(0, (Date.now() - at.getTime()) / 1000),
+          metric: 'replication_subscription_pending_bytes',
+          value: Math.max(0, pendingBytes),
           labels,
         });
+      }
+      // Caught up means the apply LSN has reached the received LSN. Clock
+      // distance from latest_end_time grows on an idle publisher and is not lag.
+      if (pendingBytes === 0) {
+        samples.push({ metric: 'replication_subscription_lag_seconds', value: 0, labels });
+        continue;
+      }
+      if (pendingBytes !== null && pendingBytes > 0) {
+        const ended = row['latest_end_time'];
+        const at = ended instanceof Date ? ended : ended ? new Date(String(ended)) : null;
+        if (at && !Number.isNaN(at.getTime())) {
+          samples.push({
+            metric: 'replication_subscription_lag_seconds',
+            value: Math.max(0, (Date.now() - at.getTime()) / 1000),
+            labels,
+          });
+        }
       }
     }
     return samples;

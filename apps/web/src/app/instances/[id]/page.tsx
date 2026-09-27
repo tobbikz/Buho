@@ -256,6 +256,7 @@ export default async function InstancePage({
       deadTuples,
       slots,
       subscriptions,
+      subscriptionPending,
       events,
       host,
       hostCpu,
@@ -334,6 +335,7 @@ export default async function InstancePage({
           20,
           30,
         ),
+        getLabeled(instanceId, 'replication_subscription_pending_bytes', 20, 30),
         getEvents(instanceId, 10),
         // Recursos reales del host. Devuelve null si la instancia no los
         // declara, y en ese caso el Resumen sigue mostrando sólo las
@@ -369,6 +371,7 @@ export default async function InstancePage({
       deadTuples,
       slots,
       subscriptions,
+      subscriptionPending,
       events,
       host,
       hostCpu,
@@ -883,6 +886,10 @@ export default async function InstancePage({
                           name: row.labels['subscription'] ?? '',
                           workerUp: row.value === 1,
                           lagSeconds: row.valueB,
+                          lagBytes:
+                            data.subscriptionPending.find(
+                              (pending) => pending.labels['subscription'] === row.labels['subscription'],
+                            )?.value ?? null,
                         }))}
                       alerts={data.findings
                         .filter((finding) => finding.checkId === 'logical_subscription_down')

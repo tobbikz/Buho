@@ -2,10 +2,11 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StoreError } from '@/components/StoreError';
+import { OrmGraph } from '@/components/OrmGraph';
 import { TopologyBubbles } from '@/components/TopologyBubbles';
 import { Topbar } from '@/components/Topbar';
 import { formatBytes, formatNumber } from '@/lib/format';
-import { getCatalog } from '@/lib/catalog';
+import { catalogModel, getCatalog } from '@/lib/catalog';
 import { getInstanceEngine } from '@/lib/estate';
 import { getInstance } from '@/lib/queries';
 import {
@@ -31,10 +32,10 @@ export default async function TopologyPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ d?: string; snap?: string; vista?: string; q?: string }>;
+  searchParams: Promise<{ d?: string; snap?: string; vista?: string; q?: string; schema?: string }>;
 }) {
   const { id } = await params;
-  const { d, snap, vista, q } = await searchParams;
+  const { d, snap, vista, q, schema: schemaParam } = await searchParams;
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
 
@@ -61,12 +62,15 @@ export default async function TopologyPage({
     }
     if (!instance) notFound();
     const needle = (q ?? '').trim().toLowerCase();
-    const shown = needle
-      ? catalog.filter(
-          (row) =>
-            row.schema.toLowerCase().includes(needle) || row.table.toLowerCase().includes(needle),
-        )
-      : catalog;
+    const schemaNames = [...new Set(catalog.map((row) => row.schema))].sort();
+    const schemaName = schemaNames.includes(schemaParam ?? '') ? (schemaParam ?? '') : '';
+    const shown = catalog.filter((row) => {
+      if (schemaName && row.schema !== schemaName) return false;
+      if (!needle) return true;
+      return (
+        row.schema.toLowerCase().includes(needle) || row.table.toLowerCase().includes(needle)
+      );
+    });
     const groups = new Map<string, typeof catalog>();
     for (const row of shown) {
       const list = groups.get(row.schema) ?? [];
@@ -116,7 +120,19 @@ export default async function TopologyPage({
             </div>
           </div>
           <form action={`/instances/${instanceId}/topology`} className="panel">
-            <div className="panel-body flex items-center gap-2">
+            <div className="panel-body flex flex-wrap items-center gap-2">
+              <select
+                name="schema"
+                defaultValue={schemaName}
+                className="rounded-[3px] border border-border bg-[var(--surface)] px-2 py-1 font-mono text-[12px]"
+              >
+                <option value="">All schemas</option>
+                {schemaNames.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
               <input
                 type="search"
                 name="q"
@@ -141,6 +157,24 @@ export default async function TopologyPage({
           ) : shown.length === 0 ? (
             <div className="empty">No schema or table matches that filter.</div>
           ) : (
+            <section className="panel">
+              <div className="panel-header">
+                <span className="panel-title">Structure</span>
+                <span className="font-mono text-[10px] text-foreground-muted">
+                  schemas and tables, no traffic
+                </span>
+              </div>
+              <div className="panel-body">
+                <OrmGraph
+                  model={catalogModel(shown)}
+                  instanceId={instanceId}
+                  unit="count"
+                  layer="estructura"
+                />
+              </div>
+            </section>
+          )}
+          {shown.length === 0 ? null : (
             <div className="flex flex-col gap-2">
               {[...groups.entries()].map(([schema, tables]) => (
                 <details key={schema} className="panel" open={Boolean(needle) || groups.size <= 8}>

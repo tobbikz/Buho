@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StatCard } from '@/components/StatCard';
@@ -27,6 +28,8 @@ import {
 } from '@/lib/vacuum';
 
 export const dynamic = 'force-dynamic';
+
+const VACUUM_PAGE_SIZE = 25;
 
 const ORDERS: { key: VacuumOrder; label: string }[] = [
   { key: 'muertas', label: 'Most dead tuples' },
@@ -169,10 +172,11 @@ export default async function VacuumPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ orden?: string; error?: string }>;
+  searchParams: Promise<{ orden?: string; error?: string; page?: string }>;
 }) {
   const { id } = await params;
-  const { orden, error: notice } = await searchParams;
+  const { orden, error: notice, page: pageParam } = await searchParams;
+  const page = Math.max(1, Number(pageParam) || 1);
 
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
@@ -212,7 +216,7 @@ export default async function VacuumPage({
   let pgstattuple: Awaited<ReturnType<typeof getPgstattupleState>>;
   try {
     [tables, progress, totals, series, measurements, session, pgstattuple] = await Promise.all([
-      getVacuumTables(instanceId, order, 40),
+      getVacuumTables(instanceId, order, VACUUM_PAGE_SIZE, (page - 1) * VACUUM_PAGE_SIZE),
       getVacuumProgress(instanceId),
       getVacuumTotals(instanceId),
       getSeries(instanceId, ['bloat_estimated_bytes', 'vacuum_running'], 1440, 300),
@@ -360,7 +364,7 @@ export default async function VacuumPage({
 
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Tables · {tables.length}</span>
+            <span className="panel-title">Tables · {formatNumber(totals.tables)}</span>
             <span className="font-mono text-[10px] text-foreground-muted">
               {totals.capturedAt ? `snapshot ${formatAgo(totals.capturedAt)}` : 'no snapshot'}
             </span>
@@ -392,11 +396,34 @@ export default async function VacuumPage({
                     return (
                       <tr key={`${row.schema}.${row.table}`}>
                         <td className="font-mono text-[11.5px]">
-                          <span className="text-foreground-muted">{row.schema}.</span>
-                          {row.table}
-                          {!row.autovacuumEnabled && (
-                            <span className="tag tag--error ml-1.5">autovacuum off</span>
-                          )}
+                          <details>
+                            <summary className="cursor-pointer">
+                              <span className="text-foreground-muted">{row.schema}.</span>
+                              {row.table}
+                              {!row.autovacuumEnabled && (
+                                <span className="tag tag--error ml-1.5">autovacuum off</span>
+                              )}
+                            </summary>
+                            <div className="mt-2 max-w-md space-y-1 text-[11px] font-sans text-foreground-secondary">
+                              <div>Live tuples {formatNumber(row.liveTuples)}</div>
+                              <div>
+                                Autovacuum passes {formatNumber(row.autovacuumCount)} · analyze passes{' '}
+                                {formatNumber(row.analyzeCount)}
+                              </div>
+                              <div>
+                                Transaction age {formatNumber(row.xidAge)} of {formatNumber(row.freezeMaxAge)}
+                                {row.xidPct !== null ? ` (${row.xidPct.toFixed(0)}%)` : ''}
+                              </div>
+                              <div>
+                                Multixact age {formatNumber(row.mxidAge)}
+                                {row.mxidPct !== null ? ` (${row.mxidPct.toFixed(0)}%)` : ''}
+                              </div>
+                              {row.threshold !== null ? (
+                                <div>Autovacuum trigger at {formatNumber(row.threshold)} dead tuples</div>
+                              ) : null}
+                              {row.bloatNote ? <div>{row.bloatNote}</div> : null}
+                            </div>
+                          </details>
                         </td>
                         <td className="num">{formatNumber(row.deadTuples)}</td>
                         <td className="num">
@@ -467,6 +494,31 @@ export default async function VacuumPage({
               </table>
             </div>
           )}
+          {totals.tables > VACUUM_PAGE_SIZE ? (
+            <div className="panel-body flex items-center justify-between gap-2 border-t border-border">
+              <span className="font-mono text-[11px] text-foreground-muted">
+                Page {page} of {Math.max(1, Math.ceil(totals.tables / VACUUM_PAGE_SIZE))}
+              </span>
+              <span className="flex gap-2">
+                {page > 1 ? (
+                  <Link
+                    href={`/instances/${instanceId}/vacuum?orden=${order}&page=${page - 1}`}
+                    className="tag tag--muted"
+                  >
+                    Previous
+                  </Link>
+                ) : null}
+                {page * VACUUM_PAGE_SIZE < totals.tables ? (
+                  <Link
+                    href={`/instances/${instanceId}/vacuum?orden=${order}&page=${page + 1}`}
+                    className="tag tag--muted"
+                  >
+                    Next
+                  </Link>
+                ) : null}
+              </span>
+            </div>
+          ) : null}
         </section>
 
         {totals.unestimated > 0 && (

@@ -42,7 +42,12 @@ function IndexBadge({ status }: { status: IndexStatus }) {
 
 function IndexDefinition({ row }: { row: IndexRow }) {
   if (!row.definition) return null;
-  return <div className="mt-1 font-mono text-[10px] text-foreground-muted">{row.definition}</div>;
+  return (
+    <details>
+      <summary className="cursor-pointer font-mono text-[10px] text-foreground-muted">definition</summary>
+      <div className="mt-1 font-mono text-[10px] text-foreground-muted">{row.definition}</div>
+    </details>
+  );
 }
 
 const INDEX_PAGE_SIZE = 40;

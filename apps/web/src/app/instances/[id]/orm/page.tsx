@@ -39,10 +39,10 @@ export default async function OrmPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ peso?: string; v?: string; capa?: string }>;
+  searchParams: Promise<{ peso?: string; v?: string; capa?: string; schema?: string }>;
 }) {
   const { id } = await params;
-  const { peso, v, capa } = await searchParams;
+  const { peso, v, capa, schema: schemaParam } = await searchParams;
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
 
@@ -56,10 +56,29 @@ export default async function OrmPage({
 
   let instance;
   let model;
+  let schemaChoices: string[] = [];
   try {
     instance = await getInstance(instanceId);
     if (!instance) notFound();
     model = await getOrmModel(instanceId, window.minutes, weight, engine);
+    schemaChoices = model.schemas.map((schema) => schema.name);
+    const picked = schemaChoices.includes(schemaParam ?? '') ? schemaParam! : '';
+    if (picked) {
+      const schemas = model.schemas.filter((schema) => schema.name === picked);
+      const nodes = model.nodes.filter((node) =>
+        node.kind === 'schema' ? node.label === picked : node.schema === picked,
+      );
+      const ids = new Set(nodes.map((node) => node.id));
+      const links = model.links.filter((link) => ids.has(link.source) && ids.has(link.target));
+      model = {
+        ...model,
+        schemas,
+        nodes,
+        links,
+        totalTables: schemas[0]?.tableCount ?? 0,
+        foreignKeys: links.filter((link) => link.kind === 'fk').length,
+      };
+    }
   } catch (error) {
     return (
       <>
@@ -159,6 +178,37 @@ export default async function OrmPage({
                 : null}
             </div>
           </div>
+          <form action={`/instances/${instanceId}/orm`} className="border-b border-border">
+            <div className="panel-body flex flex-wrap items-center gap-2">
+              <input type="hidden" name="capa" value={layer} />
+              <input type="hidden" name="peso" value={weight} />
+              <input type="hidden" name="v" value={window.key} />
+              <label className="text-[11px] uppercase tracking-wide text-foreground-muted" htmlFor="orm-schema">
+                Schema
+              </label>
+              <select
+                id="orm-schema"
+                name="schema"
+                defaultValue={schemaChoices.includes(schemaParam ?? '') ? schemaParam : ''}
+                className="rounded-[3px] border border-border bg-[var(--surface)] px-2 py-1 font-mono text-[12px]"
+              >
+                <option value="">All schemas</option>
+                {schemaChoices.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <button type="submit" className="tag tag--info">
+                Filter
+              </button>
+              {schemaParam ? (
+                <Link href={enlace()} className="tag tag--muted">
+                  clear
+                </Link>
+              ) : null}
+            </div>
+          </form>
           <div className="panel-body">
             {model.totalTables === 0 ? (
               <div className="empty">No tables in catalog yet. Wait for the collector vacuum scan.</div>

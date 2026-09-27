@@ -347,7 +347,13 @@ export function LiveFlow({
   const unitRef = useRef(unit);
   unitRef.current = unit;
   const posicionesRef = useRef<NodePos[]>([]);
-  const [elegido, setElegido] = useState<{ label: string; depth: number; name: string } | null>(null);
+  const [elegido, setElegido] = useState<{
+    label: string;
+    depth: number;
+    name: string;
+    writeIn: number;
+    readIn: number;
+  } | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(
     demoOn ? buildDemoSnapshot(DEMO_TABLE_COUNT) : null,
   );
@@ -929,8 +935,8 @@ export function LiveFlow({
           const table = parts.length > 1 ? parts.slice(1).join('.') : nodo.label;
 
           if (micro) {
-            const cardW = 112;
-            const cardH = nodo.isSchema ? 22 : 15;
+            const cardW = 128;
+            const cardH = nodo.isSchema ? 28 : 28;
             const x = nodo.x - cardW / 2;
             const y = nodo.y - cardH / 2;
             roundRect(ctx, x, y, cardW, cardH, 2);
@@ -953,19 +959,12 @@ export function LiveFlow({
               : table.length > 9
                 ? `${table.slice(0, 8)}…`
                 : table;
-            ctx.fillText(label, x + 5, nodo.isSchema ? nodo.y - 4 : nodo.y);
+            ctx.fillText(label, x + 5, nodo.isSchema ? nodo.y - 7 : nodo.y - 7);
             ctx.font = '7px ui-monospace, SFMono-Regular, monospace';
-            if (nodo.isSchema) {
-              ctx.fillStyle = THEME.labelMuted;
-              ctx.fillText(
-                `${nodo.tableCount ?? 0} tbl · ${shortRate(nodo.writeIn + nodo.readIn, unitNow)}`,
-                x + 5,
-                nodo.y + 6,
-              );
-            } else {
-              ctx.fillStyle = WRITE;
-              ctx.fillText(shortRate(nodo.writeIn, unitNow), x + 58, nodo.y);
-            }
+            ctx.fillStyle = WRITE;
+            ctx.fillText(`W ${shortRate(nodo.writeIn, unitNow)}`, x + 5, nodo.y + 4);
+            ctx.fillStyle = READ;
+            ctx.fillText(`R ${shortRate(nodo.readIn, unitNow)}`, x + 62, nodo.y + 4);
             // Crowns
             let badgeX = x + cardW - 4;
             if (nodo.isTopAttacked) {
@@ -1074,13 +1073,20 @@ export function LiveFlow({
     const x = evento.clientX - caja.left;
     const y = evento.clientY - caja.top;
 
-    let mejor: { label: string; depth: number; name: string } | null = null;
+    let mejor: { label: string; depth: number; name: string; writeIn: number; readIn: number } | null =
+      null;
     let distancia = 40;
     for (const nodo of posicionesRef.current) {
       const d = Math.hypot(nodo.x - x, nodo.y - y);
       if (d < distancia) {
         distancia = d;
-        mejor = { label: nodo.label, depth: nodo.depth, name: nodo.name };
+        mejor = {
+          label: nodo.label,
+          depth: nodo.depth,
+          name: nodo.name,
+          writeIn: nodo.writeIn,
+          readIn: nodo.readIn,
+        };
       }
     }
     setElegido(mejor);
@@ -1175,12 +1181,17 @@ export function LiveFlow({
             onClick={alPinchar}
           />
 
-        {elegido && destinos.length > 0 && (
+        {elegido && (
           <div className="absolute bottom-3 right-3 rounded-[3px] border border-border bg-[var(--surface)] px-3 py-2 text-[11px] shadow-sm">
             <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.08em] text-foreground-muted">
               {elegido.depth === 0 ? 'application' : elegido.name.startsWith('schema:') ? 'schema' : 'table'}
             </div>
-            <div className="mb-2 font-mono text-[12px] text-foreground">{elegido.label}</div>
+            <div className="mb-1 font-mono text-[12px] text-foreground">{elegido.label}</div>
+            <div className="mb-2 font-mono text-[11px]">
+              <span className="text-[#0a6e42]">W {shortRate(elegido.writeIn, unit)}</span>
+              <span className="mx-1 text-foreground-muted">·</span>
+              <span className="text-[#005eb8]">R {shortRate(elegido.readIn, unit)}</span>
+            </div>
             <div className="flex flex-col gap-1">
               {destinos.map((destino) => (
                 <Link key={destino.href} href={destino.href} className="link">

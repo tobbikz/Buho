@@ -15,7 +15,7 @@ import {
   getInstanceInventory,
   type ReplicationRow as EstateReplicationRow,
 } from '@/lib/estate';
-import { getInstance, getLabeledPair, getSeries, getSeriesByLabel } from '@/lib/queries';
+import { getInstance, getLabeled, getLabeledPair, getSeries, getSeriesByLabel } from '@/lib/queries';
 import { getMariaReplicationSankey } from '@/lib/replication-sankey';
 import { shortPeerLabel, shortProcesslistState } from '@/lib/maria-labels';
 import {
@@ -285,8 +285,9 @@ export default async function ReplicationPage({
   let lag: Awaited<ReturnType<typeof getSeriesByLabel>>;
   let standby: Awaited<ReturnType<typeof getSeries>>;
   let liveSubs: Awaited<ReturnType<typeof getLabeledPair>>;
+  let pendingBytes: Awaited<ReturnType<typeof getLabeled>>;
   try {
-    [topology, lag, standby, liveSubs] = await Promise.all([
+    [topology, lag, standby, liveSubs, pendingBytes] = await Promise.all([
       getReplicationTopology(instanceId),
       getSeriesByLabel(
         instanceId,
@@ -309,6 +310,7 @@ export default async function ReplicationPage({
         20,
         30,
       ),
+      getLabeled(instanceId, 'replication_subscription_pending_bytes', 20, 30),
     ]);
   } catch (error) {
     return (
@@ -328,7 +330,9 @@ export default async function ReplicationPage({
       role: 'subscription',
       peer: row.labels['subscription'] ?? 'subscription',
       state: row.value === 1 ? 'applying' : 'down',
-      lagBytes: null,
+      lagBytes:
+        pendingBytes.find((pending) => pending.labels['subscription'] === row.labels['subscription'])
+          ?.value ?? null,
       lagSeconds: row.valueB,
       detail: {},
       capturedAt: new Date(),
@@ -655,6 +659,7 @@ export default async function ReplicationPage({
                 name: row.peer,
                 workerUp: row.state !== 'down',
                 lagSeconds: row.lagSeconds,
+                lagBytes: row.lagBytes,
               }))}
               alerts={[]}
             />

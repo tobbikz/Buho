@@ -109,14 +109,15 @@ function toRow(row: Record<string, unknown>): VacuumTableRow {
 export async function getVacuumTables(
   instanceId: number,
   order: VacuumOrder = 'muertas',
-  limit = 40,
+  limit = 25,
+  offset = 0,
 ): Promise<VacuumTableRow[]> {
   const rows = await query<Record<string, unknown>>(
     `select * from buho.vacuum_tables
       where instance_id = $1
       order by ${ORDER_SQL[order]}
-      limit $2`,
-    [instanceId, limit],
+      limit $2 offset $3`,
+    [instanceId, limit, offset],
   );
   return rows.map(toRow);
 }

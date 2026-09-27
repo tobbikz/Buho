@@ -6,6 +6,7 @@ import {
   Legend,
   ComposedChart,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -74,6 +75,7 @@ export function TimeseriesPanel({
   height = 170,
   hint,
   band,
+  threshold,
 }: {
   title: string;
   data: ChartPoint[];
@@ -87,6 +89,8 @@ export function TimeseriesPanel({
    * referencia, no un dato más.
    */
   band?: { key: string; medianKey?: string; label?: string };
+  /** Horizontal limit drawn on the same axis as the series. */
+  threshold?: { value: number; label: string };
 }) {
   // La banda sola no cuenta como dato: un panel con banda y sin muestras sigue
   // estando vacío, y decirlo es más útil que dibujar una franja sin línea.
@@ -170,6 +174,14 @@ export function TimeseriesPanel({
                   isAnimationActive={false}
                 />
               )}
+              {threshold ? (
+                <ReferenceLine
+                  y={threshold.value}
+                  stroke="#b01818"
+                  strokeDasharray="4 3"
+                  label={{ value: threshold.label, fontSize: 10, fill: '#b01818', position: 'insideTopRight' }}
+                />
+              ) : null}
               {series.map((spec) =>
                 spec.filled ? (
                   <Area
