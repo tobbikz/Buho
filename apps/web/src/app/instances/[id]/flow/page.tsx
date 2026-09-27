@@ -192,8 +192,8 @@ export default async function FlowPage({
           />
         </div>
 
-        <div className="grid grid-cols-1 items-start gap-[0.875rem] xl:grid-cols-4">
-        <section className="panel xl:col-span-3">
+        <div className="grid grid-cols-1 items-stretch gap-[0.875rem] xl:grid-cols-4">
+        <section className="panel flex h-full flex-col xl:col-span-3">
           <div className="panel-header">
             <span className="panel-title">Hot tables · writes &amp; reads</span>
             <div className="flex flex-wrap items-center gap-1">
@@ -265,7 +265,7 @@ export default async function FlowPage({
           </div>
         </section>
 
-        <section className="panel xl:col-span-1">
+        <section className="panel flex h-full min-h-0 flex-col xl:col-span-1">
           <div className="panel-header">
             <span className="panel-title">When it is used · {heatOption.label}</span>
             <div className="flex flex-wrap items-center gap-1">
@@ -302,7 +302,7 @@ export default async function FlowPage({
               ))}
             </div>
           </div>
-          <div className="panel-body">
+          <div className="panel-body flex min-h-0 flex-1 flex-col">
             {heat.cells.length === 0 ? (
               <div className="empty">
                 {heatOption.key === 'batch' && engine === 'postgres'
@@ -311,7 +311,7 @@ export default async function FlowPage({
               </div>
             ) : (
               <>
-                <Heatmap cells={heat.cells} max={heat.max} unit={unidadCalor} minSamples={2} />
+                <Heatmap cells={heat.cells} max={heat.max} unit={unidadCalor} minSamples={2} fill />
                 <p className="mt-3 text-[12px]">
                   {cargada && (
                     <>

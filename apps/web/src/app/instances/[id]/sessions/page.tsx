@@ -7,7 +7,7 @@ import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { Topbar } from '@/components/Topbar';
 import { WaitStack } from '@/components/WaitStack';
-import { formatNumber, formatPct } from '@/lib/format';
+import { formatDuration, formatNumber, formatPct } from '@/lib/format';
 import { explainIncident } from '@/lib/incident';
 import { getInstance } from '@/lib/queries';
 import {
@@ -17,6 +17,22 @@ import {
   getWaitTimeline,
   WAIT_TYPE_HELP,
 } from '@/lib/sessions';
+
+const WAIT_ORDER = ['CPU', 'IO', 'Lock', 'LWLock', 'IPC', 'Timeout', 'Client'];
+const SAMPLE_SECONDS = 10;
+
+function waitElapsed(waits: { waitType: string; sessions: number }[]) {
+  const seconds = new Map<string, number>();
+  for (const wait of waits) {
+    seconds.set(wait.waitType, (seconds.get(wait.waitType) ?? 0) + wait.sessions * SAMPLE_SECONDS);
+  }
+  const named = WAIT_ORDER.filter((type) => seconds.has(type));
+  const rest = [...seconds.keys()].filter((type) => !WAIT_ORDER.includes(type));
+  return [...named, ...rest].map((type) => ({
+    type,
+    label: formatDuration(seconds.get(type) ?? 0),
+  }));
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -178,6 +194,7 @@ export default async function SessionsPage({
                 byType: cubo.byType,
                 total: cubo.total,
               }))}
+              elapsed={waitElapsed(esperas.waits)}
               emptyMessage="No session samples in this window yet. Sampling writes every ten seconds; if the instance was just added, wait a minute."
             />
             <p className="mt-2 text-[11px] text-foreground-muted">

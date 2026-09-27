@@ -174,6 +174,10 @@ interface NodePos {
   isTopWrite?: boolean;
   isTopRead?: boolean;
   isTopAttacked?: boolean;
+  hitX?: number;
+  hitY?: number;
+  hitW?: number;
+  hitH?: number;
 }
 
 interface PackMeta {
@@ -681,7 +685,7 @@ export function LiveFlow({
       if (smoothLinksRef.current.length !== targetLinks.length) {
         smoothLinksRef.current = targetLinks.map((enlace) => ({ ...enlace }));
       } else {
-        const blend = 1 - Math.exp(-delta * 5);
+        const blend = 1;
         for (let i = 0; i < targetLinks.length; i += 1) {
           const suave = smoothLinksRef.current[i]!;
           const objetivo = targetLinks[i]!;
@@ -796,8 +800,7 @@ export function LiveFlow({
         });
       };
 
-      emitPool(writes, rawEmission * writeShare);
-      emitPool(reads, rawEmission * readShare);
+      // Static ribbons. Moving particles hid the cards and made clicks miss.
 
       const corTotal = corridors.reduce((suma, c) => suma + c.value, 0) || 1;
 
@@ -862,7 +865,7 @@ export function LiveFlow({
         ctx.fill();
       }
 
-      const pulso = 0.5 + 0.5 * Math.sin(ahora / (1100 - actividad * 450));
+      const pulso = 0;
       const tableCount = packed.meta.visibleTables + (packed.meta.hiddenCount > 0 ? 1 : 0);
       const compact = tableCount > 6;
       const micro = tableCount > 20 || packed.meta.tableCols > 1;
@@ -878,6 +881,10 @@ export function LiveFlow({
           const cardH = micro ? 40 : compact ? 48 : 58;
           const x = nodo.x - cardW + 6;
           const y = nodo.y - cardH / 2;
+          nodo.hitX = x;
+          nodo.hitY = y;
+          nodo.hitW = cardW;
+          nodo.hitH = cardH;
 
           roundRect(ctx, x, y, cardW, cardH, 3);
           ctx.fillStyle = THEME.card;
@@ -915,6 +922,10 @@ export function LiveFlow({
             const cardH = micro ? 18 : 28;
             const x = nodo.x - cardW / 2;
             const y = nodo.y - cardH / 2;
+            nodo.hitX = x;
+            nodo.hitY = y;
+            nodo.hitW = cardW;
+            nodo.hitH = cardH;
             roundRect(ctx, x, y, cardW, cardH, 3);
             ctx.fillStyle = '#f4f6f8';
             ctx.fill();
@@ -939,6 +950,10 @@ export function LiveFlow({
             const cardH = nodo.isSchema ? 28 : 28;
             const x = nodo.x - cardW / 2;
             const y = nodo.y - cardH / 2;
+            nodo.hitX = x;
+            nodo.hitY = y;
+            nodo.hitW = cardW;
+            nodo.hitH = cardH;
             roundRect(ctx, x, y, cardW, cardH, 2);
             ctx.fillStyle = THEME.card;
             ctx.fill();
@@ -990,6 +1005,10 @@ export function LiveFlow({
           const cardH = compact ? 44 : 76;
           const x = nodo.x - cardW / 2;
           const y = nodo.y - cardH / 2;
+          nodo.hitX = x;
+          nodo.hitY = y;
+          nodo.hitW = cardW;
+          nodo.hitH = cardH;
 
           roundRect(ctx, x, y, cardW, cardH, 3);
           ctx.fillStyle = THEME.card;
@@ -1075,19 +1094,26 @@ export function LiveFlow({
 
     let mejor: { label: string; depth: number; name: string; writeIn: number; readIn: number } | null =
       null;
-    let distancia = 40;
     for (const nodo of posicionesRef.current) {
-      const d = Math.hypot(nodo.x - x, nodo.y - y);
-      if (d < distancia) {
-        distancia = d;
-        mejor = {
-          label: nodo.label,
-          depth: nodo.depth,
-          name: nodo.name,
-          writeIn: nodo.writeIn,
-          readIn: nodo.readIn,
-        };
+      if (
+        nodo.hitW === undefined ||
+        nodo.hitH === undefined ||
+        nodo.hitX === undefined ||
+        nodo.hitY === undefined
+      ) {
+        continue;
       }
+      if (x < nodo.hitX || y < nodo.hitY || x > nodo.hitX + nodo.hitW || y > nodo.hitY + nodo.hitH) {
+        continue;
+      }
+      mejor = {
+        label: nodo.label,
+        depth: nodo.depth,
+        name: nodo.name,
+        writeIn: nodo.writeIn,
+        readIn: nodo.readIn,
+      };
+      break;
     }
     setElegido(mejor);
   };

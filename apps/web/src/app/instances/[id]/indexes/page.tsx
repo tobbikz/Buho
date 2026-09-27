@@ -346,83 +346,11 @@ export default async function IndexesPage({
           </section>
         ) : (
           <>
-            <section className="panel">
-              <div className="panel-header">
-                <span className="panel-title">Existing indexes</span>
-                <span className="font-mono text-[10px] text-foreground-muted">
-                  keep, drop, or rebuild
-                </span>
-              </div>
-              <div className="panel-body text-[12px]">
-                This inventory comes from PostgreSQL itself: size, scan counters, flags, full
-                definitions, and structural overlap with other indexes on the same table.
-              </div>
-            </section>
-
-            {redundantIndexes.length > 0 && (
-              <section className="panel">
-                <div className="panel-header">
-                  <span className="panel-title">Redundant indexes</span>
-                  <span className="font-mono text-[10px] text-foreground-muted">
-                    {formatNumber(redundantCount)} · largest 25 shown
-                  </span>
-                </div>
-                <div className="panel-body">
-                  <IndexTable rows={redundantIndexes} />
-                  <p className="mt-3 text-[11px] text-foreground-muted">
-                    Each row includes the current definition and, when Búho can prove it, the larger
-                    index that already covers the same left prefix.
-                  </p>
-                </div>
-              </section>
-            )}
-
-            {unusedIndexes.length > 0 && (
-              <section className="panel">
-                <div className="panel-header">
-                  <span className="panel-title">Unused indexes</span>
-                  <span className="font-mono text-[10px] text-foreground-muted">
-                    {formatNumber(unusedCount)} · largest 25 shown
-                  </span>
-                </div>
-                <div className="panel-body">
-                  <IndexTable rows={unusedIndexes} />
-                  <p className="mt-3 text-[11px] text-foreground-muted">
-                    Unused means zero scans on a large non-PK index since the last stats reset.
-                    Check infrequent reports, month-end jobs, and replica-only reads before dropping.
-                  </p>
-                </div>
-              </section>
-            )}
-
-            {invalidIndexes.length > 0 && (
-              <section className="panel">
-                <div className="panel-header">
-                  <span className="panel-title">Invalid indexes</span>
-                  <span className="font-mono text-[10px] text-foreground-muted">
-                    {formatNumber(invalidIndexes.length)} need attention
-                  </span>
-                </div>
-                <div className="panel-body">
-                  <IndexTable rows={invalidIndexes} />
-                  <p className="mt-3 text-[11px] text-foreground-muted">
-                    PostgreSQL marks an index invalid when a concurrent build fails or is
-                    interrupted. These objects can consume space without being safe to rely on.
-                  </p>
-                </div>
-              </section>
-            )}
-
-            {unusedIndexes.length + redundantIndexes.length + invalidIndexes.length === 0 && (
-              <div className="empty">
-                No redundant, unused, or invalid indexes were found in the latest inventory.
-              </div>
-            )}
-
-            <section className="panel">
-              <div className="panel-header">
-                <span className="panel-title">Index footprint by schema</span>
-              </div>
+            <details className="panel">
+              <summary className="panel-header cursor-pointer">
+                <span className="panel-title">Footprint by schema and table</span>
+                <span className="font-mono text-[10px] text-foreground-muted">collapsed</span>
+              </summary>
               <div className="panel-body">
                 <div className="table-scroll">
                   <table className="data-table">
@@ -446,16 +374,7 @@ export default async function IndexesPage({
                     </tbody>
                   </table>
                 </div>
-              </div>
-            </section>
-
-            <section className="panel">
-              <div className="panel-header">
-                <span className="panel-title">Largest index footprints by table</span>
-                <span className="font-mono text-[10px] text-foreground-muted">top 12</span>
-              </div>
-              <div className="panel-body">
-                <div className="table-scroll">
+                <div className="table-scroll mt-4">
                   <table className="data-table">
                     <thead>
                       <tr>
@@ -482,7 +401,7 @@ export default async function IndexesPage({
                   </table>
                 </div>
               </div>
-            </section>
+            </details>
 
             <section className="panel">
               <div className="panel-header">

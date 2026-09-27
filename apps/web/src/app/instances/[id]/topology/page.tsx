@@ -7,7 +7,7 @@ import { StatCard } from '@/components/StatCard';
 import { TopologyBubbles } from '@/components/TopologyBubbles';
 import { Topbar } from '@/components/Topbar';
 import { formatBytes, formatNumber } from '@/lib/format';
-import { catalogModel, getCatalog } from '@/lib/catalog';
+import { catalogModel, getCatalog, getCatalogColumns } from '@/lib/catalog';
 import { getInstanceEngine } from '@/lib/estate';
 import { getOrmModel } from '@/lib/orm';
 import type { OrmLayer } from '@/lib/orm-types';
@@ -56,7 +56,151 @@ export default async function TopologyPage({
   const engine = (await getInstanceEngine(instanceId)) ?? 'postgres';
   const direction = d === 'lectura' ? 'lectura' : 'escritura';
   const view =
-    vista === 'trafico' ? 'trafico' : vista === 'tabla' ? 'tabla' : vista === 'burbujas' ? 'burbujas' : 'catalog';
+    vista === 'detalle'
+      ? 'detalle'
+      : vista === 'estructura'
+        ? 'catalog'
+        : vista === 'tabla'
+          ? 'tabla'
+          : vista === 'burbujas'
+            ? 'burbujas'
+            : 'trafico';
+
+  if (view === 'detalle') {
+    let instance;
+    let catalog: Awaited<ReturnType<typeof getCatalog>>;
+    try {
+      instance = await getInstance(instanceId);
+      if (!instance) notFound();
+      catalog = await getCatalog(instanceId);
+    } catch (error) {
+      return (
+        <>
+          <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
+          <div className="page">
+            <StoreError message={error instanceof Error ? error.message : String(error)} />
+          </div>
+        </>
+      );
+    }
+    if (!instance) notFound();
+    const schemaNames = [...new Set(catalog.map((row) => row.schema))].sort();
+    const schemaName = schemaNames.includes(schemaParam ?? '') ? (schemaParam ?? '') : (schemaNames[0] ?? '');
+    const tables = catalog.filter((row) => row.schema === schemaName);
+    const tableName = tables.some((row) => row.table === q) ? (q ?? '') : (tables[0]?.table ?? '');
+    const columns = schemaName && tableName ? await getCatalogColumns(instanceId, schemaName, tableName) : [];
+    return (
+      <>
+        <Topbar
+          crumbs={[
+            { label: 'Fleet', href: '/' },
+            { label: instance.alias, href: `/instances/${instanceId}` },
+            { label: 'Catalog' },
+          ]}
+        />
+        <div className="page">
+          <header className="page-header">
+            <div>
+              <h1 className="page-title">Columns · {instance.alias}</h1>
+              <p className="page-sub">
+                Schema, table, column, and type. This page is the catalog inventory. Traffic stays on the graph.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              <Link href={`/instances/${instanceId}/topology`} className="tag tag--muted">
+                Traffic
+              </Link>
+              <Link href={`/instances/${instanceId}/topology?vista=estructura`} className="tag tag--muted">
+                Structure
+              </Link>
+              <span className="tag tag--info">Columns</span>
+            </div>
+          </header>
+          <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
+          {catalog.length === 0 ? (
+            <div className="empty">The catalog is filled on the collector vacuum cycle, about every two minutes.</div>
+          ) : (
+            <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-[16rem_1fr]">
+              <form action={`/instances/${instanceId}/topology`} className="panel">
+                <div className="panel-body flex flex-col gap-2">
+                  <input type="hidden" name="vista" value="detalle" />
+                  <label className="text-[11px] uppercase tracking-wide text-foreground-muted" htmlFor="detail-schema">
+                    Schema
+                  </label>
+                  <select
+                    id="detail-schema"
+                    name="schema"
+                    defaultValue={schemaName}
+                    className="rounded-[3px] border border-border bg-[var(--surface)] px-2 py-1 font-mono text-[12px]"
+                  >
+                    {schemaNames.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="text-[11px] uppercase tracking-wide text-foreground-muted" htmlFor="detail-table">
+                    Table
+                  </label>
+                  <select
+                    id="detail-table"
+                    name="q"
+                    defaultValue={tableName}
+                    className="rounded-[3px] border border-border bg-[var(--surface)] px-2 py-1 font-mono text-[12px]"
+                  >
+                    {tables.map((row) => (
+                      <option key={row.table} value={row.table}>
+                        {row.table}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="submit" className="btn-secondary">
+                    Show columns
+                  </button>
+                </div>
+              </form>
+              <section className="panel">
+                <div className="panel-header">
+                  <span className="panel-title">
+                    {schemaName}.{tableName}
+                  </span>
+                  <span className="font-mono text-[10px] text-foreground-muted">
+                    {columns.length === 0 ? 'waiting for the next catalog sample' : `${columns.length} columns`}
+                  </span>
+                </div>
+                {columns.length === 0 ? (
+                  <div className="empty">
+                    Column types arrive with the next collector cycle. Table size is already in the catalog.
+                  </div>
+                ) : (
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th className="text-right">#</th>
+                        <th>Column</th>
+                        <th>Type</th>
+                        <th>Null</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {columns.map((column) => (
+                        <tr key={column.column}>
+                          <td className="num">{column.position}</td>
+                          <td className="font-mono text-[11.5px]">{column.column}</td>
+                          <td className="font-mono text-[11.5px]">{column.dataType}</td>
+                          <td className="text-[11px]">{column.notNull ? 'not null' : 'null'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </section>
+            </div>
+          )}
+        </div>
+      </>
+    );
+  }
 
   if (view === 'trafico') {
     const weights: { key: FlowWeight; label: string }[] = [
@@ -145,10 +289,13 @@ export default async function TopologyPage({
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-1">
-              <Link href={`/instances/${instanceId}/topology`} className="tag tag--muted">
+              <Link href={`/instances/${instanceId}/topology?vista=estructura`} className="tag tag--muted">
                 Structure
               </Link>
               <span className="tag tag--info">Traffic</span>
+              <Link href={`/instances/${instanceId}/topology?vista=detalle`} className="tag tag--muted">
+                Columns
+              </Link>
             </div>
           </header>
           <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
@@ -309,9 +456,12 @@ export default async function TopologyPage({
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-1">
-              <span className="tag tag--info">structure</span>
-              <Link href={`/instances/${instanceId}/topology?vista=trafico`} className="tag tag--muted">
-                traffic
+              <Link href={`/instances/${instanceId}/topology`} className="tag tag--muted">
+                Traffic
+              </Link>
+              <span className="tag tag--info">Structure</span>
+              <Link href={`/instances/${instanceId}/topology?vista=detalle`} className="tag tag--muted">
+                Columns
               </Link>
             </div>
           </header>
@@ -331,6 +481,7 @@ export default async function TopologyPage({
           </div>
           <form action={`/instances/${instanceId}/topology`} className="panel">
             <div className="panel-body flex flex-wrap items-center gap-2">
+              <input type="hidden" name="vista" value="estructura" />
               <select
                 name="schema"
                 defaultValue={schemaName}
@@ -354,7 +505,7 @@ export default async function TopologyPage({
                 Filter
               </button>
               {needle ? (
-                <Link href={`/instances/${instanceId}/topology`} className="tag tag--muted">
+                <Link href={`/instances/${instanceId}/topology?vista=estructura`} className="tag tag--muted">
                   clear
                 </Link>
               ) : null}
@@ -384,33 +535,11 @@ export default async function TopologyPage({
               </div>
             </section>
           )}
-          {shown.length === 0 ? null : (
-            <div className="flex flex-col gap-2">
-              {[...groups.entries()].map(([schema, tables]) => (
-                <details key={schema} className="panel" open={Boolean(needle) || groups.size <= 8}>
-                  <summary className="panel-header cursor-pointer">
-                    <span className="panel-title">{schema}</span>
-                    <span className="font-mono text-[10px] text-foreground-muted">
-                      {tables.length} table{tables.length === 1 ? '' : 's'}
-                    </span>
-                  </summary>
-                  <table className="data-table">
-                    <tbody>
-                      {tables.map((row) => (
-                        <tr key={row.table}>
-                          <td className="font-mono text-[11.5px]">{row.table}</td>
-                          <td className="num">{formatBytes(row.sizeBytes)}</td>
-                          <td className="text-right font-mono text-[11px] text-foreground-muted">
-                            {row.partitions > 0 ? `${row.partitions} partitions` : ''}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </details>
-              ))}
-            </div>
-          )}
+          <p className="text-[12px] text-foreground-secondary">
+            <Link href={`/instances/${instanceId}/topology?vista=detalle`} className="btn-secondary">
+              Open column detail
+            </Link>
+          </p>
         </div>
       </>
     );

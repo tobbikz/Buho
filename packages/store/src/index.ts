@@ -1452,6 +1452,43 @@ export class Store {
           where instance_id = $1 and captured_at < now() - interval '1 minute'`,
         [instanceId],
       );
+      const columns = snapshot.columns ?? [];
+      for (let start = 0; start < columns.length; start += CHUNK) {
+        const slice = columns.slice(start, start + CHUNK);
+        const values: unknown[] = [];
+        const tuples: string[] = [];
+        slice.forEach((column, rowIndex) => {
+          const base = rowIndex * 7;
+          tuples.push(`(${Array.from({ length: 7 }, (_, offset) => `$${base + offset + 1}`).join(', ')}, now())`);
+          values.push(
+            instanceId,
+            column.schema,
+            column.table,
+            column.column,
+            column.dataType,
+            column.notNull,
+            column.position,
+          );
+        });
+        await client.query(
+          `insert into buho.catalog_columns
+                (instance_id, schema_name, table_name, column_name, data_type, not_null, position, captured_at)
+           values ${tuples.join(', ')}
+           on conflict (instance_id, schema_name, table_name, column_name) do update
+                  set data_type = excluded.data_type,
+                      not_null = excluded.not_null,
+                      position = excluded.position,
+                      captured_at = excluded.captured_at`,
+          values,
+        );
+      }
+      if (columns.length > 0) {
+        await client.query(
+          `delete from buho.catalog_columns
+            where instance_id = $1 and captured_at < now() - interval '1 minute'`,
+          [instanceId],
+        );
+      }
       await client.query('commit');
     } catch (error) {
       await client.query('rollback');

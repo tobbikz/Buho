@@ -769,6 +769,18 @@ create table if not exists buho.catalog_tables (
   captured_at  timestamptz not null default now(),
   primary key (instance_id, schema_name, table_name)
 );
+create table if not exists buho.catalog_columns (
+  instance_id  bigint not null references buho.instances (instance_id) on delete cascade,
+  schema_name  text   not null,
+  table_name   text   not null,
+  column_name  text   not null,
+  data_type    text   not null,
+  not_null     boolean not null,
+  position     integer not null,
+  captured_at  timestamptz not null default now(),
+  primary key (instance_id, schema_name, table_name, column_name)
+);
+
 create index if not exists vacuum_tables_bloat on buho.vacuum_tables (instance_id, bloat_bytes desc nulls last);
 
 alter table buho.vacuum_tables add column if not exists xid_age        bigint not null default 0;

@@ -8,8 +8,18 @@ export interface CatalogTable {
   partitions: number;
 }
 
+export interface CatalogColumn {
+  schema: string;
+  table: string;
+  column: string;
+  dataType: string;
+  notNull: boolean;
+  position: number;
+}
+
 export interface CatalogSnapshot {
   tables: CatalogTable[];
+  columns: CatalogColumn[];
 }
 
 function num(value: unknown): number {
@@ -48,12 +58,43 @@ export async function sampleCatalog(pool: Pool, versionNum: number): Promise<Cat
        order by 3 desc
     `),
   );
-  return {
-    tables: result.rows.map((row: Record<string, unknown>) => ({
+  const tables = result.rows.map((row: Record<string, unknown>) => ({
+    schema: String(row['schema']),
+    table: String(row['table']),
+    sizeBytes: num(row['size_bytes']),
+    partitions: num(row['partitions']),
+  }));
+  let columns: CatalogColumn[] = [];
+  try {
+    const cols = await pool.query(
+      tagged(`
+        select n.nspname as schema,
+               c.relname as table,
+               a.attname as column,
+               pg_catalog.format_type(a.atttypid, a.atttypmod) as data_type,
+               a.attnotnull as not_null,
+               a.attnum as position
+          from pg_class c
+          join pg_namespace n on n.oid = c.relnamespace
+          join pg_attribute a on a.attrelid = c.oid
+         where c.relkind in ('r', 'p')
+           and not c.relispartition
+           and a.attnum > 0
+           and not a.attisdropped
+           and n.nspname not in ('pg_catalog', 'information_schema', 'pg_toast')
+         order by 1, 2, 6
+      `),
+    );
+    columns = cols.rows.map((row: Record<string, unknown>) => ({
       schema: String(row['schema']),
       table: String(row['table']),
-      sizeBytes: num(row['size_bytes']),
-      partitions: num(row['partitions']),
-    })),
-  };
+      column: String(row['column']),
+      dataType: String(row['data_type'] ?? ''),
+      notNull: row['not_null'] === true,
+      position: num(row['position']),
+    }));
+  } catch {
+    columns = [];
+  }
+  return { tables, columns };
 }

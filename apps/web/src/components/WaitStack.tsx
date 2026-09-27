@@ -40,10 +40,13 @@ export function WaitStack({
   buckets,
   height = 190,
   emptyMessage,
+  elapsed = [],
 }: {
   buckets: StackBucket[];
   height?: number;
   emptyMessage: string;
+  /** Session-time in each class, already formatted. */
+  elapsed?: { type: string; label: string }[];
 }) {
   if (buckets.length === 0) {
     return <div className="empty">{emptyMessage}</div>;
@@ -59,8 +62,24 @@ export function WaitStack({
   const ancho = 1000;
   const anchoBarra = ancho / buckets.length;
 
+  const leyenda = (
+    <div className="flex flex-wrap items-center gap-3 text-[11px] text-foreground-muted">
+      {columnas.map((tipo) => (
+        <span key={tipo} className="inline-flex items-center gap-1">
+          <span
+            className="inline-block h-[8px] w-[8px] rounded-[1px]"
+            style={{ background: COLOR[tipo] ?? '#7a869a' }}
+          />
+          <span className="font-mono">{tipo}</span>
+        </span>
+      ))}
+      <span className="ml-auto font-mono">peak {maximo.toFixed(1)} session(s) at once</span>
+    </div>
+  );
+
   return (
     <div>
+      <div className="mb-2">{leyenda}</div>
       <svg viewBox={`0 0 ${ancho} ${height}`} preserveAspectRatio="none" style={{ width: '100%', height }}>
         {buckets.map((cubo, indice) => {
           let y = height;
@@ -90,18 +109,22 @@ export function WaitStack({
         })}
       </svg>
 
-      <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-foreground-muted">
-        {columnas.map((tipo) => (
-          <span key={tipo} className="inline-flex items-center gap-1">
-            <span
-              className="inline-block h-[7px] w-[7px] rounded-[1px]"
-              style={{ background: COLOR[tipo] ?? '#7a869a' }}
-            />
-            <span className="font-mono">{tipo}</span>
-          </span>
-        ))}
-        <span className="ml-auto font-mono">peak {maximo.toFixed(1)} session(s) at once</span>
-      </div>
+      {elapsed.length > 0 ? (
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
+          {elapsed.map((entry) => (
+            <div key={entry.type} className="border border-border px-2 py-1.5">
+              <div className="flex items-center gap-1 text-[10px] text-foreground-muted">
+                <span
+                  className="inline-block h-[8px] w-[8px] rounded-[1px]"
+                  style={{ background: COLOR[entry.type] ?? '#7a869a' }}
+                />
+                <span className="font-mono">{entry.type}</span>
+              </div>
+              <div className="mt-0.5 font-mono text-[13px] text-foreground">{entry.label}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

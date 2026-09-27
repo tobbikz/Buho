@@ -8,6 +8,38 @@ export interface CatalogRow {
   partitions: number;
 }
 
+export interface CatalogColumnRow {
+  column: string;
+  dataType: string;
+  notNull: boolean;
+  position: number;
+}
+
+export async function getCatalogColumns(
+  instanceId: number,
+  schema: string,
+  table: string,
+): Promise<CatalogColumnRow[]> {
+  const rows = await query<{
+    column_name: string;
+    data_type: string;
+    not_null: boolean;
+    position: string;
+  }>(
+    `select column_name, data_type, not_null, position
+       from buho.catalog_columns
+      where instance_id = $1 and schema_name = $2 and table_name = $3
+      order by position`,
+    [instanceId, schema, table],
+  );
+  return rows.map((row) => ({
+    column: row.column_name,
+    dataType: row.data_type,
+    notNull: row.not_null,
+    position: Number(row.position),
+  }));
+}
+
 export async function getCatalog(instanceId: number): Promise<CatalogRow[]> {
   const rows = await query<{
     schema_name: string;

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { statementKind } from '@buho/core';
+import { LiveQueryTable } from '@/components/LiveQueryTable';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { PollWhilePending } from '@/components/PollWhilePending';
 import { StatCard } from '@/components/StatCard';
@@ -353,56 +354,22 @@ export default async function QueriesPage({
             {!latest || latest.sessions.length === 0 ? (
               <div className="empty">No session snapshot in the last 10 minutes.</div>
             ) : (
-              <div className="table-scroll">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>State</th>
-                      <th>Session</th>
-                      <th className="text-right">Query</th>
-                      <th>Text</th>
-                      <th>Plan</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {latest.sessions.map((session) => {
-                      const open = pid === String(session.pid);
-                      return (
-                        <tr key={session.pid}>
-                          <td className="font-mono text-[11px]">{session.state}</td>
-                          <td className="font-mono text-[11px]">
-                            pid {session.pid}
-                            {session.application ? ` · ${session.application}` : ''}
-                          </td>
-                          <td className="num">
-                            {session.queryMs === null ? '—' : formatDuration(session.queryMs / 1000)}
-                          </td>
-                          <td className="max-w-[28rem] font-mono text-[11px]">
-                            <div className="truncate" title={session.query ?? ''}>
-                              {session.query?.trim() || '—'}
-                            </div>
-                            {open && planText ? (
-                              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap border border-border bg-surface-muted p-2 text-[10.5px]">
-                                {planText}
-                              </pre>
-                            ) : null}
-                          </td>
-                          <td>
-                            <form action={explainLiveQuery}>
-                              <input type="hidden" name="instanceId" value={instanceId} />
-                              <input type="hidden" name="pid" value={session.pid} />
-                              <input type="hidden" name="sql" value={session.query ?? ''} />
-                              <button type="submit" className="tag tag--muted" disabled={!session.query?.trim()}>
-                                Estimated plan
-                              </button>
-                            </form>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <LiveQueryTable
+                instanceId={instanceId}
+                planPid={pid ?? null}
+                planText={planText}
+                planState={planState}
+                planMessage={planMessage}
+                explain={explainLiveQuery}
+                rows={latest.sessions.map((session) => ({
+                  pid: session.pid,
+                  state: session.state,
+                  application: session.application,
+                  queryMs: session.queryMs,
+                  query: session.query,
+                  explainable: statementKind(session.query ?? '') !== 'utilitaria',
+                }))}
+              />
             )}
           </section>
         ) : null}
