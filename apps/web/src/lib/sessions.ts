@@ -141,6 +141,22 @@ export async function getWaitTimeline(instanceId: number, minutes: number): Prom
  * pantalla existe para poder decir «a las 3:04 estas siete sessions estaban
  * esperando a esta otra».
  */
+/** The newest session snapshot, which is what "live" means on the queries page. */
+export async function getLatestSessions(
+  instanceId: number,
+): Promise<{ at: Date | null; sessions: SessionRow[] }> {
+  const reciente = await query<{ ts: Date }>(
+    `select max(ts) as ts
+       from buho.session_samples
+      where instance_id = $1
+        and ts > now() - interval '10 minutes'`,
+    [instanceId],
+  );
+  const momento = reciente[0]?.ts ?? null;
+  if (!momento) return { at: null, sessions: [] };
+  return getSessionsAt(instanceId, new Date(momento));
+}
+
 export async function getSessionsAt(
   instanceId: number,
   at: Date,

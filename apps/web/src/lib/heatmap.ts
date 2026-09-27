@@ -65,30 +65,45 @@ export async function getHeatmap(
   // etiquetas y todas las métricas de la opción: seis bases de datos y tres
   // contadores de DML son una sola cifra de escrituras per second. El de
   // afuera agrega esas horas en la celda de la rejilla.
-  const rows = await query<{
-    weekday: number;
-    hour: number;
-    value: number;
-    samples: number;
-  }>(
-    `with por_hora as (
-       select bucket,
-              sum(avg_value) as avg_value,
-              sum(max_value) as max_value
-         from buho.metric_rollup_1h
+  const hourSql = (relation: 'buho.metric_rollup_1h' | 'buho.metric_rollup_5m') => {
+    const bucket =
+      relation === 'buho.metric_rollup_1h'
+        ? 'bucket'
+        : `date_bin('1 hour', bucket, timestamptz 'epoch')`;
+    const avg =
+      relation === 'buho.metric_rollup_1h'
+        ? 'sum(avg_value)'
+        : 'sum(avg_value * samples) / nullif(sum(samples), 0)';
+    return `with por_hora as (
+       select ${bucket} as bucket,
+              ${avg} as avg_value,
+              max(max_value) as max_value
+         from ${relation}
         where instance_id = $1
           and metric = any($2)
           and bucket > now() - ($3 || ' days')::interval
-        group by bucket
+        group by 1
      )
      select extract(dow  from bucket)::int as weekday,
             extract(hour from bucket)::int as hour,
             ${agg === 'max' ? 'max(max_value)' : 'avg(avg_value)'} as value,
             count(*) as samples
        from por_hora
-      group by 1, 2`,
-    [instanceId, option.metrics, days],
-  );
+      group by 1, 2`;
+  };
+
+  let rows = await query<{
+    weekday: number;
+    hour: number;
+    value: number;
+    samples: number;
+  }>(hourSql('buho.metric_rollup_1h'), [instanceId, option.metrics, days]);
+
+  // The hour rollup is built from 5-minute buckets. Until that hour closes, the
+  // grid would stay empty even though the collector has already been writing.
+  if (rows.length === 0) {
+    rows = await query(hourSql('buho.metric_rollup_5m'), [instanceId, option.metrics, days]);
+  }
 
   const cells: HeatCell[] = rows.map((fila) => ({
     weekday: Number(fila.weekday),
@@ -98,13 +113,19 @@ export async function getHeatmap(
   }));
 
   const valores = cells.map((celda) => celda.value);
-  const cobertura = await query<{ days: number }>(
+  const coverageSql = (relation: string) =>
     `select coalesce(extract(epoch from (max(bucket) - min(bucket))) / 86400, 0) as days
-       from buho.metric_rollup_1h
+       from ${relation}
       where instance_id = $1 and metric = any($2)
-        and bucket > now() - ($3 || ' days')::interval`,
-    [instanceId, option.metrics, days],
-  );
+        and bucket > now() - ($3 || ' days')::interval`;
+  let cobertura = await query<{ days: number }>(coverageSql('buho.metric_rollup_1h'), [
+    instanceId,
+    option.metrics,
+    days,
+  ]);
+  if (Number(cobertura[0]?.days ?? 0) === 0) {
+    cobertura = await query(coverageSql('buho.metric_rollup_5m'), [instanceId, option.metrics, days]);
+  }
 
   return {
     metric: option.key,
@@ -158,11 +179,11 @@ export function busiestHour(
  */
 export const HEAT_OPTIONS: HeatOption[] = [
   {
-    key: 'batch',
-    label: 'Batch requests',
-    metrics: ['queries_total_per_sec'],
+    key: 'transactions',
+    label: 'Transactions',
+    metrics: ['db_xact_commit_per_sec'],
     unit: 'rate',
-    hint: 'Batch Requests/sec (SQL Server) or QUESTIONS (MariaDB) / query rate',
+    hint: 'commits per second: the closest measure of how much work is coming in',
   },
   {
     key: 'escrituras',
@@ -172,11 +193,11 @@ export const HEAT_OPTIONS: HeatOption[] = [
     hint: 'rows inserted, updated, and deleted per second across all databases on the server',
   },
   {
-    key: 'transactions',
-    label: 'Transactions',
-    metrics: ['db_xact_commit_per_sec'],
+    key: 'batch',
+    label: 'Batch requests',
+    metrics: ['queries_total_per_sec'],
     unit: 'rate',
-    hint: 'commits per second: the closest measure of how much work is coming in',
+    hint: 'SQL Server Batch Requests/sec or MariaDB QUESTIONS. PostgreSQL does not publish this counter.',
   },
   {
     key: 'connections',

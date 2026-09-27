@@ -10,8 +10,14 @@ import { formatAgo, formatBytes, formatDuration, formatNumber } from '@/lib/form
 import { getInstanceEngine } from '@/lib/estate';
 import { getInstance } from '@/lib/queries';
 import { getIndexFindings, getIndexSuggestions } from '@/lib/advisor';
-import { getIndexInventory, getIndexSummary } from '@/lib/indexes';
-import type { IndexRow } from '@/lib/indexes';
+import {
+  getIndexInventory,
+  getIndexPage,
+  getIndexSchemaGroups,
+  getIndexSummary,
+  getIndexTableGroups,
+} from '@/lib/indexes';
+import type { IndexRow, IndexSchemaGroup, IndexTableGroup } from '@/lib/indexes';
 import type { IndexStatus } from '@buho/core';
 
 export const dynamic = 'force-dynamic';
@@ -39,47 +45,13 @@ function IndexDefinition({ row }: { row: IndexRow }) {
   return <div className="mt-1 font-mono text-[10px] text-foreground-muted">{row.definition}</div>;
 }
 
-function groupBySchema(rows: IndexRow[]) {
-  const groups = new Map<string, { schema: string; indexes: number; bytes: number; flagged: number }>();
-  for (const row of rows) {
-    const existing = groups.get(row.schema) ?? { schema: row.schema, indexes: 0, bytes: 0, flagged: 0 };
-    existing.indexes += 1;
-    existing.bytes += row.sizeBytes;
-    if (row.status !== 'ok') existing.flagged += 1;
-    groups.set(row.schema, existing);
-  }
-  return [...groups.values()].sort((a, b) => b.bytes - a.bytes || b.indexes - a.indexes);
-}
-
-function groupByTable(rows: IndexRow[]) {
-  const groups = new Map<
-    string,
-    { schema: string; table: string; indexes: number; bytes: number; flagged: number; scans: number }
-  >();
-  for (const row of rows) {
-    const key = `${row.schema}.${row.table}`;
-    const existing = groups.get(key) ?? {
-      schema: row.schema,
-      table: row.table,
-      indexes: 0,
-      bytes: 0,
-      flagged: 0,
-      scans: 0,
-    };
-    existing.indexes += 1;
-    existing.bytes += row.sizeBytes;
-    existing.scans += row.idxScan;
-    if (row.status !== 'ok') existing.flagged += 1;
-    groups.set(key, existing);
-  }
-  return [...groups.values()].sort((a, b) => b.bytes - a.bytes || b.indexes - a.indexes);
-}
+const INDEX_PAGE_SIZE = 40;
 
 function buildIndexesHref(
   instanceId: number,
   filter: 'all' | IndexStatus,
   schema: string | null,
-  opts?: { q?: string; sort?: string; dir?: 'asc' | 'desc' },
+  opts?: { q?: string; sort?: string; dir?: 'asc' | 'desc'; page?: number },
 ): string {
   const params = new URLSearchParams();
   if (filter !== 'all') params.set('filter', filter);
@@ -87,6 +59,7 @@ function buildIndexesHref(
   if (opts?.q) params.set('q', opts.q);
   if (opts?.sort) params.set('sort', opts.sort);
   if (opts?.dir) params.set('dir', opts.dir);
+  if (opts?.page && opts.page > 1) params.set('page', String(opts.page));
   const query = params.toString();
   return query ? `/instances/${instanceId}/indexes?${query}` : `/instances/${instanceId}/indexes`;
 }
@@ -158,10 +131,12 @@ export default async function IndexesPage({
     q?: string;
     sort?: string;
     dir?: string;
+    page?: string;
   }>;
 }) {
   const { id } = await params;
-  const { filter: filterParam, schema: schemaParam, q: qParam, sort: sortParam, dir: dirParam } = await searchParams;
+  const { filter: filterParam, schema: schemaParam, q: qParam, sort: sortParam, dir: dirParam, page: pageParam } =
+    await searchParams;
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
 
@@ -171,20 +146,38 @@ export default async function IndexesPage({
   let suggestions: Awaited<ReturnType<typeof getIndexSuggestions>>;
   let findings: Awaited<ReturnType<typeof getIndexFindings>>;
   let summary: Awaited<ReturnType<typeof getIndexSummary>>;
-  let allIndexes: IndexRow[];
-  let problemIndexes: IndexRow[];
+  let schemaGroups: IndexSchemaGroup[];
+  let tableGroups: IndexTableGroup[];
+  let inventory: { rows: IndexRow[]; total: number };
+  let unusedIndexes: IndexRow[];
+  let redundantIndexes: IndexRow[];
+  let invalidIndexes: IndexRow[];
+
+  const activeFilter: 'all' | IndexStatus =
+    filterParam === 'unused' || filterParam === 'redundant' || filterParam === 'invalid' || filterParam === 'ok'
+      ? filterParam
+      : 'all';
+  const q = typeof qParam === 'string' ? qParam.trim() : '';
+  const sort =
+    sortParam === 'size' || sortParam === 'scans' || sortParam === 'name' || sortParam === 'table'
+      ? sortParam
+      : 'size';
+  const dir: 'asc' | 'desc' = dirParam === 'asc' ? 'asc' : 'desc';
+  const page = Math.max(1, Number(pageParam) || 1);
 
   try {
-    [instance, suggestions, findings, summary, allIndexes, problemIndexes] = await Promise.all([
-      getInstance(instanceId),
-      getIndexSuggestions(instanceId),
-      getIndexFindings(instanceId),
-      getIndexSummary(instanceId),
-      getIndexInventory(instanceId, 'all'),
-      getIndexInventory(instanceId, 'all').then((rows) =>
-        rows.filter((row) => row.status !== 'ok'),
-      ),
-    ]);
+    [instance, suggestions, findings, summary, schemaGroups, tableGroups, unusedIndexes, redundantIndexes, invalidIndexes] =
+      await Promise.all([
+        getInstance(instanceId),
+        getIndexSuggestions(instanceId),
+        getIndexFindings(instanceId),
+        getIndexSummary(instanceId),
+        getIndexSchemaGroups(instanceId),
+        getIndexTableGroups(instanceId, 12),
+        getIndexInventory(instanceId, 'unused', 25),
+        getIndexInventory(instanceId, 'redundant', 25),
+        getIndexInventory(instanceId, 'invalid', 25),
+      ]);
   } catch (error) {
     return (
       <>
@@ -205,66 +198,26 @@ export default async function IndexesPage({
 
   const wastedRows = suggestions.suggestions.reduce((sum, item) => sum + item.wastedRows, 0);
   const observedMs = suggestions.suggestions.reduce((sum, item) => sum + item.observedMs, 0);
-  const unusedIndexes = allIndexes.filter((row) => row.status === 'unused');
   const unusedFindings = findings.filter((finding) => finding.checkId.includes('unused'));
   const redundantFindings = findings.filter((finding) => !finding.checkId.includes('unused'));
   const unusedCount = summary.unused || unusedFindings.length;
   const redundantCount = summary.redundant || redundantFindings.length;
   const countsFromChecks = summary.total === 0 && findings.length > 0;
-  const redundantIndexes = allIndexes.filter((row) => row.status === 'redundant');
-  const invalidIndexes = allIndexes.filter((row) => row.status === 'invalid');
-  const schemaGroups = groupBySchema(allIndexes);
-  const tableGroups = groupByTable(allIndexes).slice(0, 12);
-  const activeFilter: 'all' | IndexStatus =
-    filterParam === 'unused' || filterParam === 'redundant' || filterParam === 'invalid' || filterParam === 'ok'
-      ? filterParam
-      : 'all';
   const activeSchema = schemaParam && schemaGroups.some((row) => row.schema === schemaParam) ? schemaParam : null;
-  const q = typeof qParam === 'string' ? qParam.trim() : '';
-
-  const sort =
-    sortParam === 'size' || sortParam === 'scans' || sortParam === 'name' || sortParam === 'table'
-      ? sortParam
-      : 'size';
-  const dir: 'asc' | 'desc' = dirParam === 'asc' ? 'asc' : 'desc';
-
-  const inventoryRows = allIndexes.filter((row) => {
-    if (activeFilter !== 'all' && row.status !== activeFilter) return false;
-    if (activeSchema && row.schema !== activeSchema) return false;
-    return true;
-  });
-
-  const searchedRows = !q
-    ? inventoryRows
-    : inventoryRows.filter((row) => {
-        const haystack = [
-          row.name,
-          row.schema,
-          row.table,
-          row.columns.join(', '),
-          row.definition ?? '',
-          row.status,
-          row.coveredBy ?? '',
-        ]
-          .join(' ')
-          .toLowerCase();
-        return haystack.includes(q.toLowerCase());
-      });
-
-  const sortedRows = [...searchedRows].sort((a, b) => {
-    const mul = dir === 'asc' ? 1 : -1;
-    switch (sort) {
-      case 'scans':
-        return mul * (a.idxScan - b.idxScan);
-      case 'name':
-        return mul * a.name.localeCompare(b.name);
-      case 'table':
-        return mul * `${a.schema}.${a.table}`.localeCompare(`${b.schema}.${b.table}`);
-      case 'size':
-      default:
-        return mul * (a.sizeBytes - b.sizeBytes);
-    }
-  });
+  try {
+    inventory = await getIndexPage(instanceId, activeFilter, activeSchema, q, sort, dir, page, INDEX_PAGE_SIZE);
+  } catch (error) {
+    return (
+      <>
+        <Topbar crumbs={crumbs} />
+        <div className="page">
+          <StoreError message={error instanceof Error ? error.message : String(error)} />
+        </div>
+      </>
+    );
+  }
+  const pageCount = Math.max(1, Math.ceil(inventory.total / INDEX_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
 
   function ToggleSortLink({
     label,
@@ -401,7 +354,7 @@ export default async function IndexesPage({
                 <div className="panel-header">
                   <span className="panel-title">Redundant indexes</span>
                   <span className="font-mono text-[10px] text-foreground-muted">
-                    {formatNumber(redundantIndexes.length)} flagged
+                    {formatNumber(redundantCount)} · largest 25 shown
                   </span>
                 </div>
                 <div className="panel-body">
@@ -419,7 +372,7 @@ export default async function IndexesPage({
                 <div className="panel-header">
                   <span className="panel-title">Unused indexes</span>
                   <span className="font-mono text-[10px] text-foreground-muted">
-                    {formatNumber(unusedIndexes.length)} above the 10 MB threshold
+                    {formatNumber(unusedCount)} · largest 25 shown
                   </span>
                 </div>
                 <div className="panel-body">
@@ -450,7 +403,7 @@ export default async function IndexesPage({
               </section>
             )}
 
-            {problemIndexes.length === 0 && (
+            {unusedIndexes.length + redundantIndexes.length + invalidIndexes.length === 0 && (
               <div className="empty">
                 No redundant, unused, or invalid indexes were found in the latest inventory.
               </div>
@@ -596,14 +549,41 @@ export default async function IndexesPage({
                 </form>
 
                 <p className="mb-4 text-[11px] text-foreground-muted">
-                  Showing {formatNumber(inventoryRows.length)} of {formatNumber(allIndexes.length)} index row(s)
+                  Page {currentPage} of {pageCount} · {formatNumber(inventory.total)} index
+                  {inventory.total === 1 ? '' : 'es'}
                   {activeFilter !== 'all' ? ` · status ${STATUS_LABEL[activeFilter]}` : ''}
-                  {activeSchema ? ` · schema ${activeSchema}` : ''}.
+                  {activeSchema ? ` · schema ${activeSchema}` : ''}. The list is paged so the browser does not
+                  render the whole inventory at once.
                 </p>
-                <p className="mb-4 text-[11px] text-foreground-muted">
-                  Filtered to {formatNumber(sortedRows.length)} row(s) by search.
-                </p>
-                <IndexTable rows={sortedRows} />
+                <IndexTable rows={inventory.rows} />
+                <div className="mt-3 flex gap-2">
+                  {currentPage > 1 ? (
+                    <Link
+                      href={buildIndexesHref(instanceId, activeFilter, activeSchema, {
+                        q,
+                        sort,
+                        dir,
+                        page: currentPage - 1,
+                      })}
+                      className="btn-secondary"
+                    >
+                      Previous
+                    </Link>
+                  ) : null}
+                  {currentPage < pageCount ? (
+                    <Link
+                      href={buildIndexesHref(instanceId, activeFilter, activeSchema, {
+                        q,
+                        sort,
+                        dir,
+                        page: currentPage + 1,
+                      })}
+                      className="btn-secondary"
+                    >
+                      Next
+                    </Link>
+                  ) : null}
+                </div>
               </div>
             </section>
           </>

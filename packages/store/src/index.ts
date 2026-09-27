@@ -7,6 +7,7 @@ import type {
   LogEntry,
   VacuumSnapshot,
   IndexSnapshot,
+  CatalogSnapshot,
   BlockedSession,
   Capabilities,
   InstanceConfig,
@@ -1411,6 +1412,46 @@ export class Store {
         );
       }
 
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async saveCatalog(instanceId: number, snapshot: CatalogSnapshot): Promise<void> {
+    if (snapshot.tables.length === 0) return;
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      const CHUNK = 400;
+      for (let start = 0; start < snapshot.tables.length; start += CHUNK) {
+        const slice = snapshot.tables.slice(start, start + CHUNK);
+        const values: unknown[] = [];
+        const tuples: string[] = [];
+        slice.forEach((table, rowIndex) => {
+          const base = rowIndex * 5;
+          tuples.push(`(${Array.from({ length: 5 }, (_, offset) => `$${base + offset + 1}`).join(', ')}, now())`);
+          values.push(instanceId, table.schema, table.table, Math.round(table.sizeBytes), table.partitions);
+        });
+        await client.query(
+          `insert into buho.catalog_tables
+                (instance_id, schema_name, table_name, size_bytes, partitions, captured_at)
+           values ${tuples.join(', ')}
+           on conflict (instance_id, schema_name, table_name) do update
+                  set size_bytes = excluded.size_bytes,
+                      partitions = excluded.partitions,
+                      captured_at = excluded.captured_at`,
+          values,
+        );
+      }
+      await client.query(
+        `delete from buho.catalog_tables
+          where instance_id = $1 and captured_at < now() - interval '1 minute'`,
+        [instanceId],
+      );
       await client.query('commit');
     } catch (error) {
       await client.query('rollback');

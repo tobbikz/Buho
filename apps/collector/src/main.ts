@@ -44,6 +44,7 @@ import {
   sampleVacuum,
   vacuumSamples,
   sampleIndexes,
+  sampleCatalog,
   runCollectors,
   sampleBlocking,
   sampleStatements,
@@ -916,6 +917,14 @@ async function monitorInstance(instance: InstanceConfig): Promise<void> {
       await store.saveVacuum(instanceId, snapshot);
       await store.insertSamples(instanceId, vacuumSamples(snapshot));
       if (instance.engine === 'postgres') {
+        try {
+          const catalog = await sampleCatalog(pool, caps.versionNum);
+          await store.saveCatalog(instanceId, catalog);
+          log('info', `${instance.alias}/catalog: ${catalog.tables.length} tabla(s)`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log('warn', `${instance.alias}/catalog: el catálogo no se guardó: ${message}`);
+        }
         try {
           const indexes = await sampleIndexes(pool);
           await store.saveIndexes(instanceId, indexes);

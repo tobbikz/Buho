@@ -4,7 +4,8 @@ import { InstanceTabs } from '@/components/InstanceTabs';
 import { StoreError } from '@/components/StoreError';
 import { TopologyBubbles } from '@/components/TopologyBubbles';
 import { Topbar } from '@/components/Topbar';
-import { formatNumber } from '@/lib/format';
+import { formatBytes, formatNumber } from '@/lib/format';
+import { getCatalog } from '@/lib/catalog';
 import { getInstanceEngine } from '@/lib/estate';
 import { getInstance } from '@/lib/queries';
 import {
@@ -30,16 +31,146 @@ export default async function TopologyPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ d?: string; snap?: string; vista?: string }>;
+  searchParams: Promise<{ d?: string; snap?: string; vista?: string; q?: string }>;
 }) {
   const { id } = await params;
-  const { d, snap, vista } = await searchParams;
+  const { d, snap, vista, q } = await searchParams;
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
 
   const engine = (await getInstanceEngine(instanceId)) ?? 'postgres';
   const direction = d === 'lectura' ? 'lectura' : 'escritura';
-  const view = vista === 'tabla' ? 'tabla' : 'burbujas';
+  const view = vista === 'tabla' ? 'tabla' : vista === 'trafico' || vista === 'burbujas' ? 'burbujas' : 'catalog';
+
+  if (view === 'catalog') {
+    let instance;
+    let catalog: Awaited<ReturnType<typeof getCatalog>>;
+    try {
+      instance = await getInstance(instanceId);
+      if (!instance) notFound();
+      catalog = await getCatalog(instanceId);
+    } catch (error) {
+      return (
+        <>
+          <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
+          <div className="page">
+            <StoreError message={error instanceof Error ? error.message : String(error)} />
+          </div>
+        </>
+      );
+    }
+    if (!instance) notFound();
+    const needle = (q ?? '').trim().toLowerCase();
+    const shown = needle
+      ? catalog.filter(
+          (row) =>
+            row.schema.toLowerCase().includes(needle) || row.table.toLowerCase().includes(needle),
+        )
+      : catalog;
+    const groups = new Map<string, typeof catalog>();
+    for (const row of shown) {
+      const list = groups.get(row.schema) ?? [];
+      list.push(row);
+      groups.set(row.schema, list);
+    }
+    return (
+      <>
+        <Topbar
+          crumbs={[
+            { label: 'Fleet', href: '/' },
+            { label: instance.alias, href: `/instances/${instanceId}` },
+            { label: 'Topology' },
+          ]}
+        />
+        <div className="page">
+          <header className="page-header">
+            <div>
+              <h1 className="page-title">Topology · {instance.alias}</h1>
+              <p className="page-sub">
+                Every user schema and table. Partitions are rolled into the parent. Traffic lives on{' '}
+                <Link href={`/instances/${instanceId}/flow`} className="underline">
+                  Flow
+                </Link>
+                .
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="tag tag--info">structure</span>
+              <Link href={`/instances/${instanceId}/topology?vista=trafico`} className="tag tag--muted">
+                traffic
+              </Link>
+            </div>
+          </header>
+          <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
+          <div className="stat-grid">
+            <div className="stat">
+              <div className="stat__label">Schemas</div>
+              <div className="stat__value">{formatNumber(groups.size)}</div>
+            </div>
+            <div className="stat">
+              <div className="stat__label">Tables</div>
+              <div className="stat__value">{formatNumber(shown.length)}</div>
+              <div className="stat__hint">
+                {needle ? `${formatNumber(catalog.length)} in the catalog` : 'partitions included in the parent'}
+              </div>
+            </div>
+          </div>
+          <form action={`/instances/${instanceId}/topology`} className="panel">
+            <div className="panel-body flex items-center gap-2">
+              <input
+                type="search"
+                name="q"
+                defaultValue={needle}
+                placeholder="Filter schema or table"
+                className="w-full max-w-md rounded-[3px] border border-border bg-[var(--surface)] px-2 py-1 font-mono text-[12px]"
+              />
+              <button type="submit" className="tag tag--info">
+                Filter
+              </button>
+              {needle ? (
+                <Link href={`/instances/${instanceId}/topology`} className="tag tag--muted">
+                  clear
+                </Link>
+              ) : null}
+            </div>
+          </form>
+          {catalog.length === 0 ? (
+            <div className="empty">
+              The catalog is filled on the collector vacuum cycle, about every two minutes.
+            </div>
+          ) : shown.length === 0 ? (
+            <div className="empty">No schema or table matches that filter.</div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {[...groups.entries()].map(([schema, tables]) => (
+                <details key={schema} className="panel" open={Boolean(needle) || groups.size <= 8}>
+                  <summary className="panel-header cursor-pointer">
+                    <span className="panel-title">{schema}</span>
+                    <span className="font-mono text-[10px] text-foreground-muted">
+                      {tables.length} table{tables.length === 1 ? '' : 's'}
+                    </span>
+                  </summary>
+                  <table className="data-table">
+                    <tbody>
+                      {tables.map((row) => (
+                        <tr key={row.table}>
+                          <td className="font-mono text-[11.5px]">{row.table}</td>
+                          <td className="num">{formatBytes(row.sizeBytes)}</td>
+                          <td className="text-right font-mono text-[11px] text-foreground-muted">
+                            {row.partitions > 0 ? `${row.partitions} partitions` : ''}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </details>
+              ))}
+            </div>
+          )}
+        </div>
+      </>
+    );
+  }
 
   let instance;
   let weeks: Date[];
@@ -127,6 +258,9 @@ export default async function TopologyPage({
               className={`tag ${direction === 'lectura' ? 'tag--info' : 'tag--muted'}`}
             >
               reads
+            </Link>
+            <Link href={`${base}`} className="tag tag--muted">
+              structure
             </Link>
             <Link
               href={href({ vista: 'burbujas' })}

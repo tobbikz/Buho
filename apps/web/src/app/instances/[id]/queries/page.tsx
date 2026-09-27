@@ -6,7 +6,7 @@ import { StatementsTable } from '@/components/StatementsTable';
 import { StoreError } from '@/components/StoreError';
 import { TimeseriesPanel } from '@/components/TimeseriesPanel';
 import { Topbar } from '@/components/Topbar';
-import { formatNumber } from '@/lib/format';
+import { formatAgo, formatDuration, formatNumber } from '@/lib/format';
 import {
   getInstance,
   getSeries,
@@ -18,6 +18,7 @@ import {
   type TopStatement,
 } from '@/lib/queries';
 import { getInstanceEngine } from '@/lib/estate';
+import { getLatestSessions } from '@/lib/sessions';
 
 export const dynamic = 'force-dynamic';
 
@@ -152,10 +153,11 @@ export default async function QueriesPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ w?: string; order?: string; monitor?: string; buscar?: string }>;
+  searchParams: Promise<{ w?: string; order?: string; monitor?: string; buscar?: string; vista?: string }>;
 }) {
   const { id } = await params;
-  const { w, order, monitor, buscar } = await searchParams;
+  const { w, order, monitor, buscar, vista } = await searchParams;
+  const live = vista === 'live';
   const filtro = buscar?.trim() ? buscar.trim() : null;
 
   const instanceId = Number(id);
@@ -195,6 +197,7 @@ export default async function QueriesPage({
     { label: 'Queries' },
   ];
 
+  let latest: Awaited<ReturnType<typeof getLatestSessions>> | null = null;
   let statements: TopStatement[] = [];
   let load: Awaited<ReturnType<typeof getStatementLoad>> = [];
   let trends: Map<string, StatementPoint[]> = new Map();
@@ -202,6 +205,9 @@ export default async function QueriesPage({
   let slowSeries: Awaited<ReturnType<typeof getSeries>> = [];
   let failure: string | null = null;
   try {
+    if (live) {
+      latest = await getLatestSessions(instanceId);
+    } else {
     [statements, load] = await Promise.all([
       getTopStatements(instanceId, window.minutes, selectedOrder, !showMonitorQueries, 25, filtro),
       getStatementLoad(instanceId, window.minutes, window.bucketSeconds, !showMonitorQueries),
@@ -231,6 +237,7 @@ export default async function QueriesPage({
         window.bucketSeconds,
       );
     }
+    }
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
   }
@@ -243,6 +250,7 @@ export default async function QueriesPage({
     const search = new URLSearchParams({
       w: window.key,
       order: selectedOrder,
+      vista: live ? 'live' : 'analytical',
       ...(showMonitorQueries ? { monitor: 'on' } : {}),
       ...patch,
     });
@@ -257,11 +265,21 @@ export default async function QueriesPage({
           <div>
             <h1 className="page-title">Queries · {instance.alias}</h1>
             <p className="page-sub">
-              Actividad por consulta normalizada, sumada por intervalos. No es el contador acumulado desde el último
-              reset del servidor: es lo que pasó en la window elegida.
+              {live
+                ? 'What is running in the latest session snapshot. Analytical is the retained window of normalized statements.'
+                : 'Actividad por consulta normalizada, sumada por intervalos. No es el contador acumulado desde el último reset del servidor: es lo que pasó en la window elegida.'}
             </p>
           </div>
           <div className="flex items-center gap-1">
+            <Link href={queryLink({ vista: 'analytical' })} className={`tag ${live ? 'tag--muted' : 'tag--info'}`}>
+              Analytical
+            </Link>
+            <Link href={queryLink({ vista: 'live' })} className={`tag ${live ? 'tag--ok' : 'tag--muted'}`}>
+              Live
+            </Link>
+            {live ? null : (
+            <>
+            <span className="mx-1 text-foreground-muted">·</span>
             {WINDOWS.map((candidate) => (
               <Link
                 key={candidate.key}
@@ -271,12 +289,61 @@ export default async function QueriesPage({
                 {candidate.key}
               </Link>
             ))}
+            </>
+            )}
           </div>
         </header>
 
         <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
 
+        {live ? (
+          <section className="panel">
+            <div className="panel-header">
+              <span className="panel-title">Running now</span>
+              <span className="font-mono text-[10px] text-foreground-muted">
+                {latest?.at ? formatAgo(latest.at) : 'no snapshot'}
+              </span>
+            </div>
+            {!latest || latest.sessions.length === 0 ? (
+              <div className="empty">No session snapshot in the last 10 minutes.</div>
+            ) : (
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>State</th>
+                      <th>Session</th>
+                      <th className="text-right">Query</th>
+                      <th>Text</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {latest.sessions.map((session) => (
+                      <tr key={session.pid}>
+                        <td className="font-mono text-[11px]">{session.state}</td>
+                        <td className="font-mono text-[11px]">
+                          pid {session.pid}
+                          {session.application ? ` · ${session.application}` : ''}
+                        </td>
+                        <td className="num">
+                          {session.queryMs === null ? '—' : formatDuration(session.queryMs / 1000)}
+                        </td>
+                        <td className="max-w-[36rem] font-mono text-[11px]">
+                          <div className="truncate" title={session.query ?? ''}>
+                            {session.query?.trim() || '—'}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        ) : null}
 
+        {live ? null : (
+        <>
         {filtro && (
 
           <div className="panel">
@@ -478,6 +545,8 @@ export default async function QueriesPage({
               />
             </section>
           </>
+        )}
+        </>
         )}
       </div>
     </>

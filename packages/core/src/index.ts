@@ -37,6 +37,8 @@ export { runExplain, analyzePlan, isReadOnly, statementKind, rewriteNormalizedPl
 export { sampleVacuum, vacuumSamples } from './vacuum';
 export type { VacuumSnapshot, VacuumTable, VacuumProgress, TableForeignKey } from './vacuum';
 export { sampleIndexes } from './indexes';
+export { sampleCatalog } from './catalog';
+export type { CatalogSnapshot, CatalogTable } from './catalog';
 export type { IndexSnapshot, IndexObject, IndexStatus } from './indexes';
 export { sampleActors, inspectActors, ActorAccumulator } from './actors';
 export { sampleSessions, summarizeSessions } from './sessions';

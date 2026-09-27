@@ -190,7 +190,7 @@ export default async function FlowPage({
           />
         </div>
 
-        {/* ------------------------------------------------------------ flujo */}
+        <div className="grid grid-cols-1 items-start gap-[0.875rem] xl:grid-cols-2">
         <section className="panel">
           <div className="panel-header">
             <span className="panel-title">Hot tables · writes &amp; reads</span>
@@ -262,6 +262,80 @@ export default async function FlowPage({
             </p>
           </div>
         </section>
+
+        <section className="panel">
+          <div className="panel-header">
+            <span className="panel-title">When it is used · {heatOption.label}</span>
+            <div className="flex flex-wrap items-center gap-1">
+              {HEAT_OPTIONS.map((opcion) => (
+                <Link
+                  key={opcion.key}
+                  href={enlace({ calor: opcion.key })}
+                  className={`tag ${opcion.key === heatOption.key ? 'tag--info' : 'tag--muted'}`}
+                  title={opcion.hint}
+                >
+                  {opcion.label}
+                </Link>
+              ))}
+              <span className="mx-1 text-foreground-muted">·</span>
+              {(['avg', 'max'] as const).map((opcion) => (
+                <Link
+                  key={opcion}
+                  href={enlace({ agg: opcion })}
+                  className={`tag ${opcion === heatAgg ? 'tag--info' : 'tag--muted'}`}
+                  title={opcion === 'avg' ? 'what a typical hour looks like' : 'how bad it ever got at that hour'}
+                >
+                  {opcion === 'avg' ? 'typical' : 'worst case'}
+                </Link>
+              ))}
+              <span className="mx-1 text-foreground-muted">·</span>
+              {HEAT_WINDOWS.map((opcion) => (
+                <Link
+                  key={opcion.key}
+                  href={enlace({ cv: opcion.key })}
+                  className={`tag ${opcion.key === heatWindow.key ? 'tag--info' : 'tag--muted'}`}
+                >
+                  {opcion.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+          <div className="panel-body">
+            {heat.cells.length === 0 ? (
+              <div className="empty">
+                {heatOption.key === 'batch' && engine === 'postgres'
+                  ? 'PostgreSQL does not publish Batch Requests/sec. That counter is SQL Server and MariaDB. Transactions and writes are the load on this server.'
+                  : `No rollups yet for ${heatOption.label.toLowerCase()}. Five-minute buckets fill this grid; the first cells appear a few minutes after the collector starts.`}
+              </div>
+            ) : (
+              <>
+                <Heatmap cells={heat.cells} max={heat.max} unit={unidadCalor} minSamples={2} />
+                <p className="mt-3 text-[12px]">
+                  {cargada && (
+                    <>
+                      Busiest hour is{' '}
+                      <strong>
+                        {WEEKDAY_LABEL[cargada.weekday]} at {String(cargada.hour).padStart(2, '0')}:00
+                      </strong>{' '}
+                      with {formatoCalor(cargada.value)}
+                      {tranquila && (
+                        <>
+                          , and quietest is{' '}
+                          <strong>
+                            {WEEKDAY_LABEL[tranquila.weekday]} at {String(tranquila.hour).padStart(2, '0')}:00
+                          </strong>{' '}
+                          with {formatoCalor(tranquila.value)} — a good maintenance window
+                        </>
+                      )}
+                      .
+                    </>
+                  )}
+                </p>
+              </>
+            )}
+          </div>
+        </section>
+        </div>
 
         <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-3">
           {/* ------------------------------------------------- por operación */}
@@ -362,92 +436,6 @@ export default async function FlowPage({
             </div>
           </section>
         </div>
-
-        {/* ----------------------------------------------------------- calor */}
-        <section className="panel">
-          <div className="panel-header">
-            <span className="panel-title">When it is used · {heatOption.label}</span>
-            <div className="flex flex-wrap items-center gap-1">
-              {HEAT_OPTIONS.map((opcion) => (
-                <Link
-                  key={opcion.key}
-                  href={enlace({ calor: opcion.key })}
-                  className={`tag ${opcion.key === heatOption.key ? 'tag--info' : 'tag--muted'}`}
-                  title={opcion.hint}
-                >
-                  {opcion.label}
-                </Link>
-              ))}
-              <span className="mx-1 text-foreground-muted">·</span>
-              {(['avg', 'max'] as const).map((opcion) => (
-                <Link
-                  key={opcion}
-                  href={enlace({ agg: opcion })}
-                  className={`tag ${opcion === heatAgg ? 'tag--info' : 'tag--muted'}`}
-                  title={
-                    opcion === 'avg'
-                      ? 'what a typical hour looks like'
-                      : 'how bad it ever got at that hour'
-                  }
-                >
-                  {opcion === 'avg' ? 'typical' : 'worst case'}
-                </Link>
-              ))}
-              <span className="mx-1 text-foreground-muted">·</span>
-              {HEAT_WINDOWS.map((opcion) => (
-                <Link
-                  key={opcion.key}
-                  href={enlace({ cv: opcion.key })}
-                  className={`tag ${opcion.key === heatWindow.key ? 'tag--info' : 'tag--muted'}`}
-                >
-                  {opcion.label}
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          <div className="panel-body">
-            {heat.cells.length === 0 ? (
-              <div className="empty">
-                No hourly rollups yet for {heatOption.label.toLowerCase()}. The first appears in the hour you start
-                the collector.
-              </div>
-            ) : (
-              <>
-                <Heatmap cells={heat.cells} max={heat.max} unit={unidadCalor} minSamples={2} />
-                <p className="mt-3 text-[12px]">
-                  {cargada && (
-                    <>
-                      Busiest hour is{' '}
-                      <strong>
-                        {WEEKDAY_LABEL[cargada.weekday]} at {String(cargada.hour).padStart(2, '0')}:00
-                      </strong>{' '}
-                      with {formatoCalor(cargada.value)}
-                      {tranquila && (
-                        <>
-                          , and quietest is{' '}
-                          <strong>
-                            {WEEKDAY_LABEL[tranquila.weekday]} at{' '}
-                            {String(tranquila.hour).padStart(2, '0')}:00
-                          </strong>{' '}
-                          with {formatoCalor(tranquila.value)} — a good maintenance window
-                        </>
-                      )}
-                      .
-                    </>
-                  )}
-                </p>
-                <p className="mt-1 text-[11px] text-foreground-muted">
-                  {heat.daysCovered < 14
-                    ? `Only ${Math.round(heat.daysCovered)} day${Math.round(heat.daysCovered) === 1 ? '' : 's'} of history: the grid does not yet distinguish Tuesday from Thursday. With two weeks it starts to mean something, and ${heat.emptyCells} cell${heat.emptyCells === 1 ? '' : 's'} still have no data.`
-                    : `${Math.round(heat.daysCovered)} days of history. Hatched cells have no data; pale ones were measured only once.`}{' '}
-                  Color is relative to this grid, so it does not compare across instances. The hour is the
-                  operator's, not the store's.
-                </p>
-              </>
-            )}
-          </div>
-        </section>
       </div>
     </>
   );

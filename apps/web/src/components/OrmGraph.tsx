@@ -309,6 +309,7 @@ export function OrmGraph({
   const hoverRef = useRef<OrmTable | null>(null);
   const layerRef = useRef(layer);
   const [search, setSearch] = useState('');
+  const [schemaFilter, setSchemaFilter] = useState('all');
   const searchRef = useRef('');
 
   const linkIndex = useMemo(() => model.links, [model.links]);
@@ -333,7 +334,28 @@ export function OrmGraph({
     const w = canvas.clientWidth || 800;
     const h = canvas.clientHeight || 520;
 
-    nodesRef.current = model.nodes.map((node) => {
+    const needle = search.trim().toLowerCase();
+    const visible = model.nodes.filter((node) => {
+      if (node.kind === 'schema') {
+        if (schemaFilter !== 'all' && node.label !== schemaFilter) return false;
+        if (!needle) return true;
+        return model.nodes.some(
+          (other) =>
+            other.kind === 'table' &&
+            other.schema === node.label &&
+            (`${other.schema}.${other.label}`.toLowerCase().includes(needle) ||
+              other.label.toLowerCase().includes(needle)),
+        );
+      }
+      if (schemaFilter !== 'all' && node.schema !== schemaFilter) return false;
+      if (!needle) return true;
+      const haystack = `${node.schema ?? ''}.${node.label}`.toLowerCase();
+      return haystack.includes(needle) || node.label.toLowerCase().includes(needle);
+    });
+    const schemaNames = new Set(visible.filter((node) => node.kind === 'table').map((node) => node.schema));
+    const laidOut = visible.filter((node) => node.kind === 'table' || schemaNames.has(node.label));
+
+    nodesRef.current = laidOut.map((node) => {
       const r =
         node.kind === 'schema'
           ? schemaRadius(model.schemas.find((s) => s.name === node.label)?.tableCount ?? 1)
@@ -538,7 +560,7 @@ export function OrmGraph({
 
     animRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(animRef.current);
-  }, [model, linkIndex]);
+  }, [model, linkIndex, search, schemaFilter]);
 
   const pickNode = (sx: number, sy: number): SimNode | null => {
     const { x, y } = screenToWorld(viewportRef.current, sx, sy);
@@ -671,6 +693,18 @@ export function OrmGraph({
 
         <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3">
           <div className="pointer-events-auto flex flex-wrap items-center gap-2">
+            <select
+              value={schemaFilter}
+              onChange={(event) => setSchemaFilter(event.target.value)}
+              className="rounded-[3px] border border-border bg-[var(--surface)] px-2 py-1 font-mono text-[10px]"
+            >
+              <option value="all">All schemas</option>
+              {model.schemas.map((schema) => (
+                <option key={schema.name} value={schema.name}>
+                  {schema.name} ({schema.tableCount})
+                </option>
+              ))}
+            </select>
             <input
               type="search"
               value={search}

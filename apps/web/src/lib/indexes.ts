@@ -82,6 +82,119 @@ export async function getIndexSummary(instanceId: number): Promise<IndexSummary>
   };
 }
 
+export interface IndexSchemaGroup {
+  schema: string;
+  indexes: number;
+  bytes: number;
+  flagged: number;
+}
+
+export interface IndexTableGroup {
+  schema: string;
+  table: string;
+  indexes: number;
+  bytes: number;
+  flagged: number;
+  scans: number;
+}
+
+export async function getIndexSchemaGroups(instanceId: number): Promise<IndexSchemaGroup[]> {
+  const rows = await query<{ schema_name: string; indexes: string; bytes: string; flagged: string }>(
+    `select schema_name,
+            count(*)::bigint as indexes,
+            coalesce(sum(size_bytes), 0)::bigint as bytes,
+            count(*) filter (where status <> 'ok')::bigint as flagged
+       from buho.index_objects
+      where instance_id = $1
+      group by schema_name
+      order by bytes desc, indexes desc`,
+    [instanceId],
+  );
+  return rows.map((row) => ({
+    schema: row.schema_name,
+    indexes: Number(row.indexes),
+    bytes: Number(row.bytes),
+    flagged: Number(row.flagged),
+  }));
+}
+
+export async function getIndexTableGroups(instanceId: number, limit = 12): Promise<IndexTableGroup[]> {
+  const rows = await query<{
+    schema_name: string;
+    table_name: string;
+    indexes: string;
+    bytes: string;
+    flagged: string;
+    scans: string;
+  }>(
+    `select schema_name, table_name,
+            count(*)::bigint as indexes,
+            coalesce(sum(size_bytes), 0)::bigint as bytes,
+            count(*) filter (where status <> 'ok')::bigint as flagged,
+            coalesce(sum(idx_scan), 0)::bigint as scans
+       from buho.index_objects
+      where instance_id = $1
+      group by schema_name, table_name
+      order by bytes desc
+      limit $2`,
+    [instanceId, limit],
+  );
+  return rows.map((row) => ({
+    schema: row.schema_name,
+    table: row.table_name,
+    indexes: Number(row.indexes),
+    bytes: Number(row.bytes),
+    flagged: Number(row.flagged),
+    scans: Number(row.scans),
+  }));
+}
+
+const INDEX_SORT = {
+  size: 'size_bytes',
+  scans: 'idx_scan',
+  name: 'index_name',
+  table: 'schema_name, table_name',
+} as const;
+
+export async function getIndexPage(
+  instanceId: number,
+  filter: 'all' | IndexStatus,
+  schema: string | null,
+  q: string,
+  sort: keyof typeof INDEX_SORT,
+  dir: 'asc' | 'desc',
+  page: number,
+  size: number,
+): Promise<{ rows: IndexRow[]; total: number }> {
+  const order = INDEX_SORT[sort];
+  const direction = dir === 'asc' ? 'asc' : 'desc';
+  const offset = Math.max(0, page - 1) * size;
+  const needle = q ? `%${q}%` : null;
+  const [countRows, rows] = await Promise.all([
+    query<{ total: string }>(
+      `select count(*)::bigint as total
+         from buho.index_objects
+        where instance_id = $1
+          and ($2::text = 'all' or status = $2)
+          and ($3::text is null or schema_name = $3)
+          and ($4::text is null or index_name ilike $4 or table_name ilike $4 or schema_name ilike $4)`,
+      [instanceId, filter, schema, needle],
+    ),
+    query(
+      `select *
+         from buho.index_objects
+        where instance_id = $1
+          and ($2::text = 'all' or status = $2)
+          and ($3::text is null or schema_name = $3)
+          and ($4::text is null or index_name ilike $4 or table_name ilike $4 or schema_name ilike $4)
+        order by ${order} ${direction}
+        limit $5 offset $6`,
+      [instanceId, filter, schema, needle, size, offset],
+    ),
+  ]);
+  return { rows: rows.map(toRow), total: Number(countRows[0]?.total ?? 0) };
+}
+
 export async function getIndexInventory(
   instanceId: number,
   filter: 'all' | IndexStatus = 'all',

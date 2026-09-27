@@ -757,6 +757,18 @@ create table if not exists buho.vacuum_tables (
 );
 
 create index if not exists vacuum_tables_dead on buho.vacuum_tables (instance_id, dead_tuples desc);
+
+-- Full user-table catalog for Topology. Partitions are rolled into the parent.
+-- Replaced each vacuum cycle; it is the current shape of the database, not history.
+create table if not exists buho.catalog_tables (
+  instance_id  bigint not null references buho.instances (instance_id) on delete cascade,
+  schema_name  text   not null,
+  table_name   text   not null,
+  size_bytes   bigint not null,
+  partitions   integer not null default 0,
+  captured_at  timestamptz not null default now(),
+  primary key (instance_id, schema_name, table_name)
+);
 create index if not exists vacuum_tables_bloat on buho.vacuum_tables (instance_id, bloat_bytes desc nulls last);
 
 alter table buho.vacuum_tables add column if not exists xid_age        bigint not null default 0;

@@ -46,6 +46,34 @@ import {
 } from '@/lib/queries';
 import { peakOf, peakOfDerived } from '@/lib/series-peak';
 
+/**
+ * Old samples still name each partition, and a parent can appear twice while
+ * the label set changes. Keep the rolled-up parent and drop its children.
+ */
+function collapsePartitionRows<T extends { labels: Record<string, string>; value: number }>(rows: T[]): T[] {
+  const byName = new Map<string, T>();
+  for (const row of rows) {
+    const key = `${row.labels['schema']}.${row.labels['table']}`;
+    const previous = byName.get(key);
+    const rowRolled = Boolean(row.labels['partitions']);
+    const previousRolled = Boolean(previous?.labels['partitions']);
+    if (!previous || (rowRolled && !previousRolled) || (!previousRolled && row.value > previous.value)) {
+      byName.set(key, row);
+    }
+  }
+  const parents = [...byName.values()].filter((row) => Number(row.labels['partitions'] ?? 0) > 0);
+  return [...byName.values()].filter((row) => {
+    const schema = row.labels['schema'];
+    const table = row.labels['table'] ?? '';
+    return !parents.some(
+      (parent) =>
+        parent.labels['schema'] === schema &&
+        parent.labels['table'] !== table &&
+        table.startsWith(`${parent.labels['table']}_`),
+    );
+  });
+}
+
 export const dynamic = 'force-dynamic';
 
 const WINDOWS = [
@@ -412,7 +440,7 @@ export default async function InstancePage({
     tone: row.labels['wait_event_type'] === 'Lock' ? 'error' : 'accent',
   }));
 
-  const tableRows: BarRow[] = data.tables.map((row) => ({
+  const tableRows: BarRow[] = collapsePartitionRows(data.tables).map((row) => ({
     label: `${row.labels['schema']}.${row.labels['table']}`,
     sub: [
       row.labels['partitions'] ? `${row.labels['partitions']} partitions` : null,
