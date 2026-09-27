@@ -524,7 +524,9 @@ una base de producción.
 El modo genérico es lo que permite explicar el texto que trae
 `pg_stat_statements`, normalizado con `$1`, sin reconstruir valores a mano. Sin
 valores concretos el planificador no usa estadísticas de selectividad, así que
-las estimaciones son las genéricas; la pantalla lo dice. La consola acepta ese
+las estimaciones son las genéricas; la pantalla lo dice. Encima del árbol hay un
+veredicto: si el costo está en `pg_attribute` u otro catálogo, dice que no es un
+índice que le falte a tus tablas. La consola acepta ese
 modo en PostgreSQL 16 o posterior; el aviso de “sólo PostgreSQL” aparece cuando
 el motor es MariaDB.
 
@@ -630,9 +632,10 @@ entera.
 Cada sugerencia trae su contraindicación al lado y la evidencia debajo, con enlace
 a la consulta que la motivó. Al pie aparecen los hallazgos de los chequeos de
 índices (unused y redundant), agrupados por esquema y paginados. Si el snapshot
-de inventario todavía no llegó, los KPI de Unused y Redundant salen de esos
-chequeos en vez de quedarse en cero. El total de índices sigue esperando el
-snapshot: los chequeos no enumeran los que están sanos.
+de inventario todavía no llegó, el KPI de Indexes muestra cuántos hallazgos hay
+en vez de cero. El inventario completo se guarda en tandas: un solo INSERT con
+miles de índices de partición supera el límite de parámetros de PostgreSQL y
+dejaba la tabla vacía.
 
 `pg_stat_progress_vacuum` da el avance del vacuum en curso por fases, que es lo
 que contesta la pregunta real durante un incidente: si conviene esperar o matarlo.

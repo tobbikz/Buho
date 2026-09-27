@@ -311,12 +311,13 @@ export default async function IndexesPage({
         <div className="stat-grid">
           <StatCard
             label="Indexes"
-            value={formatNumber(summary.total)}
+            value={summary.total > 0 ? formatNumber(summary.total) : countsFromChecks ? formatNumber(findings.length) : formatNumber(0)}
+            tone={summary.total === 0 && countsFromChecks ? 'warn' : 'ok'}
             hint={
               summary.capturedAt
                 ? `total size ${formatBytes(summary.totalBytes)} · ${formatAgo(summary.capturedAt)}`
                 : countsFromChecks
-                  ? `${formatNumber(findings.length)} check findings below · inventory snapshot not collected yet`
+                  ? 'flagged by the last 24h checks — the full inventory has not been stored yet'
                   : engine === 'postgres' || engine === 'mariadb'
                     ? 'inventory not collected yet'
                     : 'inventory is PostgreSQL / MariaDB'

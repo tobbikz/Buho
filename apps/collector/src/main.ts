@@ -916,8 +916,14 @@ async function monitorInstance(instance: InstanceConfig): Promise<void> {
       await store.saveVacuum(instanceId, snapshot);
       await store.insertSamples(instanceId, vacuumSamples(snapshot));
       if (instance.engine === 'postgres') {
-        const indexes = await sampleIndexes(pool);
-        await store.saveIndexes(instanceId, indexes);
+        try {
+          const indexes = await sampleIndexes(pool);
+          await store.saveIndexes(instanceId, indexes);
+          log('info', `${instance.alias}/indexes: ${indexes.indexes.length} índice(s)`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log('warn', `${instance.alias}/indexes: el inventario no se guardó: ${message}`);
+        }
       }
 
       const running = snapshot.progress.length;

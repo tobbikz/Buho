@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { AnomalyPanel } from '@/components/AnomalyPanel';
 import { FindingsPanel } from '@/components/FindingsPanel';
 import { InstanceEvents } from '@/components/InstanceEvents';
+import { SubscriptionTable } from '@/components/SubscriptionTable';
 import { IncidentPanel } from '@/components/IncidentPanel';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { ForeignSummary } from '@/components/ForeignSummary';
@@ -826,35 +827,26 @@ export default async function InstancePage({
                         zero slots here does not mean there is no replica.
                       </div>
                     ) : null}
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>Subscription</th>
-                          <th className="text-right">Apply lag</th>
-                          <th className="text-right">Worker</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[...data.subscriptions]
-                          .sort((a, b) => a.value - b.value || (a.labels['subscription'] ?? '').localeCompare(b.labels['subscription'] ?? ''))
-                          .map((row) => {
-                            const down = row.value !== 1;
-                            return (
-                              <tr key={row.labels['subscription']}>
-                                <td className="font-mono text-[11.5px]">{row.labels['subscription']}</td>
-                                <td className="num font-mono text-[11px]">
-                                  {row.valueB === null ? '—' : formatDuration(row.valueB)}
-                                </td>
-                                <td className="text-right">
-                                  <span className={`tag ${down ? 'tag--error' : 'tag--ok'}`}>
-                                    {down ? 'down' : 'applying'}
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
+                    <SubscriptionTable
+                      instanceId={instanceId}
+                      rows={[...data.subscriptions]
+                        .sort(
+                          (a, b) =>
+                            a.value - b.value ||
+                            (a.labels['subscription'] ?? '').localeCompare(b.labels['subscription'] ?? ''),
+                        )
+                        .map((row) => ({
+                          name: row.labels['subscription'] ?? '',
+                          workerUp: row.value === 1,
+                          lagSeconds: row.valueB,
+                        }))}
+                      alerts={data.findings
+                        .filter((finding) => finding.checkId === 'logical_subscription_down')
+                        .map((finding) => ({
+                          object: finding.object ?? '',
+                          message: finding.message,
+                        }))}
+                    />
                     {data.subscriptions.some((row) => row.value !== 1) ? (
                       <div className="panel-body border-t border-border text-[11.5px] text-foreground-secondary">
                         Apply worker pid is empty: the subscription is not applying. Check the publisher
