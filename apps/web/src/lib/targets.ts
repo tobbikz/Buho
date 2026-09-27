@@ -154,15 +154,35 @@ export function parseTargetForm(form: FormData): MonitorTargetInput {
   };
 }
 
-export async function saveMonitorTarget(input: MonitorTargetInput): Promise<number> {
-  const session = await requireAdmin();
-  if (
-    !input.password &&
-    input.engine !== 'cassandra' &&
-    input.engine !== 'elasticsearch'
-  ) {
+async function ensureRetirementSchema(): Promise<void> {
+  await query(
+    `alter table buho.instances add column if not exists retired boolean not null default false`,
+  );
+  await query(
+    `create table if not exists buho.suppressed_aliases (
+       alias text primary key,
+       suppressed_at timestamptz not null default now()
+     )`,
+  );
+}
+
+/** Keeps a blank password on an existing console target. */
+async function keepStoredPassword(input: MonitorTargetInput): Promise<void> {
+  if (input.password) return;
+  const existing = await query<{ password: string }>(
+    `select password from buho.monitor_targets where tenant = 'default' and alias = $1`,
+    [input.alias],
+  );
+  const kept = existing[0]?.password ?? '';
+  if (!kept && input.engine !== 'cassandra' && input.engine !== 'elasticsearch') {
     throw new Error('Password is required for a new target.');
   }
+  input.password = kept;
+}
+
+export async function saveMonitorTarget(input: MonitorTargetInput): Promise<number> {
+  const session = await requireAdmin();
+  await keepStoredPassword(input);
 
   const seedDatabase =
     input.database ||
@@ -261,15 +281,18 @@ async function upsertOneTarget(
     ],
   );
 
+  await ensureRetirementSchema();
+  await query(`delete from buho.suppressed_aliases where alias = $1`, [input.alias]);
   await query(
-    `insert into buho.instances (tenant, alias, host, port, database, environment, engine, last_seen_at)
-     values ('default', $1, $2, $3, $4, $5, $6, null)
+    `insert into buho.instances (tenant, alias, host, port, database, environment, engine, last_seen_at, retired)
+     values ('default', $1, $2, $3, $4, $5, $6, null, false)
      on conflict (tenant, alias) do update set
        host = excluded.host,
        port = excluded.port,
        database = excluded.database,
        environment = excluded.environment,
-       engine = excluded.engine`,
+       engine = excluded.engine,
+       retired = false`,
     [input.alias, input.host, input.port, input.database, input.environment, input.engine],
   );
 
@@ -350,13 +373,133 @@ export async function setTargetEnabled(targetId: number, enabled: boolean): Prom
 export async function removeMonitorTarget(targetId: number): Promise<void> {
   const session = await requireAdmin();
   const existing = await query<{ alias: string }>(
-    `delete from buho.monitor_targets where target_id = $1 returning alias`,
+    `select alias from buho.monitor_targets where target_id = $1`,
     [targetId],
   );
   const alias = existing[0]?.alias;
-  await logConsoleEvent(
-    session.username,
-    'monitor_target.delete',
-    alias ? `alias=${alias}` : `target_id=${targetId}`,
+  if (alias) await retireAlias(alias, session.username, 'monitor_target.delete');
+  else {
+    await query(`delete from buho.monitor_targets where target_id = $1`, [targetId]);
+    await logConsoleEvent(session.username, 'monitor_target.delete', `target_id=${targetId}`);
+  }
+}
+
+export interface StoredInstance {
+  instanceId: number;
+  alias: string;
+  engine: string;
+  host: string;
+  port: number;
+  database: string;
+  environment: string;
+  fromConsole: boolean;
+}
+
+/** Instances the collector is showing that are not rows in the console target list. */
+export async function listOtherInstances(): Promise<StoredInstance[]> {
+  await ensureRetirementSchema();
+  const rows = await query<Record<string, unknown>>(
+    `select i.instance_id, i.alias, i.engine, i.host, i.port, i.database, i.environment,
+            exists (
+              select 1 from buho.monitor_targets t
+               where t.tenant = 'default' and t.alias = i.alias
+            ) as from_console
+       from buho.instances i
+      where coalesce(i.retired, false) = false
+        and not exists (
+          select 1 from buho.monitor_targets t
+           where t.tenant = 'default' and t.alias = i.alias
+        )
+      order by i.alias`,
   );
+  return rows.map((row) => ({
+    instanceId: Number(row['instance_id']),
+    alias: String(row['alias']),
+    engine: String(row['engine'] ?? 'postgres'),
+    host: String(row['host']),
+    port: Number(row['port']),
+    database: String(row['database'] ?? ''),
+    environment: String(row['environment'] ?? ''),
+    fromConsole: Boolean(row['from_console']),
+  }));
+}
+
+export interface TargetFormDefaults {
+  alias: string;
+  engine: string;
+  environment: string;
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  ssl: boolean;
+  tagKey: string;
+  tagValue: string;
+  hostSource: string;
+  dataDirectory: string;
+}
+
+export async function getTargetFormDefaults(targetId: number): Promise<TargetFormDefaults | null> {
+  const rows = await query<Record<string, unknown>>(
+    `select alias, engine, host, port, database, username, environment, ssl, tags, host_metrics
+       from buho.monitor_targets
+      where target_id = $1`,
+    [targetId],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  const tags =
+    row['tags'] && typeof row['tags'] === 'object' && !Array.isArray(row['tags'])
+      ? (row['tags'] as Record<string, string>)
+      : {};
+  const tagEntry = Object.entries(tags)[0];
+  const metrics =
+    row['host_metrics'] && typeof row['host_metrics'] === 'object' && !Array.isArray(row['host_metrics'])
+      ? (row['host_metrics'] as Record<string, unknown>)
+      : {};
+  return {
+    alias: String(row['alias']),
+    engine: String(row['engine']),
+    environment: String(row['environment'] ?? 'PROD'),
+    host: String(row['host']),
+    port: Number(row['port']),
+    database: String(row['database'] ?? ''),
+    username: String(row['username']),
+    ssl: Boolean(row['ssl']),
+    tagKey: tagEntry?.[0] ?? '',
+    tagValue: tagEntry?.[1] ?? '',
+    hostSource: String(metrics['source'] ?? 'local'),
+    dataDirectory: String(metrics['dataDirectory'] ?? ''),
+  };
+}
+
+/** Drops a connection from the fleet, including ones that only exist because of config.json. */
+export async function retireInstance(alias: string): Promise<void> {
+  const session = await requireAdmin();
+  await retireAlias(alias, session.username, 'instance.retire');
+}
+
+async function retireAlias(alias: string, username: string, action: string): Promise<void> {
+  await ensureRetirementSchema();
+  await query(
+    `insert into buho.suppressed_aliases (alias) values ($1)
+     on conflict (alias) do update set suppressed_at = now()`,
+    [alias],
+  );
+  await query(`delete from buho.monitor_targets where tenant = 'default' and alias = $1`, [alias]);
+  await query(
+    `update buho.instances set retired = true where tenant = 'default' and alias = $1`,
+    [alias],
+  );
+  try {
+    await query(`delete from buho.instances where tenant = 'default' and alias = $1`, [alias]);
+  } catch (error) {
+    await logConsoleEvent(
+      username,
+      action,
+      `alias=${alias} hidden; history kept (${error instanceof Error ? error.message : String(error)})`,
+    );
+    return;
+  }
+  await logConsoleEvent(username, action, `alias=${alias}`);
 }

@@ -33,11 +33,18 @@ export interface FleetFlowResult {
 }
 
 async function fleetInstances(): Promise<{ instanceId: number; alias: string; engine: string }[]> {
-  const rows = await query<{ instance_id: number; alias: string; engine: string }>(
+  const sql = (retired: boolean) =>
     `select instance_id, alias, coalesce(engine, 'postgres') as engine
        from buho.instances
-      order by alias`,
-  );
+      ${retired ? 'where coalesce(retired, false) = false' : ''}
+      order by alias`;
+  let rows: { instance_id: number; alias: string; engine: string }[];
+  try {
+    rows = await query(sql(true));
+  } catch (error) {
+    if (!String(error).includes('retired')) throw error;
+    rows = await query(sql(false));
+  }
   return rows.map((fila) => ({
     instanceId: Number(fila.instance_id),
     alias: fila.alias,
@@ -49,8 +56,11 @@ export async function getFleetFlow(
   minutes: number,
   weight: FlowWeight,
   topTables = 20,
+  scope: { engine?: string; alias?: string } = {},
 ): Promise<FleetFlowResult> {
-  const instancias = await fleetInstances();
+  let instancias = await fleetInstances();
+  if (scope.engine) instancias = instancias.filter((row) => row.engine === scope.engine);
+  if (scope.alias) instancias = instancias.filter((row) => row.alias === scope.alias);
 
   const flujos = await Promise.all(
     instancias.map(async (instancia) => ({

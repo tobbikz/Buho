@@ -27,7 +27,9 @@ export async function GET(request: Request) {
     : 'rows') as FlowWeight;
   const minutos = Math.max(1, Math.min(60, Number(parametros.get('min') ?? VENTANA_MINUTOS)));
 
-  const clave = `${alcance}|${parametros.get('instancia') ?? ''}|${weight}|${minutos}`;
+  const engine = parametros.get('engine') ?? '';
+  const conn = parametros.get('conn') ?? '';
+  const clave = `${alcance}|${parametros.get('instancia') ?? ''}|${weight}|${minutos}|${engine}|${conn}`;
   const guardado = cache.get(clave);
   if (guardado && Date.now() - guardado.at < CACHE_MS) {
     return NextResponse.json(guardado.body as Record<string, unknown>);
@@ -35,7 +37,10 @@ export async function GET(request: Request) {
 
   try {
     if (alcance === 'flota') {
-      const flujo = await getFleetFlow(minutos, weight, 24);
+      const flujo = await getFleetFlow(minutos, weight, 24, {
+        engine: engine || undefined,
+        alias: conn || undefined,
+      });
       const cuerpo = {
         nodes: flujo.nodes,
         links: flujo.links.map((enlace) => ({ ...enlace, value: enlace.value / (minutos * 60) })),

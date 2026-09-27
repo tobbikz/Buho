@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { FleetScopeFilters } from '@/components/FleetScopeFilters';
 import { SecurityFindingsBoard } from '@/components/SecurityFindingsBoard';
 import { Sparkline } from '@/components/Sparkline';
 import { StatCard } from '@/components/StatCard';
@@ -15,36 +16,60 @@ import {
   type Finding,
   type Posture,
 } from '@/lib/security';
+import { listScopeChoices, matchesScope, scopeEngines } from '@/lib/fleet-scope';
 
 export const dynamic = 'force-dynamic';
 
-export default async function SecurityPage() {
+export default async function SecurityPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ engine?: string; conn?: string }>;
+}) {
+  const { engine: engineParam, conn: connParam } = await searchParams;
+  const engine = engineParam ?? '';
+  const conn = connParam ?? '';
   let findings: Finding[];
   let posture: Posture[];
   let scoreSeries: Record<number, number[]>;
   let findingHeat: Awaited<ReturnType<typeof getSecurityFindingHeat>>;
+  let choices: Awaited<ReturnType<typeof listScopeChoices>> = [];
   try {
-    [findings, posture, scoreSeries, findingHeat] = await Promise.all([
+    [findings, posture, scoreSeries, findingHeat, choices] = await Promise.all([
       getFindings(),
       getPosture(),
       getPostureScoreSeries(30),
       getSecurityFindingHeat(14),
+      listScopeChoices(),
     ]);
+    findings = findings.filter((row) => matchesScope(row, engine, conn));
+    posture = posture.filter((row) => matchesScope(row, engine, conn));
   } catch (error) {
     return <StoreError message={error instanceof Error ? error.message : String(error)} />;
   }
 
+  const filters = (
+    <FleetScopeFilters
+      engines={scopeEngines(choices)}
+      instances={choices}
+      engine={engine}
+      conn={conn}
+    />
+  );
+
   if (posture.length === 0) {
     return (
-      <section className="panel">
-        <div className="panel-header">
-          <span className="panel-title">No audits yet</span>
-        </div>
-        <div className="panel-body text-[12px] text-foreground-secondary">
-          The collector runs a security audit every 6 hours; the first run happens at startup. If this
-          stays empty, check the collector log — the audit must connect to each instance.
-        </div>
-      </section>
+      <div className="flex flex-col gap-[0.875rem]">
+        {filters}
+        <section className="panel">
+          <div className="panel-header">
+            <span className="panel-title">{engine || conn ? 'No audits match this filter' : 'No audits yet'}</span>
+          </div>
+          <div className="panel-body text-[12px] text-foreground-secondary">
+            The collector runs a security audit every 6 hours; the first run happens at startup. If this
+            stays empty, check the collector log — the audit must connect to each instance.
+          </div>
+        </section>
+      </div>
     );
   }
 
@@ -59,6 +84,7 @@ export default async function SecurityPage() {
 
   return (
     <div className="flex flex-col gap-[0.875rem]">
+      {filters}
       <div className="stat-grid">
         <StatCard
           label="Critical findings"

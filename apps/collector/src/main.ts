@@ -41,6 +41,8 @@ import {
   summarizeSessions,
   enrichMssqlDerivedSamples,
   readLog,
+  readSqlLog,
+  readStatErrorDeltas,
   sampleVacuum,
   vacuumSamples,
   sampleIndexes,
@@ -436,14 +438,26 @@ function startSessionLoop(instance: InstanceConfig, instanceId: number, pool: Po
  * encender el log de esperas de bloqueo a mediodía y Búho tiene que darse cuenta
  * sin reiniciarse.
  */
+const statErrorTotals = new Map<number, { deadlocks: number; conflicts: number; checksums: number }>();
+
 function startLogLoop(instance: InstanceConfig, instanceId: number, pool: Pool): void {
-  const logConfig = instance.logs;
-  if (!logConfig?.source || logConfig.source === 'none') return;
+  const logConfig = instance.logs ?? { source: 'none' as const };
 
   startLoop(`${instance.alias}/logs`, LOG_INTERVAL_MS, async () => {
     const info = await inspectLogging(pool, logConfig);
     const cursor = await store.logCursor(instanceId);
-    const result = await readLog(logConfig, info, cursor);
+    const configured = logConfig.source && logConfig.source !== 'none';
+    let result = configured ? await readLog(logConfig, info, cursor) : await readSqlLog(pool, cursor);
+    if (!configured && result.source === 'none') {
+      const stats = await readStatErrorDeltas(pool, statErrorTotals.get(instanceId) ?? null);
+      statErrorTotals.set(instanceId, stats.totals);
+      result = {
+        ...result,
+        entries: stats.entries,
+        source: 'file',
+        detail: result.detail || 'pg_stat_database',
+      };
+    }
 
     const written = await store.saveLogEntries(instanceId, result.entries);
     await store.saveLogCursor(
@@ -454,7 +468,7 @@ function startLogLoop(instance: InstanceConfig, instanceId: number, pool: Pool):
       // Las limitaciones de configuración importan tanto como los fallos de
       // lectura: una pantalla sin deadlocks porque log_lock_waits está apagado
       // no es lo mismo que una sin deadlocks.
-      [...result.warnings, ...info.limitations],
+      configured ? [...result.warnings, ...info.limitations] : result.warnings,
       written,
     );
 
@@ -1107,6 +1121,7 @@ function targetToInstance(target: Awaited<ReturnType<typeof store.listMonitorTar
  */
 async function ensureMonitors(): Promise<void> {
   const fromStore = await store.listMonitorTargets(true);
+  const suppressed = new Set(await store.listSuppressedAliases());
   const byAlias = new Map<string, InstanceConfig>();
   for (const target of fromStore) {
     byAlias.set(target.alias, targetToInstance(target));
@@ -1116,6 +1131,7 @@ async function ensureMonitors(): Promise<void> {
   }
 
   for (const instance of byAlias.values()) {
+    if (suppressed.has(instance.alias)) continue;
     const key = instanceKey(instance);
     if (startedKeys.has(key)) continue;
     startedKeys.add(key);

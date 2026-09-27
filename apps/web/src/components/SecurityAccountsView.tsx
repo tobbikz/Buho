@@ -79,9 +79,15 @@ function summaryLine(principal: PrincipalView): string {
 
 export function SecurityAccountsView({ principals }: { principals: PrincipalView[] }) {
   const [instanceId, setInstanceId] = useState<number | 'all'>('all');
+  const [engine, setEngine] = useState<string>('all');
   const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showAllGrants, setShowAllGrants] = useState<string | null>(null);
+
+  const engines = useMemo(
+    () => [...new Set(principals.map((principal) => principal.engine))].sort(),
+    [principals],
+  );
 
   const instances = useMemo(() => {
     const map = new Map<number, { alias: string; engine: string }>();
@@ -93,6 +99,7 @@ export function SecurityAccountsView({ principals }: { principals: PrincipalView
 
   const filtered = useMemo(() => {
     return principals.filter((principal) => {
+      if (engine !== 'all' && principal.engine !== engine) return false;
       if (instanceId !== 'all' && principal.instanceId !== instanceId) return false;
       if (kindFilter === 'superuser') return principal.isSuperuser && !principal.disabled;
       if (kindFilter === 'disabled') return principal.disabled;
@@ -108,7 +115,7 @@ export function SecurityAccountsView({ principals }: { principals: PrincipalView
       }
       return true;
     });
-  }, [principals, instanceId, kindFilter]);
+  }, [principals, instanceId, kindFilter, engine]);
 
   const grouped = useMemo(() => {
     const map = new Map<number, PrincipalView[]>();
@@ -162,7 +169,25 @@ export function SecurityAccountsView({ principals }: { principals: PrincipalView
         </div>
         <div className="panel-body flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-3">
           <label className="flex items-center gap-2 text-[11px] text-foreground-secondary">
-            Instance
+            Engine
+            <select
+              className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px]"
+              value={engine}
+              onChange={(event) => {
+                setEngine(event.target.value);
+                setInstanceId('all');
+              }}
+            >
+              <option value="all">All engines</option>
+              {engines.map((value) => (
+                <option key={value} value={value}>
+                  {ENGINE_LABEL[value] ?? value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-[11px] text-foreground-secondary">
+            Connection
             <select
               className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px]"
               value={instanceId === 'all' ? 'all' : String(instanceId)}
@@ -171,7 +196,9 @@ export function SecurityAccountsView({ principals }: { principals: PrincipalView
               }
             >
               <option value="all">All instances</option>
-              {instances.map(([id, meta]) => (
+              {instances
+                .filter(([, meta]) => engine === 'all' || meta.engine === engine)
+                .map(([id, meta]) => (
                 <option key={id} value={id}>
                   {meta.alias}
                 </option>

@@ -147,7 +147,27 @@ export class Store {
     await this.pool.end();
   }
 
+  async listSuppressedAliases(): Promise<string[]> {
+    try {
+      const result = await this.pool.query<{ alias: string }>(
+        `select alias from buho.suppressed_aliases`,
+      );
+      return result.rows.map((row) => row.alias);
+    } catch {
+      return [];
+    }
+  }
+
   async upsertInstance(instance: InstanceConfig): Promise<number> {
+    try {
+      const blocked = await this.pool.query(
+        `select 1 from buho.suppressed_aliases where alias = $1`,
+        [instance.alias],
+      );
+      if ((blocked.rowCount ?? 0) > 0) return 0;
+    } catch {
+      // Suppression table is created with the store schema. Older databases skip the check.
+    }
     const result = await this.pool.query<{ instance_id: string }>(
       `insert into buho.instances (tenant, alias, host, port, database, environment, engine, last_seen_at)
             values ($1, $2, $3, $4, $5, $6, $7, null)

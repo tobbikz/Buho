@@ -669,6 +669,150 @@ export async function inspectLogging(pool: Pool, config: LogConfig): Promise<Log
   };
 }
 
+const SQL_TAIL_BYTES = 128 * 1024;
+
+function sqlCursor(cursor: string | null): { path: string; offset: number } | null {
+  if (!cursor?.startsWith('sql:')) return null;
+  const rest = cursor.slice(4);
+  const split = rest.lastIndexOf(':');
+  if (split <= 0) return null;
+  const path = rest.slice(0, split);
+  const offset = Number(rest.slice(split + 1));
+  if (!path || !Number.isFinite(offset)) return null;
+  return { path, offset };
+}
+
+/**
+ * Read ERROR/FATAL/PANIC from the current PostgreSQL logfile over SQL.
+ *
+ * Same idea as the Airflow error-log job: `pg_current_logfile` plus a tail of
+ * `pg_read_file`. It does not need journald or a file mount on the collector.
+ */
+export async function readSqlLog(pool: Pool, cursor: string | null): Promise<LogReadResult> {
+  try {
+    const current = await pool.query<{ path: string | null }>(tagged(`select pg_current_logfile() as path`));
+    const path = current.rows[0]?.path ?? null;
+    if (!path) {
+      return {
+        entries: [],
+        cursor,
+        source: 'none',
+        detail: 'no current logfile',
+        warnings: [
+          'pg_current_logfile() is empty. The server is not writing a logfile this session can see.',
+        ],
+      };
+    }
+    const stat = await pool.query<{ size: string }>(
+      tagged(`select size::bigint as size from pg_stat_file($1)`),
+      [path],
+    );
+    const size = Number(stat.rows[0]?.size ?? 0);
+    const previous = sqlCursor(cursor);
+    let start = previous && previous.path === path ? previous.offset : Math.max(0, size - SQL_TAIL_BYTES);
+    if (start > size) start = Math.max(0, size - SQL_TAIL_BYTES);
+    if (start >= size) {
+      return {
+        entries: [],
+        cursor: `sql:${path}:${size}`,
+        source: 'file',
+        detail: `pg_read_file ${path}`,
+        warnings: [],
+      };
+    }
+    const length = Math.min(SQL_TAIL_BYTES, size - start);
+    const body = await pool.query<{ body: string | null }>(
+      tagged(`select pg_read_file($1, $2::bigint, $3::bigint) as body`),
+      [path, start, length],
+    );
+    const text = body.rows[0]?.body ?? '';
+    const now = new Date();
+    const lines = text
+      .split(/\n/)
+      .filter((line) => line.length > 0)
+      .map((line) => ({ text: line, at: now }));
+    const keep = new Set(['ERROR', 'FATAL', 'PANIC']);
+    const entries = parseEntries(lines).filter((entry) => keep.has(entry.level) || entry.kind === 'deadlock');
+    return {
+      entries,
+      cursor: `sql:${path}:${start + length}`,
+      source: 'file',
+      detail: `pg_read_file ${path}`,
+      warnings: [],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      entries: [],
+      cursor,
+      source: 'none',
+      detail: 'pg_read_file unavailable',
+      warnings: [
+        `Could not read the PostgreSQL log with SQL (${message}). Deadlock, conflict, and checksum counters are still sampled.`,
+      ],
+    };
+  }
+}
+
+export interface StatErrorTotals {
+  deadlocks: number;
+  conflicts: number;
+  checksums: number;
+}
+
+/** Deltas from pg_stat_database when the logfile itself cannot be read. */
+export async function readStatErrorDeltas(
+  pool: Pool,
+  previous: StatErrorTotals | null,
+): Promise<{ entries: LogEntry[]; totals: StatErrorTotals }> {
+  const rows = await pool.query<{ deadlocks: string; conflicts: string; checksums: string }>(
+    tagged(`select coalesce(sum(deadlocks), 0)::bigint as deadlocks,
+                   coalesce(sum(conflicts), 0)::bigint as conflicts,
+                   coalesce(sum(checksum_failures), 0)::bigint as checksums
+              from pg_stat_database`),
+  );
+  const totals: StatErrorTotals = {
+    deadlocks: Number(rows.rows[0]?.deadlocks ?? 0),
+    conflicts: Number(rows.rows[0]?.conflicts ?? 0),
+    checksums: Number(rows.rows[0]?.checksums ?? 0),
+  };
+  if (!previous) return { entries: [], totals };
+  const now = new Date();
+  const entries: LogEntry[] = [];
+  const push = (kind: LogKind, level: string, message: string, sqlstate: string | null) => {
+    entries.push({
+      at: now,
+      level,
+      kind,
+      sqlstate,
+      message,
+      detail: null,
+      hint: null,
+      query: null,
+      context: null,
+      pid: null,
+      username: null,
+      database: null,
+      application: null,
+      fingerprint: fingerprint(message),
+      raw: message,
+    });
+  };
+  const deadlocks = totals.deadlocks - previous.deadlocks;
+  const conflicts = totals.conflicts - previous.conflicts;
+  const checksums = totals.checksums - previous.checksums;
+  if (deadlocks > 0) {
+    push('deadlock', 'ERROR', `${deadlocks} new deadlock(s) since the last sample (pg_stat_database).`, '40P01');
+  }
+  if (conflicts > 0) {
+    push('error', 'ERROR', `${conflicts} new recovery conflict(s) since the last sample (pg_stat_database).`, null);
+  }
+  if (checksums > 0) {
+    push('error', 'ERROR', `${checksums} new checksum failure(s) since the last sample (pg_stat_database).`, null);
+  }
+  return { entries, totals };
+}
+
 export async function readLog(
   config: LogConfig,
   info: LogSourceInfo,

@@ -50,7 +50,8 @@ export { suggestIndexes, mergeSuggestions, columnsFromPredicate } from './adviso
 export type { IndexSuggestion, IndexEvidence, SuggestionKind } from './advisor';
 export { inspectPgstattuple, measureBloat } from './bloat';
 export type { BloatMeasurement, BloatMode, PgstattupleState } from './bloat';
-export { inspectLogging, readLog, parseEntries, parseLine, fingerprint } from './logs';
+export { inspectLogging, readLog, readSqlLog, readStatErrorDeltas, parseEntries, parseLine, fingerprint } from './logs';
+export type { StatErrorTotals } from './logs';
 export type {
   LogConfig,
   LogEntry,

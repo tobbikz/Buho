@@ -127,6 +127,7 @@ select i.instance_id, i.alias, i.host, i.port, i.database, i.environment, i.engi
   left join tags t on t.instance_id = i.instance_id
   left join metrics m on m.instance_id = i.instance_id
   left join xid x on x.instance_id = i.instance_id
+ where coalesce(i.retired, false) = false
  order by s.score asc nulls first, i.alias`;
 
 const FLEET_METRICS = [
@@ -196,8 +197,19 @@ function toFleetInstance(row: Record<string, unknown>): FleetInstance {
   };
 }
 
+const FLEET_SQL_LEGACY = FLEET_SQL.replace(' where coalesce(i.retired, false) = false\n', '\n');
+
+async function fleetRows(params: unknown[]): Promise<Record<string, unknown>[]> {
+  try {
+    return await query<Record<string, unknown>>(FLEET_SQL, params);
+  } catch (error) {
+    if (!String(error).includes('retired')) throw error;
+    return await query<Record<string, unknown>>(FLEET_SQL_LEGACY, params);
+  }
+}
+
 export async function listInstances(): Promise<FleetInstance[]> {
-  const rows = await query<Record<string, unknown>>(FLEET_SQL, [FLEET_METRICS]);
+  const rows = await fleetRows([FLEET_METRICS]);
   return rows.map(toFleetInstance);
 }
 
@@ -205,7 +217,13 @@ export async function getInstance(instanceId: number): Promise<FleetInstance | n
   const rows = await query<Record<string, unknown>>(
     `select * from (${FLEET_SQL}) f where f.instance_id = $2`,
     [FLEET_METRICS, instanceId],
-  );
+  ).catch(async (error) => {
+    if (!String(error).includes('retired')) throw error;
+    return query<Record<string, unknown>>(
+      `select * from (${FLEET_SQL_LEGACY}) f where f.instance_id = $2`,
+      [FLEET_METRICS, instanceId],
+    );
+  });
   const row = rows[0];
   return row ? toFleetInstance(row) : null;
 }

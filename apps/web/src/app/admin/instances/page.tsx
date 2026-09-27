@@ -4,9 +4,12 @@ import { redirect } from 'next/navigation';
 import { AddDatabaseForm } from '@/components/AddDatabaseForm';
 import { StoreError } from '@/components/StoreError';
 import {
+  getTargetFormDefaults,
   listMonitorTargets,
+  listOtherInstances,
   parseTargetForm,
   removeMonitorTarget,
+  retireInstance,
   saveMonitorTarget,
   setTargetEnabled,
 } from '@/lib/targets';
@@ -44,17 +47,30 @@ async function deleteTarget(formData: FormData) {
   revalidatePath('/');
 }
 
+async function deleteInstance(formData: FormData) {
+  'use server';
+  await requireAdmin();
+  const alias = String(formData.get('alias') ?? '').trim();
+  if (alias) await retireInstance(alias);
+  revalidatePath('/admin/instances');
+  revalidatePath('/');
+}
+
 export default async function AdminInstancesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; ok?: string }>;
+  searchParams: Promise<{ error?: string; ok?: string; edit?: string }>;
 }) {
-  const { error, ok } = await searchParams;
+  const { error, ok, edit } = await searchParams;
+  const editId = Number(edit);
 
   let targets;
+  let others;
+  let initial = null;
   try {
     await requireAdmin();
-    targets = await listMonitorTargets();
+    [targets, others] = await Promise.all([listMonitorTargets(), listOtherInstances()]);
+    if (Number.isInteger(editId) && editId > 0) initial = await getTargetFormDefaults(editId);
   } catch (storeError) {
     return <StoreError message={storeError instanceof Error ? storeError.message : String(storeError)} />;
   }
@@ -71,15 +87,21 @@ export default async function AdminInstancesPage({
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Add database to monitor</span>
+          <span className="panel-title">{initial ? `Edit ${initial.alias}` : 'Add database to monitor'}</span>
+          {initial ? (
+            <Link href="/admin/instances" className="tag tag--muted">
+              cancel edit
+            </Link>
+          ) : null}
         </div>
         <div className="panel-body">
           <p className="mb-3 text-[12px] text-foreground-secondary">
-            Saves the connection in the store. Targets here are merged with{' '}
-            <span className="font-mono">config.json</span> (the file wins if the same alias already exists
-            there). Credentials stay on-prem in the store, same trust model as the config file.
+            Saves the connection in the store. Leave the password blank when editing to keep the current one.
+            A removed connection stays gone even if the same alias is still listed in{' '}
+            <span className="font-mono">config.json</span> — restart the collector so a probe that is already
+            running stops.
           </p>
-          <AddDatabaseForm action={addTarget} />
+          <AddDatabaseForm key={initial?.alias ?? 'new'} action={addTarget} initial={initial} />
         </div>
       </section>
 
@@ -124,6 +146,9 @@ export default async function AdminInstancesPage({
                     </td>
                     <td className="py-1.5">
                       <div className="flex flex-wrap gap-1">
+                        <Link href={`/admin/instances?edit=${t.targetId}`} className="tag tag--info">
+                          edit
+                        </Link>
                         <form action={toggleTarget}>
                           <input type="hidden" name="targetId" value={t.targetId} />
                           <input type="hidden" name="enabled" value={t.enabled ? '0' : '1'} />
@@ -138,6 +163,55 @@ export default async function AdminInstancesPage({
                           </button>
                         </form>
                       </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <span className="panel-title">Other monitored instances ({others.length})</span>
+        </div>
+        {others.length === 0 ? (
+          <div className="empty" style={{ height: 80 }}>
+            Every instance in the sidebar is a console target.
+          </div>
+        ) : (
+          <div className="panel-body overflow-x-auto">
+            <p className="mb-3 text-[12px] text-foreground-secondary">
+              These connections show in the fleet but were not added from this form (usually{' '}
+              <span className="font-mono">config.json</span>). Remove hides them and stops the collector from
+              bringing them back.
+            </p>
+            <table className="w-full text-left text-[12px]">
+              <thead className="font-semibold uppercase tracking-wide text-foreground-muted">
+                <tr>
+                  <th className="pb-2 pr-3">Alias</th>
+                  <th className="pb-2 pr-3">Engine</th>
+                  <th className="pb-2 pr-3">Endpoint</th>
+                  <th className="pb-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono">
+                {others.map((instance) => (
+                  <tr key={instance.instanceId} className="border-t border-[var(--border)]">
+                    <td className="py-1.5 pr-3">{instance.alias}</td>
+                    <td className="py-1.5 pr-3">{instance.engine}</td>
+                    <td className="py-1.5 pr-3">
+                      {instance.host}:{instance.port}
+                      {instance.database ? `/${instance.database}` : ''}
+                    </td>
+                    <td className="py-1.5">
+                      <form action={deleteInstance}>
+                        <input type="hidden" name="alias" value={instance.alias} />
+                        <button type="submit" className="tag tag--error">
+                          remove
+                        </button>
+                      </form>
                     </td>
                   </tr>
                 ))}

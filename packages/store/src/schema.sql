@@ -1097,6 +1097,14 @@ create index if not exists monitor_targets_enabled_idx
 -- Host metrics (CPU/mem/disk) declared from the console — same shape as config.json hostMetrics.
 alter table buho.monitor_targets add column if not exists host_metrics jsonb not null default '{}'::jsonb;
 
+-- Console "remove" hides an instance even when config.json would start it again.
+alter table buho.instances add column if not exists retired boolean not null default false;
+
+create table if not exists buho.suppressed_aliases (
+  alias         text        primary key,
+  suppressed_at timestamptz not null default now()
+);
+
 -- Allow MongoDB on the instances table (older installs had a narrower check).
 alter table buho.instances drop constraint if exists instances_engine_check;
 alter table buho.instances

@@ -1,5 +1,6 @@
 import { revalidatePath } from 'next/cache';
 import { EventsFeed } from '@/components/EventsFeed';
+import { FleetScopeFilters } from '@/components/FleetScopeFilters';
 import { FleetLogPatterns } from '@/components/FleetLogPatterns';
 import { StoreError } from '@/components/StoreError';
 import { Topbar } from '@/components/Topbar';
@@ -11,6 +12,7 @@ import {
 } from '@/lib/queries';
 import { getFleetLogLevelCounts, getFleetLogPatterns } from '@/lib/logs';
 import { currentSession } from '@/lib/session';
+import { listScopeChoices, matchesScope, scopeEngines } from '@/lib/fleet-scope';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,21 +35,34 @@ async function ackAllEvents() {
 export default async function EventsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string }>;
+  searchParams: Promise<{ view?: string; engine?: string; conn?: string }>;
 }) {
-  const { view: viewParam } = await searchParams;
+  const { view: viewParam, engine: engineParam, conn: connParam } = await searchParams;
   const view: EventFeedView = viewParam === 'history' ? 'history' : 'open';
+  const engine = engineParam ?? '';
+  const conn = connParam ?? '';
   const session = await currentSession();
 
   let events;
   let patterns;
   let levelCounts;
+  let choices: Awaited<ReturnType<typeof listScopeChoices>> = [];
   try {
-    [events, patterns, levelCounts] = await Promise.all([
+    [events, patterns, levelCounts, choices] = await Promise.all([
       getEvents(null, view === 'history' ? 250 : 100, view),
       getFleetLogPatterns(24, 40),
       getFleetLogLevelCounts(24),
+      listScopeChoices(),
     ]);
+    const engineOf = new Map(choices.map((row) => [row.alias, row.engine]));
+    const inScope = (alias: string | null, rowEngine: string | null) => {
+      const resolved = rowEngine || (alias ? engineOf.get(alias) : '') || '';
+      if (!alias && (engine || conn)) return false;
+      return matchesScope({ alias: alias ?? '', engine: resolved }, engine, conn);
+    };
+    events = events.filter((event) => inScope(event.instanceAlias, null));
+    patterns = patterns.filter((row) => inScope(row.alias, row.engine));
+    levelCounts = levelCounts.filter((row) => inScope(row.alias, row.engine));
   } catch (error) {
     return (
       <>
@@ -75,6 +90,14 @@ export default async function EventsPage({
             </p>
           </div>
         </header>
+
+        <FleetScopeFilters
+          engines={scopeEngines(choices)}
+          instances={choices}
+          engine={engine}
+          conn={conn}
+          preserve={view === 'history' ? { view: 'history' } : undefined}
+        />
 
         <FleetLogPatterns patterns={patterns} levelCounts={levelCounts} hours={24} />
 

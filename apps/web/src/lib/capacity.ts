@@ -16,7 +16,7 @@ import { formatBytes, formatNumber, formatPct } from './format';
 export type CapacityResource = 'disco' | 'xid' | 'cpu' | 'ram';
 
 /** Minimum distinct daily buckets before showing a growth projection. */
-export const MIN_FORECAST_DAYS = 30;
+export const MIN_FORECAST_DAYS = 2;
 
 export interface CapacityPoint {
   bucket: number;
@@ -71,7 +71,7 @@ function forecastLine(history: CapacityPoint[], fit: LinearFit | null): Capacity
 }
 
 function fitLinear(points: CapacityPoint[]): LinearFit | null {
-  if (points.length < 3) return null;
+  if (points.length < 2) return null;
   const n = points.length;
   let sumX = 0;
   let sumY = 0;

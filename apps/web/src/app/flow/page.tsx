@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { FleetScopeFilters } from '@/components/FleetScopeFilters';
 import { FlowSankey, OperationBars } from '@/components/FlowSankey';
 import { LiveFlow } from '@/components/LiveFlow';
 import { StatCard } from '@/components/StatCard';
@@ -7,6 +8,7 @@ import { Topbar } from '@/components/Topbar';
 import { formatNumber, formatPct } from '@/lib/format';
 import { formatUnit, type Unit } from '@/lib/units';
 import { getFleetFlow } from '@/lib/fleet-flow';
+import { listScopeChoices, scopeEngines } from '@/lib/fleet-scope';
 import type { FlowWeight } from '@buho/core';
 
 export const dynamic = 'force-dynamic';
@@ -34,17 +36,26 @@ const ENGINE_LABEL: Record<string, string> = {
 export default async function FleetFlowPage({
   searchParams,
 }: {
-  searchParams: Promise<{ peso?: string; v?: string; vista?: string }>;
+  searchParams: Promise<{ peso?: string; v?: string; vista?: string; engine?: string; conn?: string }>;
 }) {
-  const { peso, v, vista } = await searchParams;
+  const { peso, v, vista, engine: engineParam, conn: connParam } = await searchParams;
+  const engine = engineParam ?? '';
+  const conn = connParam ?? '';
 
   const weight = (WEIGHTS.find((entrada) => entrada.key === peso)?.key ?? 'rows') as FlowWeight;
   const window = WINDOWS.find((entrada) => entrada.key === v) ?? WINDOWS[2]!;
   const enVivo = vista === 'vivo';
 
   let flow;
+  let choices: Awaited<ReturnType<typeof listScopeChoices>> = [];
   try {
-    flow = await getFleetFlow(window.minutes, weight, 20);
+    [flow, choices] = await Promise.all([
+      getFleetFlow(window.minutes, weight, 20, {
+        engine: engine || undefined,
+        alias: conn || undefined,
+      }),
+      listScopeChoices(),
+    ]);
   } catch (error) {
     return (
       <>
@@ -62,6 +73,8 @@ export default async function FleetFlowPage({
       peso: weight,
       v: window.key,
       vista: enVivo ? 'vivo' : 'acumulado',
+      ...(engine ? { engine } : {}),
+      ...(conn ? { conn } : {}),
       ...cambios,
     });
     return `/flow?${parametros.toString()}`;
@@ -87,6 +100,14 @@ export default async function FleetFlowPage({
             </p>
           </div>
         </header>
+
+        <FleetScopeFilters
+          engines={scopeEngines(choices)}
+          instances={choices}
+          engine={engine}
+          conn={conn}
+          preserve={{ peso: weight, v: window.key, vista: enVivo ? 'vivo' : 'acumulado' }}
+        />
 
         <div className="stat-grid">
           <StatCard
@@ -157,7 +178,14 @@ export default async function FleetFlowPage({
 
           <div className="panel-body">
             {enVivo ? (
-              <LiveFlow scope="flota" weight={weight} unit={unidad} height={460} />
+              <LiveFlow
+                scope="flota"
+                weight={weight}
+                unit={unidad}
+                height={460}
+                engine={engine || undefined}
+                alias={conn || undefined}
+              />
             ) : (
               <FlowSankey
                 nodes={flow.nodes}

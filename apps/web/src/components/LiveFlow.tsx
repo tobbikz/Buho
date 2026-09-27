@@ -57,8 +57,8 @@ const COMET_SAMPLES = 6;
 const DEMO_TABLE_COUNT = 0;
 
 /** Readable cards. Extra tables move to the next page instead of overlapping. */
-const CARD_PITCH_Y = 58;
-const CARD_PITCH_X = 176;
+const CARD_PITCH_Y = 76;
+const CARD_PITCH_X = 212;
 
 const WRITE = '#0a6e42';
 const READ = '#005eb8';
@@ -309,6 +309,8 @@ export function LiveFlow({
   unit,
   height = 420,
   intervalMs = 5000,
+  engine,
+  alias,
 }: {
   scope: 'instancia' | 'flota';
   instanceId?: number;
@@ -316,6 +318,8 @@ export function LiveFlow({
   unit: Unit;
   height?: number;
   intervalMs?: number;
+  engine?: string;
+  alias?: string;
 }) {
   const demoOn = DEMO_TABLE_COUNT > 0;
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -384,8 +388,10 @@ export function LiveFlow({
       peso: weight,
     });
     if (instanceId !== undefined) parametros.set('instancia', String(instanceId));
+    if (engine) parametros.set('engine', engine);
+    if (alias) parametros.set('conn', alias);
     return `/api/flow-live?${parametros.toString()}`;
-  }, [scope, instanceId, weight]);
+  }, [scope, instanceId, weight, engine, alias]);
 
   useEffect(() => {
     if (DEMO_TABLE_COUNT > 0) {
@@ -957,8 +963,8 @@ export function LiveFlow({
             return;
           }
 
-          const cardW = compact ? 160 : 158;
-          const cardH = compact ? 48 : 76;
+          const cardW = compact ? 196 : 158;
+          const cardH = compact ? 64 : 76;
           const x = nodo.x - cardW / 2;
           const y = nodo.y - cardH / 2;
           nodo.hitX = x;
@@ -978,15 +984,15 @@ export function LiveFlow({
           ctx.textAlign = 'left';
           ctx.textBaseline = 'top';
           if (compact) {
-            const label = table.length > 18 ? `${table.slice(0, 17)}…` : table;
-            ctx.font = '600 11px ui-monospace, SFMono-Regular, monospace';
+            const label = table.length > 22 ? `${table.slice(0, 21)}…` : table;
+            ctx.font = '600 12px ui-monospace, SFMono-Regular, monospace';
             ctx.fillStyle = THEME.label;
             ctx.fillText(label, x + 10, y + 8);
-            ctx.font = '9px ui-monospace, SFMono-Regular, monospace';
+            ctx.font = '600 13px ui-monospace, SFMono-Regular, monospace';
             ctx.fillStyle = WRITE;
-            ctx.fillText(`W ${shortRate(nodo.writeIn, unitNow)}`, x + 10, y + 26);
+            ctx.fillText(`W ${shortRate(nodo.writeIn, unitNow)}`, x + 10, y + 28);
             ctx.fillStyle = READ;
-            ctx.fillText(`R ${shortRate(nodo.readIn, unitNow)}`, x + 72, y + 26);
+            ctx.fillText(`R ${shortRate(nodo.readIn, unitNow)}`, x + 10, y + 46);
           } else {
             if (schema) {
               ctx.font = '9px ui-monospace, SFMono-Regular, monospace';

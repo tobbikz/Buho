@@ -88,7 +88,7 @@ Pantallas de F1:
 - **Apply lag** — en un suscriptor se mide el WAL recibido que todavía no se aplicó. Cero bytes es “caught up”. El reloj del publicador no está en ese servidor.
 - **Queries** — Analytical es la ventana retenida; Live es la última foto de sesiones. En Live el click en el texto abre la consulta completa y, si PostgreSQL puede planearla, el botón Explain. REFRESH y otras utilitarias no tienen plan.
 - **Indexes** — estado y esquema son desplegables. El inventario se pagina. Footprint by schema and table va debajo, con filtro de esquema y de tabla. Fragmented lista índices secundarios al menos el doble del heap y de más de 64 MB. SQL Server tiene un check de fragmentación LIMITED sobre la base conectada.
-- **Catalog** — Traffic es la vista principal. Structure es el grafo sin calor. Columns pide sólo el esquema: el nombre queda al centro y las tablas salen alrededor; cada tabla abre sus columnas y tipos. `/orm` redirige a Traffic.
+- **Catalog** — Traffic muestra llaves y calor juntos. Columns pone el esquema al centro y las tablas alrededor, cada una con columnas y tipos. `/orm` redirige a Traffic.
 - **Vacuum** — Missing ANALYZE lista las tablas del snapshot que nunca tuvieron ANALYZE ni autoanalyze. El check `never_analyzed` cubre el servidor, no sólo las 100 tablas del snapshot.
 - **Parque** (`/estate`) — inventario de flota en siete dominios: **Backups**, **Disco**, **Jobs**, **Replicación**, **Configuración**, **Licencias** y **Versiones**. Es la sección multi-motor: cubre PostgreSQL, MariaDB y SQL Server.
 - **Análisis** — cualquiera de las ~93 series del store en un gráfico de líneas: selector agrupado por familia con filtro de texto, **un gráfico por unidad** (mezclar sesiones y bytes en un eje aplasta la serie chica), desglose por etiqueta para una métrica sola y agregación entre etiquetas elegible. La selección viaja en la URL, así que el enlace *es* el gráfico.
@@ -724,7 +724,11 @@ De ahí salen las dos cosas que las vistas de estadísticas no tienen: el deadlo
 completo —con las dos consultas y quién ganó— y los errores de la aplicación.
 
 Lee de `journald` o de archivos, local o por SSH, en `jsonlog`, `csvlog` o
-`stderr`. Las entradas multilínea se rearman (un deadlock son varias líneas), se
+`stderr`. Si eso no está declarado, PostgreSQL igual intenta la cola del logfile
+con `pg_read_file` (ERROR, FATAL y PANIC, igual que el monitor de error log) y,
+si el rol no puede leer el archivo, cuenta deadlocks, conflicts y checksum
+failures de `pg_stat_database`. MariaDB y SQL Server ya leen su log por SQL.
+Las entradas multilínea se rearman (un deadlock son varias líneas), se
 clasifican y se agrupan por huella, así que 188 errores iguales son una fila y no
 188. Guarda un cursor por instancia para no releer lo mismo.
 
@@ -823,6 +827,8 @@ Cinco piezas pensadas para el DBA que vende diagnóstico, no dashboards:
 
 - Console copy is English (Búho brand kept).
 - **Add database** on the fleet page (Admin → Databases) writes `buho.monitor_targets`. The collector picks new targets every ~30s without a restart. `config.json` still works and wins on alias clash.
+- **Edit** a console target from the same page (password blank keeps the stored one). **Remove** also covers instances that only appear in the sidebar (file-based `config.json`): the alias is recorded in `buho.suppressed_aliases` so the collector does not bring it back. Restart the collector to stop a probe that is already running.
+- Alerts, events, estate flow, and security filter by engine and connection. Estate disk shows a growth projection after 2 days of size history, including on the overview. MariaDB and SQL Server security findings are written in English on the next audit.
 
 After pull: `BUHO_STORE_URL=... npm run migrate`
 

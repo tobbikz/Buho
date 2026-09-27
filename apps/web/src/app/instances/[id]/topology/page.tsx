@@ -50,7 +50,7 @@ export default async function TopologyPage({
   }>;
 }) {
   const { id } = await params;
-  const { d, snap, vista, q, schema: schemaParam, peso, v, capa } = await searchParams;
+  const { d, snap, vista, q, schema: schemaParam, peso, v } = await searchParams;
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
 
@@ -148,14 +148,9 @@ export default async function TopologyPage({
       { key: '24h', label: '24 h', minutes: 1440 },
       { key: '7d', label: '7 d', minutes: 10080 },
     ];
-    const layers: { key: OrmLayer; label: string }[] = [
-      { key: 'ambos', label: 'Both' },
-      { key: 'estructura', label: 'Keys only' },
-      { key: 'trafico', label: 'Heat only' },
-    ];
     const weight = (weights.find((entry) => entry.key === peso)?.key ?? 'rows') as FlowWeight;
     const window = windows.find((entry) => entry.key === v) ?? windows[2]!;
-    const layer = (layers.find((entry) => entry.key === capa)?.key ?? 'ambos') as OrmLayer;
+    const layer = 'ambos' as OrmLayer;
     const unit: Unit = weight === 'time' ? 'ms' : 'count';
     const link = (changes: Record<string, string> = {}) => {
       const query = new URLSearchParams({
@@ -219,7 +214,7 @@ export default async function TopologyPage({
             <div>
               <h1 className="page-title">Catalog · {instance.alias}</h1>
               <p className="page-sub">
-                Foreign keys with attributed traffic. Structure lists every schema and table without heat.
+                Foreign keys and traffic on the same graph. Columns is the schema with its tables around it.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-1">
@@ -248,16 +243,6 @@ export default async function TopologyPage({
             <div className="panel-header">
               <span className="panel-title">Traffic</span>
               <div className="flex flex-wrap items-center gap-1">
-                {layers.map((option) => (
-                  <Link
-                    key={option.key}
-                    href={link({ capa: option.key })}
-                    className={`tag ${option.key === layer ? 'tag--info' : 'tag--muted'}`}
-                  >
-                    {option.label}
-                  </Link>
-                ))}
-                <span className="mx-1 text-foreground-muted">·</span>
                 {weights.map((option) => (
                   <Link
                     key={option.key}
@@ -282,7 +267,6 @@ export default async function TopologyPage({
             <form action={`/instances/${instanceId}/topology`} className="border-b border-border">
               <div className="panel-body flex flex-wrap items-center gap-2">
                 <input type="hidden" name="vista" value="trafico" />
-                <input type="hidden" name="capa" value={layer} />
                 <input type="hidden" name="peso" value={weight} />
                 <input type="hidden" name="v" value={window.key} />
                 <label className="text-[11px] uppercase tracking-wide text-foreground-muted" htmlFor="catalog-schema">

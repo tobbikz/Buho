@@ -28,13 +28,13 @@ const WINDOWS = [
 ];
 
 const FILTERS: { key: string; label: string; kinds: LogKind[] }[] = [
-  { key: 'fallas', label: 'Fallas', kinds: FAILURE_KINDS },
+  { key: 'fallas', label: 'Failures', kinds: FAILURE_KINDS },
   { key: 'deadlocks', label: 'Deadlocks and locks', kinds: ['deadlock', 'lock_wait'] },
   { key: 'connections', label: 'Connections', kinds: ['connection'] },
-  { key: 'mantenimiento', label: 'Mantenimiento', kinds: ['checkpoint', 'autovacuum', 'temp_file'] },
+  { key: 'mantenimiento', label: 'Maintenance', kinds: ['checkpoint', 'autovacuum', 'temp_file'] },
   {
     key: 'todo',
-    label: 'Todo',
+    label: 'All',
     kinds: [
       'deadlock',
       'lock_wait',
@@ -75,13 +75,13 @@ function GroupRow({ group }: { group: LogGroup }) {
       <div className="log-group__body">
         <div className="log-group__meta">
           <span>
-            primera vez <span className="font-mono">{formatClock(group.firstAt)}</span>
+            first <span className="font-mono">{formatClock(group.firstAt)}</span>
           </span>
           <span>
-            última <span className="font-mono">{formatClock(group.lastAt)}</span>
+            last <span className="font-mono">{formatClock(group.lastAt)}</span>
           </span>
           <span>
-            nivel <span className="font-mono">{group.level}</span>
+            level <span className="font-mono">{group.level}</span>
           </span>
           {group.sqlstate && (
             <span>
@@ -89,7 +89,7 @@ function GroupRow({ group }: { group: LogGroup }) {
             </span>
           )}
           {group.databases.length > 0 && <span>database {group.databases.join(', ')}</span>}
-          {group.users.length > 0 && <span>rol {group.users.join(', ')}</span>}
+          {group.users.length > 0 && <span>role {group.users.join(', ')}</span>}
         </div>
 
         {group.detail && (
@@ -108,7 +108,7 @@ function GroupRow({ group }: { group: LogGroup }) {
 
         {group.context && (
           <div>
-            <div className="log-group__label">Contexto</div>
+            <div className="log-group__label">Context</div>
             <div className="query-block">{group.context}</div>
           </div>
         )}
@@ -209,9 +209,10 @@ export default async function LogsPage({
 
         {!coverage && (
           <div className="notice notice--warn">
-            <strong>This instance has no log reading configured.</strong> El colector no lee journald ni
-            files unless asked: set <span className="font-mono">logs</span> in config.json. See{' '}
-            <span className="font-mono">sql/monitor-user.sql</span> para las dos formas y lo que cada una necesita.
+            <strong>This instance has no log reading configured.</strong> The collector does not read
+            journald or files unless <span className="font-mono">logs</span> is set in config.json.
+            PostgreSQL still tries <span className="font-mono">pg_read_file</span> on the current logfile,
+            and falls back to deadlock, conflict, and checksum counters when that read is denied.
           </div>
         )}
 
@@ -229,7 +230,7 @@ export default async function LogsPage({
 
         <div className="stat-grid">
           <StatCard
-            label="Fatales"
+            label="Fatals"
             value={formatNumber(totals.fatal)}
             tone={totals.fatal > 0 ? 'error' : 'ok'}
             hint="session terminated by the server"
@@ -247,7 +248,7 @@ export default async function LogsPage({
             hint={totals.deadlock > 0 ? 'with correlated queries' : 'none in the window'}
           />
           <StatCard
-            label="Canceladas"
+            label="Cancelled"
             value={formatNumber(totals.cancelled)}
             tone={totals.cancelled > 0 ? 'warn' : 'ok'}
             hint="by timeout or intervention"
@@ -277,7 +278,7 @@ export default async function LogsPage({
               {window.label}
             </a>
           ))}
-          <span className="ml-3 text-[11px] uppercase tracking-wide text-foreground-muted">Tipo</span>
+          <span className="ml-3 text-[11px] uppercase tracking-wide text-foreground-muted">Type</span>
           {FILTERS.map((entry) => (
             <a
               key={entry.key}
@@ -296,17 +297,17 @@ export default async function LogsPage({
           unit="count"
           height={160}
           series={[
-            { metric: 'fatal', label: 'Fatales', color: '#b01818' },
+            { metric: 'fatal', label: 'Fatals', color: '#b01818' },
             { metric: 'error', label: 'Errors', color: '#c96a1b' },
             { metric: 'deadlock', label: 'Deadlocks', color: '#7b1fa2' },
-            { metric: 'cancelled', label: 'Canceladas', color: '#4a6fa5' },
+            { metric: 'cancelled', label: 'Cancelled', color: '#4a6fa5' },
           ]}
         />
 
         <section className="panel">
           <div className="panel-header">
             <span className="panel-title">
-              {filter.label} agrupadas · {groups.length}
+              {filter.label} grouped · {groups.length}
             </span>
             <span className="font-mono text-[10px] text-foreground-muted">most repeated first</span>
           </div>
