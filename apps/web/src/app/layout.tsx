@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { headers } from 'next/headers';
-import { IBM_Plex_Sans, JetBrains_Mono } from 'next/font/google';
+import localFont from 'next/font/local';
 import { ShellChrome } from '@/components/ShellChrome';
 import { authConfigured } from '@/lib/auth';
 import { defaultGroupKey, groupInstances } from '@/lib/grouping';
@@ -8,15 +8,20 @@ import { listInstances } from '@/lib/queries';
 import { currentSession } from '@/lib/session';
 import './globals.css';
 
-const plex = IBM_Plex_Sans({
-  subsets: ['latin'],
-  weight: ['400', '500', '600'],
+// Vendored so `next build` does not fetch fonts.google.com. Turbopack fails that
+// download with "next/font/google queries have exactly one entry".
+const plex = localFont({
+  src: [
+    { path: '../fonts/IBMPlexSans-Regular.woff2', weight: '400', style: 'normal' },
+    { path: '../fonts/IBMPlexSans-Medium.woff2', weight: '500', style: 'normal' },
+    { path: '../fonts/IBMPlexSans-SemiBold.woff2', weight: '600', style: 'normal' },
+  ],
   variable: '--font-plex',
   display: 'swap',
 });
 
-const jetbrains = JetBrains_Mono({
-  subsets: ['latin'],
+const jetbrains = localFont({
+  src: '../fonts/JetBrainsMono-Regular.woff2',
   variable: '--font-jetbrains',
   display: 'swap',
 });

@@ -66,7 +66,7 @@ npm run web                          # dev en http://localhost:3100
 docker compose up -d web             # o en contenedor, mismo puerto
 ```
 
-En dev la UI toma la URL del store de `config.json`; en producción exige `BUHO_STORE_URL`. La consola **sólo lee el store**: nunca abre conexiones contra las instancias monitoreadas.
+En dev la UI toma la URL del store de `config.json`; en producción exige `BUHO_STORE_URL`. La consola **sólo lee el store**: nunca abre conexiones contra las instancias monitoreadas. IBM Plex Sans y JetBrains Mono van en `apps/web/src/fonts` para que `next build` no descargue Google Fonts.
 
 Autenticación por contraseña única:
 
