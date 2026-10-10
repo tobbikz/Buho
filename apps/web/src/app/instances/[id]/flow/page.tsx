@@ -260,6 +260,80 @@ export default async function FlowPage({
           </div>
         </section>
 
+        <section className="panel flex h-full min-h-0 flex-col xl:col-span-1">
+          <div className="panel-header">
+            <span className="panel-title">When it is used · {heatOption.label}</span>
+            <div className="flex flex-wrap items-center gap-1">
+              {heatChoices.map((opcion) => (
+                <Link
+                  key={opcion.key}
+                  href={enlace({ calor: opcion.key })}
+                  className={`tag ${opcion.key === heatOption.key ? 'tag--info' : 'tag--muted'}`}
+                  title={opcion.hint}
+                >
+                  {opcion.label}
+                </Link>
+              ))}
+              <span className="mx-1 text-foreground-muted">·</span>
+              {(['avg', 'max'] as const).map((opcion) => (
+                <Link
+                  key={opcion}
+                  href={enlace({ agg: opcion })}
+                  className={`tag ${opcion === heatAgg ? 'tag--info' : 'tag--muted'}`}
+                  title={opcion === 'avg' ? 'what a typical hour looks like' : 'how bad it ever got at that hour'}
+                >
+                  {opcion === 'avg' ? 'typical' : 'worst case'}
+                </Link>
+              ))}
+              <span className="mx-1 text-foreground-muted">·</span>
+              {HEAT_WINDOWS.map((opcion) => (
+                <Link
+                  key={opcion.key}
+                  href={enlace({ cv: opcion.key })}
+                  className={`tag ${opcion.key === heatWindow.key ? 'tag--info' : 'tag--muted'}`}
+                >
+                  {opcion.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+          <div className="panel-body flex min-h-0 flex-1 flex-col">
+            {heat.cells.length === 0 ? (
+              <div className="empty">
+                {heatOption.key === 'batch' && engine === 'postgres'
+                  ? 'PostgreSQL does not publish Batch Requests/sec. That counter is SQL Server and MariaDB. Transactions and writes are the load on this server.'
+                  : `No rollups yet for ${heatOption.label.toLowerCase()}. Five-minute buckets fill this grid; the first cells appear a few minutes after the collector starts.`}
+              </div>
+            ) : (
+              <>
+                <Heatmap cells={heat.cells} max={heat.max} unit={unidadCalor} minSamples={2} fill />
+                <p className="mt-3 text-[12px]">
+                  {cargada && (
+                    <>
+                      Busiest hour is{' '}
+                      <strong>
+                        {WEEKDAY_LABEL[cargada.weekday]} at {String(cargada.hour).padStart(2, '0')}:00
+                      </strong>{' '}
+                      with {formatoCalor(cargada.value)}
+                      {tranquila && (
+                        <>
+                          , and quietest is{' '}
+                          <strong>
+                            {WEEKDAY_LABEL[tranquila.weekday]} at {String(tranquila.hour).padStart(2, '0')}:00
+                          </strong>{' '}
+                          with {formatoCalor(tranquila.value)} — a good maintenance window
+                        </>
+                      )}
+                      .
+                    </>
+                  )}
+                </p>
+              </>
+            )}
+          </div>
+        </section>
+        </div>
+
         <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-3">
           <section className="panel xl:col-span-2">
             <div className="panel-header">

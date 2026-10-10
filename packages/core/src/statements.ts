@@ -56,12 +56,7 @@ function statementsSql(caps: Capabilities): string {
            s.toplevel,
            d.datname                      as database,
            r.rolname                      as username,
-           left(s.query, 4000)            as query,
-           -- Un texto cortado no se puede explicar ni leer entero, y hay que
-           -- decirlo en vez de mostrarlo como si estuviera completo. El corte es
-           -- nuestro: los INSERT generados de un pipeline llegan a megabytes y
-           -- guardarlos completos inflaría el store sin que nadie los lea.
-           length(s.query) > 4000         as truncated,
+           s.query,
            s.calls, s.total_exec_time     as exec_ms, s.rows,
            s.shared_blks_hit              as shared_hit,
            s.shared_blks_read             as shared_read,
@@ -138,7 +133,7 @@ export class StatementTracker {
         username: (row['username'] as string | null) ?? null,
         toplevel: row['toplevel'] !== false,
         query: String(row['query'] ?? '').trim(),
-        truncated: row['truncated'] === true,
+        truncated: false,
         calls,
         execMs: Math.max(0, current.execMs - previous.execMs),
         rows: Math.max(0, current.rows - previous.rows),

@@ -88,8 +88,8 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
       unverifiable(
         'maria_accounts',
         'autenticacion',
-        'Cuentas y método de autenticación',
-        'Requiere SELECT sobre la tabla mysql.user: grant select on mysql.user to \'buho_monitor\'@\'…\'. Sin esto no se puede detectar cuentas sin contraseña ni hashes débiles.',
+        'Accounts and authentication method',
+        "Requires SELECT on mysql.user: grant select on mysql.user to 'buho_monitor'@'…'. Without it, blank passwords and weak hashes cannot be detected.",
         users.error,
       ),
     );
@@ -123,7 +123,7 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
       }
 
       principals.push({
-        name: user || '(anónimo)',
+        name: user || '(anonymous)',
         kind: isRole ? 'rol' : 'login',
         host,
         canLogin: !isRole && !locked,
@@ -157,13 +157,13 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
         checkId: 'maria_blank_password',
         category: 'autenticacion',
         severity: 'critica',
-        title: 'Cuentas activas sin contraseña',
-        detail: `${blank.length} cuenta(s) pueden iniciar sesión sin contraseña: ${blank.join(', ')}.`,
-        remediation: "Asignar contraseña con ALTER USER … IDENTIFIED VIA ed25519 USING PASSWORD('…'), o bloquear la cuenta con ACCOUNT LOCK.",
+        title: 'Active accounts with no password',
+        detail: `${blank.length} account(s) can sign in with no password: ${blank.join(', ')}.`,
+        remediation: "Set a password with ALTER USER … IDENTIFIED VIA ed25519 USING PASSWORD('…'), or lock the account with ACCOUNT LOCK.",
         evidence: { cuentas: blank },
       });
     } else {
-      findings.push(ok('maria_blank_password', 'autenticacion', 'Cuentas sin contraseña', 'Ninguna cuenta activa sin contraseña.'));
+      findings.push(ok('maria_blank_password', 'autenticacion', 'Accounts with no password', 'No active account has an empty password.'));
     }
 
     if (anonymous.length > 0) {
@@ -171,8 +171,8 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
         checkId: 'maria_anonymous',
         category: 'acceso_publico',
         severity: 'critica',
-        title: 'Usuario anónimo habilitado',
-        detail: `Existe la cuenta anónima ${anonymous.join(', ')}: permite conectar sin nombre de usuario.`,
+        title: 'Anonymous account enabled',
+        detail: `Anonymous account ${anonymous.join(', ')} exists: it allows a connection with no user name.`,
         remediation: "drop user ''@'localhost'; — o ejecutar mariadb-secure-installation.",
         evidence: { cuentas: anonymous },
       });
@@ -183,10 +183,10 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
         checkId: 'maria_super_any_host',
         category: 'privilegios',
         severity: 'critica',
-        title: 'Cuenta con SUPER alcanzable desde cualquier host',
-        detail: `${wideOpen.join(', ')} ${wideOpen.length === 1 ? 'tiene' : 'tienen'} el privilegio SUPER y su host es '%', es decir cualquier origen. Con SUPER se puede apagar el servidor, cambiar cualquier variable y leer todo.`,
+        title: 'SUPER account reachable from any host',
+        detail: `${wideOpen.join(', ')} ${wideOpen.length === 1 ? 'has' : 'have'} the SUPER privilege and host '%', so any origin can connect. SUPER can shut the server down, change any variable, and read everything.`,
         remediation:
-          "Limitar el host a las redes que lo necesitan: rename user 'root'@'%' to 'root'@'10.0.0.%'; y dejar el acceso administrativo por socket local.",
+          "Limit the host to the networks that need it: rename user 'root'@'%' to 'root'@'10.0.0.%'; and keep administrative access on the local socket.",
         evidence: { cuentas: wideOpen },
       });
     }
@@ -198,13 +198,13 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
         severity: AUTH_RISK[plugin] === 'critica' ? 'critica' : 'alta',
         title:
           plugin === 'mysql_old_password'
-            ? 'Hash de contraseña previo a MySQL 4.1'
-            : `Plugin de autenticación débil: ${plugin || 'sin definir'}`,
+            ? 'Password hash from before MySQL 4.1'
+            : `Weak authentication plugin: ${plugin || 'unset'}`,
         detail:
           plugin === 'mysql_old_password'
-            ? `${accounts.length} cuenta(s) usan mysql_old_password, un hash de 16 bytes roto desde hace dos décadas: ${accounts.join(', ')}.`
-            : `${accounts.length} cuenta(s) usan ${plugin}, que es SHA1 doble sin sal: dos cuentas con la misma contraseña producen el mismo hash y se atacan con tablas precalculadas. Cuentas: ${accounts.join(', ')}.`,
-        remediation: "Migrar a ed25519: alter user … identified via ed25519 using password('…');",
+            ? `${accounts.length} account(s) use mysql_old_password, a 16-byte hash broken for two decades: ${accounts.join(', ')}.`
+            : `${accounts.length} account(s) use ${plugin}, which is unsalted double SHA1: two accounts with the same password share a hash and can be attacked with precomputed tables. Accounts: ${accounts.join(', ')}.`,
+        remediation: "Move to ed25519: alter user … identified via ed25519 using password('…');",
         evidence: { plugin, cuentas: accounts },
       });
     }
@@ -215,10 +215,10 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
         checkId: 'maria_user_ssl',
         category: 'cifrado',
         severity: 'media',
-        title: 'Ninguna cuenta exige TLS',
+        title: 'No account requires TLS',
         detail:
-          'Ninguna cuenta tiene REQUIRE SSL ni REQUIRE X509, así que todas pueden conectarse en claro aunque el servidor soporte TLS.',
-        remediation: "alter user … require ssl; para las cuentas que entran por red.",
+          'No account has REQUIRE SSL or REQUIRE X509, so every account can connect in clear text even when the server supports TLS.',
+        remediation: 'alter user … require ssl; for accounts that connect over the network.',
         evidence: {},
       });
     }
@@ -235,7 +235,7 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
 
   if (vars.error) {
     findings.push(
-      unverifiable('maria_variables', 'cifrado', 'Variables de seguridad', 'Requiere lectura de variables globales.', vars.error),
+      unverifiable('maria_variables', 'cifrado', 'Security variables', 'Requires permission to read global variables.', vars.error),
     );
   } else {
     const row = vars.rows[0] ?? {};
@@ -247,9 +247,9 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
         checkId: 'maria_no_tls',
         category: 'cifrado',
         severity: 'alta',
-        title: 'El servidor no tiene TLS disponible',
-        detail: 'have_ssl no es YES: no hay certificado configurado, así que ninguna conexión puede cifrarse.',
-        remediation: 'Configurar ssl_cert, ssl_key y ssl_ca en el archivo de configuración y reiniciar.',
+        title: 'TLS is not available on the server',
+        detail: 'have_ssl is not YES: no certificate is configured, so no connection can be encrypted.',
+        remediation: 'Set ssl_cert, ssl_key, and ssl_ca in the configuration file and restart.',
         evidence: { have_ssl: row['have_ssl'] },
       });
     } else if (!requireSsl) {
@@ -257,14 +257,14 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
         checkId: 'maria_tls_not_required',
         category: 'cifrado',
         severity: 'alta',
-        title: 'TLS disponible pero no obligatorio',
+        title: 'TLS is available but not required',
         detail:
-          'El servidor soporta TLS pero require_secure_transport = 0: un cliente puede conectarse en claro y las credenciales viajan expuestas. Tener el certificado instalado no protege nada por sí solo.',
-        remediation: 'Poner require_secure_transport = ON, tras verificar que todos los clientes soportan TLS.',
+          'The server supports TLS but require_secure_transport = 0: a client can connect in clear text and credentials travel exposed. Installing a certificate does not protect anything by itself.',
+        remediation: 'Set require_secure_transport = ON after confirming every client supports TLS.',
         evidence: { require_secure_transport: 0 },
       });
     } else {
-      findings.push(ok('maria_tls_not_required', 'cifrado', 'TLS obligatorio', 'require_secure_transport = ON.'));
+      findings.push(ok('maria_tls_not_required', 'cifrado', 'TLS required', 'require_secure_transport = ON.'));
     }
 
     // NULL desactiva por completo la importación y exportación de archivos, así
@@ -273,22 +273,22 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
     const secureFilePriv = row['secure_file_priv'];
     if (secureFilePriv === null || secureFilePriv === undefined) {
       findings.push(
-        ok('maria_secure_file_priv', 'superficie', 'Importación de archivos', 'secure_file_priv es NULL: LOAD DATA INFILE y SELECT … INTO OUTFILE están deshabilitados.'),
+        ok('maria_secure_file_priv', 'superficie', 'File import', 'secure_file_priv is NULL: LOAD DATA INFILE and SELECT … INTO OUTFILE are disabled.'),
       );
     } else if (String(secureFilePriv) === '') {
       findings.push({
         checkId: 'maria_secure_file_priv',
         category: 'superficie',
         severity: 'alta',
-        title: 'Lectura y escritura de archivos sin restricción',
+        title: 'Unrestricted file read and write',
         detail:
-          'secure_file_priv está vacío: cualquier cuenta con el privilegio FILE puede leer y escribir archivos en cualquier ruta del servidor, incluido /etc/passwd o las claves SSH.',
-        remediation: 'Poner secure_file_priv = NULL para deshabilitarlo, o apuntarlo a un directorio dedicado.',
+          'secure_file_priv is empty: any account with the FILE privilege can read and write files anywhere on the server, including /etc/passwd or SSH keys.',
+        remediation: 'Set secure_file_priv = NULL to disable it, or point it at a dedicated directory.',
         evidence: { secure_file_priv: '' },
       });
     } else {
       findings.push(
-        ok('maria_secure_file_priv', 'superficie', 'Importación de archivos', `Restringida a ${secureFilePriv}.`),
+        ok('maria_secure_file_priv', 'superficie', 'File import', `Restricted to ${secureFilePriv}.`),
       );
     }
 
@@ -297,14 +297,14 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
         checkId: 'maria_local_infile',
         category: 'superficie',
         severity: 'media',
-        title: 'LOAD DATA LOCAL INFILE habilitado',
+        title: 'LOAD DATA LOCAL INFILE enabled',
         detail:
-          'local_infile = 1. Un servidor malicioso (o uno suplantado) puede pedirle al cliente que le envíe cualquier archivo local al que ese cliente tenga acceso.',
-        remediation: 'Poner local_infile = 0 salvo que algún proceso de carga lo necesite de verdad.',
+          'local_infile = 1. A malicious or impersonated server can ask the client to send any local file that client can read.',
+        remediation: 'Set local_infile = 0 unless a load job truly needs it.',
         evidence: { local_infile: 1 },
       });
     } else {
-      findings.push(ok('maria_local_infile', 'superficie', 'LOAD DATA LOCAL INFILE', 'Deshabilitado.'));
+      findings.push(ok('maria_local_infile', 'superficie', 'LOAD DATA LOCAL INFILE', 'Disabled.'));
     }
 
     if (String(row['general_log'] ?? '0') === '1') {
@@ -312,10 +312,10 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
         checkId: 'maria_general_log',
         category: 'auditoria',
         severity: 'media',
-        title: 'El registro general está activo',
+        title: 'The general log is on',
         detail:
-          'general_log = 1 escribe todas las sentencias, incluidas las que contienen contraseñas en texto plano de sentencias como CREATE USER. Además cuesta rendimiento.',
-        remediation: 'Apagar general_log y usar el plugin server_audit, que filtra y rota de forma pensada para auditoría.',
+          'general_log = 1 writes every statement, including passwords in clear text from statements such as CREATE USER. It also costs performance.',
+        remediation: 'Turn general_log off and use the server_audit plugin, which filters and rotates for audit.',
         evidence: { general_log: 1 },
       });
     }
@@ -343,14 +343,14 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
         checkId: 'maria_audit_plugin',
         category: 'auditoria',
         severity: 'media',
-        title: 'Sin plugin de auditoría',
+        title: 'No audit plugin',
         detail:
-          'server_audit no está activo: no hay registro de quién se conectó ni qué ejecutó. Después de un incidente no habrá nada que revisar.',
-        remediation: "install plugin server_audit soname 'server_audit'; y configurar server_audit_events y la rotación.",
+          'server_audit is not active: there is no record of who connected or what they ran. After an incident there will be nothing to review.',
+        remediation: "install plugin server_audit soname 'server_audit'; and set server_audit_events and rotation.",
         evidence: {},
       });
     } else {
-      findings.push(ok('maria_audit_plugin', 'auditoria', 'Plugin de auditoría', 'Activo.'));
+      findings.push(ok('maria_audit_plugin', 'auditoria', 'Audit plugin', 'Active.'));
     }
 
     if (!hasValidation) {
@@ -358,10 +358,9 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
         checkId: 'maria_password_validation',
         category: 'autenticacion',
         severity: 'baja',
-        title: 'Sin validación de contraseñas',
-        detail:
-          'No hay plugin de validación activo: nada impide crear una cuenta con la contraseña "123456".',
-        remediation: "install soname 'simple_password_check'; y ajustar su longitud mínima y variedad de caracteres.",
+        title: 'No password validation',
+        detail: 'No validation plugin is active: nothing stops an account from being created with the password "123456".',
+        remediation: "install soname 'simple_password_check'; and set its minimum length and character variety.",
         evidence: {},
       });
     }
@@ -376,9 +375,8 @@ export async function auditMariadb(client: EngineClient): Promise<SecurityAudit>
       checkId: 'maria_test_schema',
       category: 'acceso_publico',
       severity: 'baja',
-      title: 'La base de datos "test" existe',
-      detail:
-        'La base test viene de las instalaciones antiguas y tradicionalmente es accesible por cualquier cuenta.',
+      title: 'The "test" database exists',
+      detail: 'The test database comes from old installs and has traditionally been reachable by any account.',
       remediation: 'drop database test;',
       evidence: {},
     });

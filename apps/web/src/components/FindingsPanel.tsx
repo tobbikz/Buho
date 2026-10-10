@@ -12,6 +12,8 @@ export interface FindingView {
   remediation: string;
 }
 
+const SEVERITY_ORDER: Severity[] = ['critical', 'warning', 'info'];
+
 const SEVERITY_LABEL: Record<Severity, string> = {
   critical: 'Critical',
   warning: 'Warning',
@@ -24,6 +26,12 @@ const SEVERITY_TAG: Record<Severity, string> = {
   info: 'tag--info',
 };
 
+const SEVERITY_STRIPE: Record<Severity, string> = {
+  critical: 'check-card--critical',
+  warning: 'check-card--warning',
+  info: 'check-card--info',
+};
+
 type Filter = Severity | 'all';
 
 const PAGE_SIZE = 10;
@@ -32,11 +40,8 @@ export function FindingsPanel({ findings, checkedAt }: { findings: FindingView[]
   const [filter, setFilter] = useState<Filter>('all');
   const [page, setPage] = useState(0);
 
-  const counts = useMemo(() => {
-    const base: Record<Severity, number> = { critical: 0, warning: 0, info: 0 };
-    for (const finding of findings) base[finding.severity] += 1;
-    return base;
-  }, [findings]);
+  const counts = { critical: 0, warning: 0, info: 0 };
+  for (const finding of findings) counts[finding.severity] += 1;
 
   const visible = useMemo(
     () => (filter === 'all' ? findings : findings.filter((finding) => finding.severity === filter)),
@@ -68,7 +73,7 @@ export function FindingsPanel({ findings, checkedAt }: { findings: FindingView[]
       <div className="panel-header">
         <span className="panel-title">Findings</span>
         <div className="flex items-center gap-2">
-          {checkedAt && <span className="font-mono text-[10px] text-foreground-muted">run {checkedAt}</span>}
+          {checkedAt ? <span className="font-mono text-[10px] text-foreground-muted">run {checkedAt}</span> : null}
           <div className="flex items-center gap-1">
             {chip('all', `All ${findings.length}`)}
             {chip('critical', `Critical ${counts.critical}`)}
@@ -78,11 +83,9 @@ export function FindingsPanel({ findings, checkedAt }: { findings: FindingView[]
         </div>
       </div>
 
-      {visible.length === 0 ? (
+      {sections.length === 0 ? (
         <div className="empty">
-          {findings.length === 0
-            ? 'No findings in the last check run.'
-            : 'No findings at that severity.'}
+          {findings.length === 0 ? 'No findings in the last check run.' : 'No findings at that severity.'}
         </div>
       ) : (
         <>

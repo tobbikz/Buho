@@ -20,6 +20,8 @@ interface SimNode {
   label: string;
   x: number;
   y: number;
+  homeX: number;
+  homeY: number;
   vx: number;
   vy: number;
   r: number;
@@ -111,6 +113,168 @@ function drawLabelPill(
   ctx.fillText(text, x, y);
 }
 
+function clusterRadius(tableCount: number, hubRadius: number): number {
+  return hubRadius + 22 + Math.sqrt(Math.max(tableCount, 1)) * 26;
+}
+
+/** Schemas sit on a ring; each schema's tables sit in a sunflower around it. */
+function seedLayout(nodes: SimNode[], width: number, height: number): void {
+  const schemas = nodes.filter((node) => node.kind === 'schema');
+  const bySchema = new Map<string, SimNode[]>();
+  for (const table of nodes) {
+    if (table.kind !== 'table') continue;
+    const key = table.data.schema ?? '';
+    const list = bySchema.get(key);
+    if (list) list.push(table);
+    else bySchema.set(key, [table]);
+  }
+
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  const clusters = schemas.map((schema) => {
+    const members = bySchema.get(schema.label) ?? [];
+    return { schema, members, radius: clusterRadius(members.length, schema.r) };
+  });
+  const placed = new Set(clusters.flatMap((cluster) => cluster.members.map((member) => member.id)));
+  const orphans = nodes.filter((node) => node.kind === 'table' && !placed.has(node.id));
+
+  const cx = width / 2;
+  const cy = height / 2;
+  const padding = 56;
+  const orbit =
+    clusters.length <= 1
+      ? 0
+      : Math.max(
+          240,
+          clusters.reduce((sum, cluster) => sum + cluster.radius * 2 + padding, 0) / (2 * Math.PI),
+        );
+
+  let theta = -Math.PI / 2;
+  for (const cluster of clusters) {
+    const arc = clusters.length <= 1 ? 0 : (cluster.radius * 2 + padding) / Math.max(orbit, 1);
+    const angle = clusters.length <= 1 ? 0 : theta + arc / 2;
+    cluster.schema.x = cx + Math.cos(angle) * orbit;
+    cluster.schema.y = cy + Math.sin(angle) * orbit;
+    cluster.members.forEach((table, index) => {
+      const ang = index * golden;
+      const rad = cluster.schema.r + 18 + Math.sqrt(index + 1) * (table.r * 2.2 + 8);
+      table.x = cluster.schema.x + Math.cos(ang) * rad;
+      table.y = cluster.schema.y + Math.sin(ang) * rad;
+    });
+    theta += arc;
+  }
+
+  orphans.forEach((table, index) => {
+    const ang = index * golden;
+    const rad = 90 + Math.sqrt(index + 1) * 30;
+    table.x = cx + Math.cos(ang) * rad;
+    table.y = cy + Math.sin(ang) * rad;
+  });
+}
+
+/**
+ * A few capped steps to separate overlaps and let foreign keys tug neighbors.
+ * No stored velocity: the old integrator kept full-strength springs forever, and
+ * with hundreds of tables the motion never dropped under the settle threshold.
+ */
+function relaxLayout(nodes: SimNode[], links: { source: string; target: string; kind: string }[]): void {
+  const steps = nodes.length > 220 ? 8 : 16;
+  const cell = 80;
+  const index = new Map(nodes.map((node) => [node.id, node]));
+
+  for (const node of nodes) {
+    node.homeX = node.x;
+    node.homeY = node.y;
+  }
+
+  for (let step = 0; step < steps; step += 1) {
+    for (const link of links) {
+      if (link.kind !== 'fk') continue;
+      const a = index.get(link.source);
+      const b = index.get(link.target);
+      if (!a || !b) continue;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const target = 140 + a.r + b.r;
+      const delta = Math.max(-1.2, Math.min(1.2, (dist - target) * 0.01));
+      const ux = dx / dist;
+      const uy = dy / dist;
+      a.x += ux * delta;
+      a.y += uy * delta;
+      b.x -= ux * delta;
+      b.y -= uy * delta;
+    }
+
+    for (const node of nodes) {
+      node.x += (node.homeX - node.x) * 0.45;
+      node.y += (node.homeY - node.y) * 0.45;
+    }
+
+    const bins = new Map<string, SimNode[]>();
+    for (const node of nodes) {
+      const key = `${Math.floor(node.x / cell)}:${Math.floor(node.y / cell)}`;
+      const bin = bins.get(key);
+      if (bin) bin.push(node);
+      else bins.set(key, [node]);
+    }
+
+    for (const node of nodes) {
+      const gx = Math.floor(node.x / cell);
+      const gy = Math.floor(node.y / cell);
+      for (let ox = -1; ox <= 1; ox += 1) {
+        for (let oy = -1; oy <= 1; oy += 1) {
+          const bin = bins.get(`${gx + ox}:${gy + oy}`);
+          if (!bin) continue;
+          for (const other of bin) {
+            if (other.id <= node.id) continue;
+            const dx = other.x - node.x;
+            const dy = other.y - node.y;
+            const dist = Math.hypot(dx, dy) || 0.01;
+            const gap = node.kind === 'schema' || other.kind === 'schema' ? 20 : 8;
+            const minDist = node.r + other.r + gap;
+            if (dist >= minDist) continue;
+            const push = Math.min((minDist - dist) * 0.5, 3);
+            const ux = dx / dist;
+            const uy = dy / dist;
+            node.x -= ux * push;
+            node.y -= uy * push;
+            other.x += ux * push;
+            other.y += uy * push;
+          }
+        }
+      }
+    }
+  }
+
+  for (const node of nodes) {
+    node.vx = 0;
+    node.vy = 0;
+    node.homeX = node.x;
+    node.homeY = node.y;
+  }
+}
+
+function fitViewport(nodes: SimNode[], width: number, height: number): Viewport {
+  if (nodes.length === 0) return { scale: 1, tx: 0, ty: 0 };
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const node of nodes) {
+    minX = Math.min(minX, node.x - node.r);
+    minY = Math.min(minY, node.y - node.r);
+    maxX = Math.max(maxX, node.x + node.r);
+    maxY = Math.max(maxY, node.y + node.r);
+  }
+  const pad = 48;
+  const spanX = Math.max(maxX - minX + pad * 2, 1);
+  const spanY = Math.max(maxY - minY + pad * 2, 1);
+  const scale = Math.min(1, width / spanX, height / spanY);
+  const midX = (minX + maxX) / 2;
+  const midY = (minY + maxY) / 2;
+  return { scale, tx: width / 2 - midX * scale, ty: height / 2 - midY * scale };
+}
+
 function tableBorderColor(node: OrmNode, capa: OrmLayer): string {
   if (capa === 'estructura') return 'rgba(120, 132, 148, 0.55)';
   const write = node.writeHeat;
@@ -137,7 +301,7 @@ export function OrmGraph({
   const viewportRef = useRef<Viewport>({ scale: 1, tx: 0, ty: 0 });
   const dragRef = useRef<{ kind: 'pan' | 'node'; nodeId?: string; ox: number; oy: number } | null>(null);
   const animRef = useRef(0);
-  const settledRef = useRef(0);
+  const viewHomeRef = useRef<Viewport>({ scale: 1, tx: 0, ty: 0 });
 
   const [selected, setSelected] = useState<OrmTable | null>(null);
   const [hover, setHover] = useState<OrmTable | null>(null);
@@ -145,6 +309,7 @@ export function OrmGraph({
   const hoverRef = useRef<OrmTable | null>(null);
   const layerRef = useRef(layer);
   const [search, setSearch] = useState('');
+  const [schemaFilter, setSchemaFilter] = useState('all');
   const searchRef = useRef('');
 
   const linkIndex = useMemo(() => model.links, [model.links]);
@@ -168,7 +333,6 @@ export function OrmGraph({
 
     const w = canvas.clientWidth || 800;
     const h = canvas.clientHeight || 520;
-    const golden = Math.PI * (3 - Math.sqrt(5));
 
     const schemas = model.nodes.filter((n) => n.kind === 'schema');
     const tables = model.nodes.filter((n) => n.kind === 'table');
@@ -230,8 +394,11 @@ export function OrmGraph({
       };
     });
 
-    viewportRef.current = { scale: 1, tx: 0, ty: 0 };
-    settledRef.current = 0;
+    seedLayout(nodesRef.current, w, h);
+    relaxLayout(nodesRef.current, linkIndex);
+    const fitted = fitViewport(nodesRef.current, w, h);
+    viewHomeRef.current = fitted;
+    viewportRef.current = { ...fitted };
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -471,7 +638,8 @@ export function OrmGraph({
       ctx.translate(v.tx, v.ty);
       ctx.scale(v.scale, v.scale);
 
-      const ids = nodeById();
+      const ids = new Map<string, SimNode>();
+      for (const node of nodes) ids.set(node.id, node);
 
       for (const link of linkIndex) {
         if (capa === 'estructura' && link.kind === 'traffic') continue;
@@ -681,13 +849,14 @@ export function OrmGraph({
   };
 
   const resetView = () => {
-    viewportRef.current = { scale: 1, tx: 0, ty: 0 };
+    viewportRef.current = { ...viewHomeRef.current };
     for (const n of nodesRef.current) {
-      n.pinned = false;
+      n.x = n.homeX;
+      n.y = n.homeY;
       n.vx = 0;
       n.vy = 0;
+      n.pinned = false;
     }
-    settledRef.current = 0;
   };
 
   const foco = selected ?? hover;
@@ -715,6 +884,18 @@ export function OrmGraph({
 
         <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3">
           <div className="pointer-events-auto flex flex-wrap items-center gap-2">
+            <select
+              value={schemaFilter}
+              onChange={(event) => setSchemaFilter(event.target.value)}
+              className="rounded-[3px] border border-border bg-[var(--surface)] px-2 py-1 font-mono text-[10px]"
+            >
+              <option value="all">All schemas</option>
+              {model.schemas.map((schema) => (
+                <option key={schema.name} value={schema.name}>
+                  {schema.name} ({schema.tableCount})
+                </option>
+              ))}
+            </select>
             <input
               type="search"
               value={search}

@@ -169,7 +169,7 @@ const databaseSizes: MetricCollector = {
 
 const wraparound: MetricCollector = {
   id: 'wraparound',
-  tier: 'hourly',
+  tier: 'slow',
   description: 'Edad de los XID frente a autovacuum_freeze_max_age',
   sql: () => `
     select datname,
@@ -281,21 +281,57 @@ const tableActivity: MetricCollector = {
 const tableSizes: MetricCollector = {
   id: 'table_sizes',
   tier: 'slow',
-  description: 'Tablas más grandes de la base conectada',
-  sql: () => `
+  description: 'Tablas más grandes de la base conectada, con las particiones sumadas en el padre',
+  sql: (caps) => {
+    // pg_partition_tree exists since PostgreSQL 12. Leaves are the relations
+    // that actually store rows, so a monthly partition is not its own table.
+    const sizeExpr =
+      caps.versionNum >= 120_000
+        ? `coalesce((
+             select sum(pg_total_relation_size(t.relid))
+               from pg_partition_tree(c.oid) t
+              where t.isleaf
+           ), 0)`
+        : `pg_total_relation_size(c.oid) + coalesce((
+             select sum(pg_total_relation_size(i.inhrelid))
+               from pg_inherits i
+              where i.inhparent = c.oid
+           ), 0)`;
+    const indexExpr =
+      caps.versionNum >= 120_000
+        ? `coalesce((
+             select sum(pg_indexes_size(t.relid))
+               from pg_partition_tree(c.oid) t
+              where t.isleaf
+           ), 0)`
+        : `pg_indexes_size(c.oid) + coalesce((
+             select sum(pg_indexes_size(i.inhrelid))
+               from pg_inherits i
+              where i.inhparent = c.oid
+           ), 0)`;
+    const partsExpr =
+      caps.versionNum >= 120_000
+        ? `(select count(*) from pg_partition_tree(c.oid) t where t.relid <> c.oid)`
+        : `(select count(*) from pg_inherits i where i.inhparent = c.oid)`;
+    return `
     select n.nspname as schema, c.relname as table,
-           pg_total_relation_size(c.oid) as total_bytes,
-           pg_indexes_size(c.oid)        as index_bytes
+           ${sizeExpr}  as total_bytes,
+           ${indexExpr} as index_bytes,
+           ${partsExpr} as partitions
       from pg_class c
       join pg_namespace n on n.oid = c.relnamespace
      where c.relkind in ('r', 'p')
+       and not c.relispartition
        and n.nspname not in ('pg_catalog', 'information_schema')
-     order by pg_total_relation_size(c.oid) desc
-     limit 20`,
+     order by 3 desc
+     limit 20`;
+  },
   toSamples: (rows) => {
     const samples: Sample[] = [];
     for (const row of rows) {
-      const labels = { schema: str(row['schema']), table: str(row['table']) };
+      const parts = num(row['partitions']);
+      const labels: Record<string, string> = { schema: str(row['schema']), table: str(row['table']) };
+      if (parts > 1) labels['partitions'] = String(parts);
       samples.push({ metric: 'table_total_bytes', value: num(row['total_bytes']), labels });
       samples.push({ metric: 'table_index_bytes', value: num(row['index_bytes']), labels });
     }
@@ -366,6 +402,63 @@ const replicationStandby: MetricCollector = {
     // Sin actividad en el primario, el "retraso" crece aunque no falte nada por
     // aplicar. Los bytes pendientes son lo que distingue un standby atrasado de
     // uno al día en un sistema quieto, y por eso ambos se guardan.
+    return samples;
+  },
+};
+
+/**
+ * Suscripciones lógicas vistas desde el suscriptor.
+ *
+ * Los slots viven en el publicador. Un servidor que sólo recibe (logical
+ * replication) tiene `pg_stat_subscription` y cero slots: decir "no hay
+ * réplica" es falso. `pid` vacío es el apply worker caído — el mismo síntoma
+ * que "apply worker pid is empty".
+ */
+const logicalSubscriptions: MetricCollector = {
+  id: 'logical_subscriptions',
+  tier: 'normal',
+  description: 'Suscripciones lógicas y si el apply worker está vivo',
+  sql: () => `
+    select subname,
+           bool_or(pid is not null) as worker_up,
+           max(latest_end_time) as latest_end_time,
+           max(pg_wal_lsn_diff(received_lsn, latest_end_lsn))
+             filter (where received_lsn is not null and latest_end_lsn is not null) as pending_bytes
+      from pg_stat_subscription
+     group by subname`,
+  toSamples: (rows) => {
+    const samples: Sample[] = [{ metric: 'replication_subscriptions_total', value: rows.length }];
+    for (const row of rows) {
+      const labels = { subscription: str(row['subname']) };
+      const up = row['worker_up'] === true;
+      samples.push({ metric: 'replication_subscription_worker', value: up ? 1 : 0, labels });
+      const pending = row['pending_bytes'];
+      const pendingBytes = pending === null || pending === undefined ? null : num(pending);
+      if (pendingBytes !== null) {
+        samples.push({
+          metric: 'replication_subscription_pending_bytes',
+          value: Math.max(0, pendingBytes),
+          labels,
+        });
+      }
+      // Caught up means the apply LSN has reached the received LSN. Clock
+      // distance from latest_end_time grows on an idle publisher and is not lag.
+      if (pendingBytes === 0) {
+        samples.push({ metric: 'replication_subscription_lag_seconds', value: 0, labels });
+        continue;
+      }
+      if (pendingBytes !== null && pendingBytes > 0) {
+        const ended = row['latest_end_time'];
+        const at = ended instanceof Date ? ended : ended ? new Date(String(ended)) : null;
+        if (at && !Number.isNaN(at.getTime())) {
+          samples.push({
+            metric: 'replication_subscription_lag_seconds',
+            value: Math.max(0, (Date.now() - at.getTime()) / 1000),
+            labels,
+          });
+        }
+      }
+    }
     return samples;
   },
 };
@@ -496,6 +589,7 @@ export const COLLECTORS: MetricCollector[] = [
   replication,
   replicationStandby,
   replicationSlots,
+  logicalSubscriptions,
   wal,
   checkpointer,
   io,

@@ -315,11 +315,16 @@ export function OperationBars({
     select: '#4b5563',
   };
   const ORDEN = ['insert', 'copy', 'update', 'delete', 'truncate', 'select'];
+  const pageSize = 8;
+  const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const [page, setPage] = useState(0);
+  const current = Math.min(page, pages - 1);
+  const visible = rows.slice(current * pageSize, current * pageSize + pageSize);
   const maximo = Math.max(...rows.map((fila) => fila.total), 1);
 
   return (
     <div className="flex flex-col gap-1.5">
-      {rows.map((fila) => (
+      {visible.map((fila) => (
         <div key={fila.relation}>
           <div className="flex items-baseline justify-between">
             <span className="font-mono text-[11px]">{fila.relation}</span>
@@ -356,6 +361,24 @@ export function OperationBars({
           </Fragment>
         ))}
       </div>
+      {pages > 1 ? (
+        <div className="mt-2 flex items-center gap-2">
+          <button type="button" className="btn-secondary" disabled={current <= 0} onClick={() => setPage(current - 1)}>
+            Previous
+          </button>
+          <span className="font-mono text-[10px] text-foreground-muted">
+            {current + 1}/{pages}
+          </span>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={current >= pages - 1}
+            onClick={() => setPage(current + 1)}
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

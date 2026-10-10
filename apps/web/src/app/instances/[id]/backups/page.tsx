@@ -33,6 +33,13 @@ const STATE_TAG: Record<string, string> = {
 
 const KIND_ORDER = ['full', 'differential', 'log'] as const;
 
+function backupTarget(database: string, host: string, port: number): string {
+  if (database === '(servidor)' || database === '') {
+    return port > 0 ? `${host}:${port}` : host;
+  }
+  return database;
+}
+
 function CheckCell({ row }: { row: BackupRow | undefined }) {
   if (!row) {
     return (
@@ -257,7 +264,7 @@ export default async function InstanceBackupsPage({ params }: { params: Promise<
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Database</th>
+                  <th>{rows.every((row) => row.database === '(servidor)' || row.database === '') ? 'Host' : 'Database'}</th>
                   <th>Kind</th>
                   <th>State</th>
                   <th>Last</th>

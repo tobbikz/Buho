@@ -12,6 +12,7 @@
 # Uso:
 #   ./install.sh                 instala o actualiza (construye si hace falta)
 #   ./install.sh --pull          baja imágenes publicadas; el cliente no compila
+#   ./install.sh --actualizar    reconstruye colector y consola; el store no se reinicia
 #   ./install.sh --sin-build     usa las imágenes ya presentes en el host
 #   ./install.sh --verificar     sólo comprueba el estado de una instalación
 set -euo pipefail
@@ -27,13 +28,15 @@ fatal() { printf '\n%serror:%s %s\n' "$ROJO" "$FIN" "$1" >&2; exit 1; }
 BUILD=1
 PULL=0
 SOLO_VERIFICAR=0
+ACTUALIZAR=0
 for arg in "$@"; do
   case "$arg" in
     --sin-build) BUILD=0 ;;
     --pull) PULL=1; BUILD=0 ;;
+    --actualizar) ACTUALIZAR=1 ;;
     --verificar) SOLO_VERIFICAR=1 ;;
     -h|--help)
-      sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) fatal "opción desconocida: $arg" ;;
@@ -128,7 +131,35 @@ ok "config.json declara $INSTANCIAS instancia(s)"
 
 # ------------------------------------------------------------------ arranque
 
-if [[ "$SOLO_VERIFICAR" -eq 0 ]]; then
+if [[ "$SOLO_VERIFICAR" -eq 0 && "$ACTUALIZAR" -eq 1 ]]; then
+  # El store guarda la historia. Recrearlo no borra el volumen, pero sí corta
+  # la recolección y la consola unos segundos sin necesidad: el código nuevo
+  # vive en collector y web.
+  paso 'Actualizando colector y consola (el store sigue corriendo)'
+  # No hacer `up store`. En Podman eso intenta volver a publicar 55432 aunque
+  # el contenedor ya lo tenga, y el script muere con "address already in use"
+  # antes de construir el colector y la consola. `ps --status running` en el
+  # compose de Podman tampoco lista el servicio, así que no se usa como prueba.
+  ok 'el store no se toca'
+  if [[ "$PULL" -eq 1 ]]; then
+    "${COMPOSE[@]}" pull collector web
+    ok 'imágenes de colector y consola bajadas'
+  elif [[ "$BUILD" -eq 1 ]]; then
+    "${COMPOSE[@]}" build collector web
+    ok 'imágenes de colector y consola construidas'
+  else
+    aviso 'sin construir ni bajar: se recrean colector y consola con la imagen que ya está'
+  fi
+  # --force-recreate en Podman rootless publica 3100 antes de soltar el
+  # forward del contenedor viejo y falla con "address already in use".
+  # Parar y borrar primero libera el puerto; el store no entra en estos nombres.
+  paso 'Reemplazando colector y consola'
+  "${COMPOSE[@]}" stop collector web || true
+  "${COMPOSE[@]}" rm -f collector web || true
+  sleep 2
+  "${COMPOSE[@]}" up -d --no-deps collector web
+  ok 'colector y consola recreados; el volumen del store no se tocó'
+elif [[ "$SOLO_VERIFICAR" -eq 0 ]]; then
   if [[ "$PULL" -eq 1 ]]; then
     paso 'Bajando imágenes publicadas (sin compilar)'
     # Se puede fijar la versión: BUHO_COLLECTOR_IMAGE=ghcr.io/.../collector:0.3.0

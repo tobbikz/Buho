@@ -66,7 +66,7 @@ npm run web                          # dev en http://localhost:3100
 docker compose up -d web             # o en contenedor, mismo puerto
 ```
 
-En dev la UI toma la URL del store de `config.json`; en producción exige `BUHO_STORE_URL`. La consola **sólo lee el store**: nunca abre conexiones contra las instancias monitoreadas.
+En dev la UI toma la URL del store de `config.json`; en producción exige `BUHO_STORE_URL`. La consola **sólo lee el store**: nunca abre conexiones contra las instancias monitoreadas. IBM Plex Sans y JetBrains Mono van en `apps/web/src/fonts` para que `next build` no descargue Google Fonts.
 
 Autenticación por contraseña única:
 
@@ -80,12 +80,24 @@ En producción sin `BUHO_AUTH_PASSWORD` la consola **no sirve ninguna página**:
 Pantallas de F1:
 
 - **Resumen de flota** — score, críticos, avisos, conexiones, cache hit, commits/s y frescura del dato por instancia.
-- **Detalle de instancia** — capabilities, indicadores con **CPU y memoria del host, throughput DML**, health score, conexiones, cache hit, commits/s, bloqueos, edad de XID, tuplas muertas y uptime; series con ventana de 15 m a 7 días (conexiones, transacciones/s, WAL/s, bloqueos, CPU y memoria del host, throughput DML, sesiones activas por clase de espera, cache hit, I/O/s, derrame a temporales), hallazgos con remediación, wait events, tablas más grandes, tuplas muertas, slots de replicación y eventos del colector.
+- **Detalle de instancia** — capabilities, indicadores con **CPU y memoria del host, throughput DML**, health score, conexiones, cache hit, commits/s y rollbacks/s en la misma tarjeta, bloqueos, edad de XID, tuplas muertas y uptime; series con ventana de 15 m a 7 días (conexiones, transacciones/s, WAL/s, bloqueos, CPU y memoria del host, throughput DML, sesiones activas por clase de espera, cache hit, I/O/s, derrame a temporales), hallazgos agrupados por severidad y por check (paginados, remediación una vez por grupo), wait events, tablas más grandes (las particiones sumadas en la tabla padre; una fila vieja de partición no se vuelve a mostrar al lado), tuplas muertas, slots de replicación y eventos del colector (cada fila se abre y muestra componente, ocurrencias, primera y última vez, mensaje y detalle).
+- **Flow** — en pantallas anchas el flujo ocupa tres columnas y la rejilla de “cuándo se usa” la misma altura, con pantalla completa. En PostgreSQL no aparece “batch requests” y abre en transacciones. Los recuadros no se animan y no se montan: lo que no cabe pasa a la página siguiente. El click en el recuadro abre escritura, lectura y enlaces. La mezcla por tabla también se pagina.
+- **Capacity** — los cuatro recursos van en la misma grilla. Cada gráfico muestra el valor actual, la recta de 28 días y el umbral.
+- **Locks / Vacuum** — listas paginadas. El episodio de lock abre el plan estimado de la consulta que espera. La fila de vacuum abre edad de XID, pases de autovacuum y la nota de bloat.
+- **XID age** — el indicador del resumen usa la última muestra de 36 horas. El colector la refresca en el ciclo lento, no una vez por hora.
+- **Apply lag** — en un suscriptor se mide el WAL recibido que todavía no se aplicó. Cero bytes es “caught up”. El reloj del publicador no está en ese servidor.
+- **Queries** — Analytical es la ventana retenida; Live es la última foto de sesiones. En Live el click en el texto abre la consulta completa y, si PostgreSQL puede planearla, el botón Explain. REFRESH y otras utilitarias no tienen plan.
+- **Indexes** — estado y esquema son desplegables. El inventario se pagina. Footprint by schema and table va debajo, con filtro de esquema y de tabla. Fragmented lista índices secundarios al menos el doble del heap y de más de 64 MB. SQL Server tiene un check de fragmentación LIMITED sobre la base conectada.
+- **Catalog** — Traffic muestra llaves y calor juntos. Columns pone el esquema al centro y las tablas alrededor, cada una con columnas y tipos. `/orm` redirige a Traffic.
+- **Vacuum** — Missing ANALYZE lista las tablas del snapshot que nunca tuvieron ANALYZE ni autoanalyze. El check `never_analyzed` cubre el servidor, no sólo las 100 tablas del snapshot.
 - **Parque** (`/estate`) — inventario de flota en siete dominios: **Backups**, **Disco**, **Jobs**, **Replicación**, **Configuración**, **Licencias** y **Versiones**. Es la sección multi-motor: cubre PostgreSQL, MariaDB y SQL Server.
 - **Análisis** — cualquiera de las ~93 series del store en un gráfico de líneas: selector agrupado por familia con filtro de texto, **un gráfico por unidad** (mezclar sesiones y bytes en un eje aplasta la serie chica), desglose por etiqueta para una métrica sola y agregación entre etiquetas elegible. La selección viaja en la URL, así que el enlace *es* el gráfico.
 - **Consultas** — top 25 por tiempo total, llamadas, media o filas en la ventana elegida, con % del tiempo, cache hit, temporales y WAL por consulta, sparkline de tendencia por fila y el texto completo desplegable. Cuando falta `pg_stat_statements`, la pantalla explica qué correr y si hace falta reiniciar.
 - **Host** — CPU (uso, espera de I/O y CPU robada por el hipervisor), memoria, swap, carga por núcleo y disco del filesystem del data directory. Es opcional: si la instancia no lo declara, la pantalla explica cómo activarlo en lugar de mostrar charts vacíos.
-- **Bloqueos** — árbol bloqueador → esperando con las dos queries y la transacción culpable, más el historial de episodios resueltos de las últimas 24 h.
+- **Bloqueos** — árbol blocker → waiter, en inglés, con las dos queries y la transacción culpable, más el historial de episodios resueltos de las últimas 24 h.
+- **Backups** — en PostgreSQL la fila de archivado de WAL muestra el host (IP o DNS) y el puerto, no la palabra servidor.
+- **Sessions** — la leyenda de esperas va arriba del gráfico y las fechas de cada muestra van debajo.
+- **Catálogo** (`/instances/[id]/orm`) — el grafo se arma por esquema (las tablas en un girasol alrededor de su anillo) y se queda quieto. Cambiar Structure / Traffic / Both no rearranca la simulación.
 
 Refresco por polling cada 30 s, con botones de pausa y refresco manual: la tabla que estás leyendo no se mueve sola si no quieres. El topbar no muestra contador de frescura (re-renderizaba cada segundo para decir algo que el dato ya dice); la frescura por instancia está en la tabla de flota y en el encabezado del detalle.
 
@@ -119,7 +131,7 @@ Read-only vía `pg_monitor`: acceso a estadísticas y configuración, **nunca** 
 
 **El colector es un proceso aparte de la web.** Un scheduler de larga vida no sobrevive los reloads ni el ciclo de vida de Next.js, y un reinicio de la consola no debe pausar la recolección.
 
-**Los bloqueos se guardan como episodios, no como muestras.** La identidad de un episodio es `(instancia, pid que espera, inicio de su query)`: mientras el bloqueo sigue vivo se actualiza la misma fila. La UI muestra "un bloqueo de 4 minutos" en vez de veinticuatro muestras del mismo bloqueo.
+**Los bloqueos se guardan como episodios, no como muestras.** La identidad de un episodio es `(instancia, pid que espera, inicio de su query)`: mientras el bloqueo sigue vivo se actualiza la misma fila. La UI muestra "un bloqueo de 4 minutos" en vez de veinticuatro muestras del mismo bloqueo. Al abrir un episodio resuelto se explica el modo que pedía el que espera, con qué lock choca, y si el bloqueador seguía ejecutando o tenía la transacción abierta.
 
 **`pg_stat_activity` es del clúster, no de la base conectada.** La captura de bloqueos filtra por `datname = current_database()`; sin eso, dos entradas del config apuntando a dos bases del mismo servidor registran el mismo bloqueo dos veces. Lo mismo aplica a `pg_stat_statements`, que filtra por `dbid`.
 
@@ -136,6 +148,7 @@ Read-only vía `pg_monitor`: acceso a estadísticas y configuración, **nunca** 
 | `none` (por defecto) | No se recogen recursos del host | nada |
 | `local` | Búho corre en el mismo host que la base | nada |
 | `ssh` | La base está en otro servidor | nada: un usuario de sólo lectura con acceso a `/proc` y `df` |
+| `docker` | Lab: el colector hace `docker exec` a un contenedor hermano | el CLI de Docker en la imagen del colector. Si el mirror de Alpine no responde al construir, la imagen igual arranca y este modo queda apagado |
 
 Sigue siendo *agentless*: no hay proceso residente en el servidor del cliente, sólo lectura de archivos. La conexión SSH usa `BatchMode=yes` para que una llave inválida falle y quede registrada, en vez de colgarse esperando una contraseña. `df` no se corre sobre el data directory (es 700 y propiedad de `postgres`): se sube al ancestro accesible, que está en el mismo filesystem.
 
@@ -498,7 +511,7 @@ botón que falla al apretarlo es peor que ningún botón.
 | Lectura (`SELECT`, `WITH` sin escritura, `TABLE`, `VALUES`) | plan estimado y `ANALYZE` |
 | Escritura (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, `CREATE TABLE AS`) | sólo plan estimado |
 | Utilitaria (`ALTER`, `CREATE INDEX`, `VACUUM`, `SET`, `TRUNCATE`, `BEGIN`…) | ninguno |
-| Texto recortado a 4000 caracteres | ninguno |
+| Texto guardado cortado (filas viejas, u otro motor) | ninguno |
 | Normalizada con `$1` | sólo plan genérico, y sólo en PG 16+ |
 
 Las utilitarias no es que Búho no las intente: **la gramática de `EXPLAIN` no las
@@ -522,7 +535,11 @@ una base de producción.
 El modo genérico es lo que permite explicar el texto que trae
 `pg_stat_statements`, normalizado con `$1`, sin reconstruir valores a mano. Sin
 valores concretos el planificador no usa estadísticas de selectividad, así que
-las estimaciones son las genéricas; la pantalla lo dice.
+las estimaciones son las genéricas; la pantalla lo dice. Encima del árbol hay un
+veredicto: si el costo está en `pg_attribute` u otro catálogo, dice que no es un
+índice que le falte a tus tablas. La consola acepta ese
+modo en PostgreSQL 16 o posterior; el aviso de “sólo PostgreSQL” aparece cuando
+el motor es MariaDB.
 
 `ANALYZE` tiene tres guardas y no una: sólo lectura pura —un
 `WITH x AS (INSERT … RETURNING …)` empieza con `WITH` y se rechaza—, todo dentro
@@ -542,9 +559,11 @@ no hay filas reales que comparar, y la pantalla lo dice en vez de callarse.
 
 ### Límites
 
-- Un texto de consulta recortado a 4000 caracteres no se puede explicar: al
-  planificador le falta el final de la sentencia. La consulta aparece marcada y
-  sin botón, en vez de fallar con un error de sintaxis.
+- En PostgreSQL el texto de `pg_stat_statements` se guarda completo, una vez
+  por queryid, para poder leerlo y explicarlo. Una fila que todavía diga
+  cortada es una copia anterior: el siguiente ciclo del colector la reemplaza.
+  Si otro motor sigue entregando el texto cortado, la consulta aparece marcada
+  y sin botón, en vez de fallar con un error de sintaxis.
 - Antes de PostgreSQL 16 no existe `GENERIC_PLAN`, así que las consultas
   normalizadas hay que explicarlas a mano reemplazando los parámetros.
 - El colector se conecta con su propio `search_path`: una consulta sobre tablas
@@ -624,8 +643,12 @@ adivinarse, porque un DDL que no compila destruye la confianza en la pantalla
 entera.
 
 Cada sugerencia trae su contraindicación al lado y la evidencia debajo, con enlace
-a la consulta que la motivó. Al pie aparece lo que los chequeos ya dicen de los
-índices de esa instancia: antes de agregar uno conviene ver si sobra alguno.
+a la consulta que la motivó. Al pie aparecen los hallazgos de los chequeos de
+índices (unused y redundant), agrupados por esquema y paginados. Si el snapshot
+de inventario todavía no llegó, el KPI de Indexes muestra cuántos hallazgos hay
+en vez de cero. El inventario completo se guarda en tandas: un solo INSERT con
+miles de índices de partición supera el límite de parámetros de PostgreSQL y
+dejaba la tabla vacía.
 
 `pg_stat_progress_vacuum` da el avance del vacuum en curso por fases, que es lo
 que contesta la pregunta real durante un incidente: si conviene esperar o matarlo.
@@ -650,15 +673,21 @@ Se lee distinto según el rol, y eso importa:
 La conexión de un standby hacia su primario se marca como `upstream`, no como
 `standby`: verla listada como su propio standby fue confuso en la primera versión.
 
+Un **suscriptor lógico** no está en recovery y no tiene slots: los slots viven en
+el publicador. Búho lee `pg_stat_subscription`. Si el apply worker no tiene pid,
+la suscripción sale como `down` (el mismo caso que “apply worker pid is empty”).
+La fila de la suscripción se abre al hacer click: el chevron y el nombre son el
+control, y el detalle dice si el worker de la última muestra está arriba y si
+queda alguna alerta abierta de cuando el pid estuvo vacío.
+
 ---
 
 ## Chequeos de toda la flota
 
-Los 22 chequeos se veían instancia por instancia, lo que obliga a recorrer la
-lista para saber qué arreglar primero. Esta pantalla los agrupa por chequeo y
-ordena por severidad y por **cuántas instancias toca cada uno**: el mismo
-problema en cinco servidores es una sola decisión, y arreglar lo de arriba
-resuelve más con el mismo esfuerzo.
+Los chequeos de la flota se agrupan por tipo de problema y se parten en secciones de
+severidad (crítico, aviso, info). Dentro de un chequeo, las filas van por grupo de
+instancia y luego por alias, de a 12 por página; cada sección muestra 8 chequeos
+por página. La remediación se escribe una sola vez, al pie del grupo.
 
 ---
 
@@ -695,7 +724,11 @@ De ahí salen las dos cosas que las vistas de estadísticas no tienen: el deadlo
 completo —con las dos consultas y quién ganó— y los errores de la aplicación.
 
 Lee de `journald` o de archivos, local o por SSH, en `jsonlog`, `csvlog` o
-`stderr`. Las entradas multilínea se rearman (un deadlock son varias líneas), se
+`stderr`. Si eso no está declarado, PostgreSQL igual intenta la cola del logfile
+con `pg_read_file` (ERROR, FATAL y PANIC, igual que el monitor de error log) y,
+si el rol no puede leer el archivo, cuenta deadlocks, conflicts y checksum
+failures de `pg_stat_database`. MariaDB y SQL Server ya leen su log por SQL.
+Las entradas multilínea se rearman (un deadlock son varias líneas), se
 clasifican y se agrupan por huella, así que 188 errores iguales son una fila y no
 188. Guarda un cursor por instancia para no releer lo mismo.
 
@@ -766,6 +799,13 @@ Baja `collector` y `web` desde GHCR (`ghcr.io/tobbikz/buho-monitor/...`) y
 levanta el store. El cliente no necesita Node ni `docker build`. Las imágenes se
 publican al etiquetar un release (`v0.3.0`) con el workflow de GitHub Actions.
 
+En un checkout que ya está corriendo, aplicar código nuevo sin reiniciar el store:
+
+```bash
+git pull
+./install.sh --actualizar
+```
+
 ## Comparar dos momentos, capacidad, topología e incidentes (v0.4)
 
 Cinco piezas pensadas para el DBA que vende diagnóstico, no dashboards:
@@ -787,6 +827,8 @@ Cinco piezas pensadas para el DBA que vende diagnóstico, no dashboards:
 
 - Console copy is English (Búho brand kept).
 - **Add database** on the fleet page (Admin → Databases) writes `buho.monitor_targets`. The collector picks new targets every ~30s without a restart. `config.json` still works and wins on alias clash.
+- **Edit** a console target from the same page (password blank keeps the stored one). **Remove** also covers instances that only appear in the sidebar (file-based `config.json`): the alias is recorded in `buho.suppressed_aliases` so the collector does not bring it back. Restart the collector to stop a probe that is already running.
+- Alerts, events, estate flow, and security filter by engine and connection. Estate disk shows a growth projection after 2 days of size history, including on the overview. MariaDB and SQL Server security findings are written in English on the next audit.
 
 After pull: `BUHO_STORE_URL=... npm run migrate`
 

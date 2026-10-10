@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AnomalyPanel } from '@/components/AnomalyPanel';
 import { FindingsPanel } from '@/components/FindingsPanel';
+import { InstanceEvents } from '@/components/InstanceEvents';
+import { SubscriptionTable } from '@/components/SubscriptionTable';
 import { IncidentPanel } from '@/components/IncidentPanel';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { OpsPulse } from '@/components/OpsPulse';
@@ -16,6 +18,7 @@ import { LabeledBars, type BarRow } from '@/components/LabeledBars';
 import { StatCard, toneForMinimum, toneForPct } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { TimeseriesPanel } from '@/components/TimeseriesPanel';
+import { TimeoutScatter } from '@/components/TimeoutScatter';
 import { Topbar } from '@/components/Topbar';
 import {
   formatAgo,
@@ -44,6 +47,34 @@ import {
   seriesSource,
 } from '@/lib/queries';
 import { peakOf, peakOfDerived } from '@/lib/series-peak';
+
+/**
+ * Old samples still name each partition, and a parent can appear twice while
+ * the label set changes. Keep the rolled-up parent and drop its children.
+ */
+function collapsePartitionRows<T extends { labels: Record<string, string>; value: number }>(rows: T[]): T[] {
+  const byName = new Map<string, T>();
+  for (const row of rows) {
+    const key = `${row.labels['schema']}.${row.labels['table']}`;
+    const previous = byName.get(key);
+    const rowRolled = Boolean(row.labels['partitions']);
+    const previousRolled = Boolean(previous?.labels['partitions']);
+    if (!previous || (rowRolled && !previousRolled) || (!previousRolled && row.value > previous.value)) {
+      byName.set(key, row);
+    }
+  }
+  const parents = [...byName.values()].filter((row) => Number(row.labels['partitions'] ?? 0) > 0);
+  return [...byName.values()].filter((row) => {
+    const schema = row.labels['schema'];
+    const table = row.labels['table'] ?? '';
+    return !parents.some(
+      (parent) =>
+        parent.labels['schema'] === schema &&
+        parent.labels['table'] !== table &&
+        table.startsWith(`${parent.labels['table']}_`),
+    );
+  });
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -378,11 +409,14 @@ export default async function InstancePage({
       io,
       checkpoints,
       tempFiles,
+      timeouts,
       findings,
       waitEvents,
       tables,
       deadTuples,
       slots,
+      subscriptions,
+      subscriptionPending,
       events,
       host,
       hostCpu,
@@ -448,6 +482,7 @@ export default async function InstancePage({
           window.minutes,
           window.bucketSeconds,
         ),
+        getTimeoutEvents(instanceId, window.minutes),
         getFindings(instanceId),
         getLabeled(instanceId, 'wait_event_sessions', 10, 5),
         getLabeledPair(instanceId, 'table_total_bytes', 'table_index_bytes', 10, 30),
@@ -481,11 +516,14 @@ export default async function InstancePage({
       io,
       checkpoints,
       tempFiles,
+      timeouts,
       findings,
       waitEvents,
       tables,
       deadTuples,
       slots,
+      subscriptions,
+      subscriptionPending,
       events,
       host,
       hostCpu,
@@ -558,9 +596,14 @@ export default async function InstancePage({
     tone: row.labels['wait_event_type'] === 'Lock' ? 'error' : 'accent',
   }));
 
-  const tableRows: BarRow[] = data.tables.map((row) => ({
+  const tableRows: BarRow[] = collapsePartitionRows(data.tables).map((row) => ({
     label: `${row.labels['schema']}.${row.labels['table']}`,
-    sub: row.valueB !== null ? `indexes ${formatBytes(row.valueB)}` : undefined,
+    sub: [
+      row.labels['partitions'] ? `${row.labels['partitions']} partitions` : null,
+      row.valueB !== null ? `indexes ${formatBytes(row.valueB)}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ') || undefined,
     value: row.value,
     display: formatBytes(row.value),
   }));
@@ -771,12 +814,23 @@ export default async function InstancePage({
             hint="insert + update + delete tuples"
             tone="accent"
           />
-          <StatCard
-            label="Commits/s"
-            value={formatCompactNumber(instance.commitsPerSec, 1)}
-            tone="accent"
-            hint="from transaction counters"
-          />
+          <div className="stat stat--accent stat--split">
+            <div className="stat-split">
+              <div className="stat-split__side">
+                <div className="stat__label">Commits/s</div>
+                <div className="stat__value">{formatCompactNumber(instance.commitsPerSec, 1)}</div>
+              </div>
+              <div className="stat-split__side">
+                <div className="stat__label">Rollbacks/s</div>
+                <div
+                  className={`stat__value${(instance.rollbacksPerSec ?? 0) > 0 ? ' stat__value--warn' : ''}`}
+                >
+                  {formatCompactNumber(instance.rollbacksPerSec, 1)}
+                </div>
+              </div>
+            </div>
+            <div className="stat__hint">from transaction counters</div>
+          </div>
           <StatCard
             label="Cache hit"
             value={formatPct(instance.cacheHitPct, 2)}
@@ -939,6 +993,27 @@ export default async function InstancePage({
             unit="count"
             series={[{ metric: 'blocked_sessions', label: 'Blocked', color: COLOR.error }]}
           />
+        </div>
+
+        <div className="chart-panel--full">
+          <TimeseriesPanel
+            title="I/O per second"
+            hint={windowHint}
+            data={data.io}
+            unit="rate"
+            height={260}
+            series={[
+              { metric: 'io_reads_per_sec', label: 'Reads', color: COLOR.warning },
+              { metric: 'io_writes_per_sec', label: 'Writes', color: COLOR.accent },
+            ]}
+          />
+        </div>
+
+        <div className="chart-panel--full">
+          <TimeoutScatter points={data.timeouts} height={240} />
+        </div>
+
+        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
           <TimeseriesPanel
             title="Active sessions by wait class"
             hint="CPU = running, not waiting"
@@ -1080,31 +1155,18 @@ export default async function InstancePage({
             {data.events.length === 0 ? (
               <div className="empty">No events recorded.</div>
             ) : (
-              <table className="data-table">
-                <tbody>
-                  {data.events.map((event, index) => (
-                    <tr key={`${event.ts}-${index}`}>
-                      <td className="font-mono text-[11px] text-foreground-muted" style={{ width: '5.5rem' }}>
-                        {formatClock(event.ts)}
-                      </td>
-                      <td style={{ width: '4.5rem' }}>
-                        <span
-                          className={`tag ${
-                            event.level === 'error'
-                              ? 'tag--error'
-                              : event.level === 'warn'
-                                ? 'tag--warn'
-                                : 'tag--muted'
-                          }`}
-                        >
-                          {event.level}
-                        </span>
-                      </td>
-                      <td className="text-[12px]">{event.message}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <InstanceEvents
+                events={data.events.map((event) => ({
+                  eventId: event.eventId,
+                  ts: event.ts.toISOString(),
+                  firstTs: event.firstTs ? new Date(event.firstTs).toISOString() : null,
+                  level: event.level,
+                  component: event.component,
+                  message: event.message,
+                  occurrences: event.occurrences ?? 1,
+                  detail: event.detail ?? null,
+                }))}
+              />
             )}
           </section>
         </div>

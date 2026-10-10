@@ -96,7 +96,7 @@ export default async function OrmPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ peso?: string; v?: string; capa?: string }>;
+  searchParams: Promise<{ peso?: string; v?: string; capa?: string; schema?: string }>;
 }) {
   const { id } = await params;
   const { peso, v, capa } = await searchParams;

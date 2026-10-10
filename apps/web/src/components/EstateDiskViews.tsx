@@ -205,7 +205,7 @@ export function EstateDiskViews({
         </>
       ) : null}
 
-      {tab === 'instance' ? (
+      {tab === 'overview' || tab === 'instance' ? (
         <section className="panel">
           <div className="panel-header">
             <span className="panel-title">By instance</span>

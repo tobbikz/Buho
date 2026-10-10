@@ -345,7 +345,7 @@ export default async function SessionsPage({
                           )}
                           {sesion.blockedBy ? (
                             <span className="ml-1 font-mono text-[10px] text-foreground-muted">
-                              por {sesion.blockedBy}
+                              by {sesion.blockedBy}
                             </span>
                           ) : null}
                         </td>

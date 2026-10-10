@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
+import { statementKind } from '@buho/core';
+import { LiveQueryTable } from '@/components/LiveQueryTable';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { LiveQueriesPanel } from '@/components/LiveQueriesPanel';
 import { StatCard } from '@/components/StatCard';
@@ -7,7 +9,7 @@ import { StatementsTable } from '@/components/StatementsTable';
 import { StoreError } from '@/components/StoreError';
 import { TimeseriesPanel } from '@/components/TimeseriesPanel';
 import { Topbar } from '@/components/Topbar';
-import { formatNumber } from '@/lib/format';
+import { formatAgo, formatDuration, formatNumber } from '@/lib/format';
 import {
   getInstance,
   getSeries,
@@ -198,6 +200,7 @@ export default async function QueriesPage({
     { label: 'Queries' },
   ];
 
+  let latest: Awaited<ReturnType<typeof getLatestSessions>> | null = null;
   let statements: TopStatement[] = [];
   let load: Awaited<ReturnType<typeof getStatementLoad>> = [];
   let trends: Map<string, StatementPoint[]> = new Map();
@@ -209,6 +212,9 @@ export default async function QueriesPage({
     stale: true,
   };
   let failure: string | null = null;
+  let planText: string | null = null;
+  let planState: string | null = null;
+  let planMessage: string | null = planError ?? null;
   try {
     if (isLive) {
       liveFoto = await getLatestLiveSessions(instanceId, 30);
@@ -243,6 +249,7 @@ export default async function QueriesPage({
         );
       }
     }
+    }
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
   }
@@ -255,6 +262,7 @@ export default async function QueriesPage({
     const search = new URLSearchParams({
       w: window.key,
       order: selectedOrder,
+      vista: live ? 'live' : 'analytical',
       ...(showMonitorQueries ? { monitor: 'on' } : {}),
       ...(isLive ? { vista: 'live' } : {}),
       ...patch,

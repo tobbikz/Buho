@@ -2,11 +2,19 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StoreError } from '@/components/StoreError';
+import { OrmGraph } from '@/components/OrmGraph';
+import { StatCard } from '@/components/StatCard';
 import { TopologyBubbles } from '@/components/TopologyBubbles';
 import { Topbar } from '@/components/Topbar';
-import { formatNumber } from '@/lib/format';
+import { formatBytes, formatNumber } from '@/lib/format';
+import { SchemaColumnMap } from '@/components/SchemaColumnMap';
+import { catalogModel, getCatalog, getCatalogColumnsBySchema } from '@/lib/catalog';
 import { getInstanceEngine } from '@/lib/estate';
+import { getOrmModel } from '@/lib/orm';
+import type { OrmLayer } from '@/lib/orm-types';
+import { formatUnit, type Unit } from '@/lib/units';
 import { getInstance } from '@/lib/queries';
+import type { FlowWeight } from '@buho/core';
 import {
   diffTopologyWeeks,
   getTopologyWeek,
@@ -30,16 +38,430 @@ export default async function TopologyPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ d?: string; snap?: string; vista?: string }>;
+  searchParams: Promise<{
+    d?: string;
+    snap?: string;
+    vista?: string;
+    q?: string;
+    schema?: string;
+    peso?: string;
+    v?: string;
+    capa?: string;
+  }>;
 }) {
   const { id } = await params;
-  const { d, snap, vista } = await searchParams;
+  const { d, snap, vista, q, schema: schemaParam, peso, v } = await searchParams;
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
 
   const engine = (await getInstanceEngine(instanceId)) ?? 'postgres';
   const direction = d === 'lectura' ? 'lectura' : 'escritura';
-  const view = vista === 'tabla' ? 'tabla' : 'burbujas';
+  const view =
+    vista === 'detalle'
+      ? 'detalle'
+      : vista === 'estructura'
+        ? 'catalog'
+        : vista === 'tabla'
+          ? 'tabla'
+          : vista === 'burbujas'
+            ? 'burbujas'
+            : 'trafico';
+
+  if (view === 'detalle') {
+    let instance;
+    let catalog: Awaited<ReturnType<typeof getCatalog>>;
+    try {
+      instance = await getInstance(instanceId);
+      if (!instance) notFound();
+      catalog = await getCatalog(instanceId);
+    } catch (error) {
+      return (
+        <>
+          <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
+          <div className="page">
+            <StoreError message={error instanceof Error ? error.message : String(error)} />
+          </div>
+        </>
+      );
+    }
+    if (!instance) notFound();
+    const schemaNames = [...new Set(catalog.map((row) => row.schema))].sort();
+    const schemaName = schemaNames.includes(schemaParam ?? '') ? (schemaParam ?? '') : (schemaNames[0] ?? '');
+    const tables = catalog.filter((row) => row.schema === schemaName);
+    const columnsByTable = schemaName ? await getCatalogColumnsBySchema(instanceId, schemaName) : new Map();
+    return (
+      <>
+        <Topbar
+          crumbs={[
+            { label: 'Fleet', href: '/' },
+            { label: instance.alias, href: `/instances/${instanceId}` },
+            { label: 'Catalog' },
+          ]}
+        />
+        <div className="page">
+          <header className="page-header">
+            <div>
+              <h1 className="page-title">Columns · {instance.alias}</h1>
+              <p className="page-sub">
+                Pick a schema. Its tables sit around the name. Open a table to read its columns and types.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              <Link href={`/instances/${instanceId}/topology`} className="tag tag--muted">
+                Traffic
+              </Link>
+              <Link href={`/instances/${instanceId}/topology?vista=estructura`} className="tag tag--muted">
+                Structure
+              </Link>
+              <span className="tag tag--info">Columns</span>
+            </div>
+          </header>
+          <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
+          {catalog.length === 0 || !schemaName ? (
+            <div className="empty">The catalog is filled on the collector vacuum cycle, about every two minutes.</div>
+          ) : (
+            <SchemaColumnMap
+              instanceId={instanceId}
+              schema={schemaName}
+              schemas={schemaNames}
+              tables={tables.map((row) => ({
+                name: row.table,
+                sizeBytes: row.sizeBytes,
+                columns: columnsByTable.get(row.table) ?? [],
+              }))}
+            />
+          )}
+        </div>
+      </>
+    );
+  }
+
+  if (view === 'trafico') {
+    const weights: { key: FlowWeight; label: string }[] = [
+      { key: 'rows', label: 'Rows' },
+      { key: 'time', label: 'Time' },
+      { key: 'calls', label: 'Calls' },
+    ];
+    const windows = [
+      { key: '1h', label: '1 h', minutes: 60 },
+      { key: '6h', label: '6 h', minutes: 360 },
+      { key: '24h', label: '24 h', minutes: 1440 },
+      { key: '7d', label: '7 d', minutes: 10080 },
+    ];
+    const weight = (weights.find((entry) => entry.key === peso)?.key ?? 'rows') as FlowWeight;
+    const window = windows.find((entry) => entry.key === v) ?? windows[2]!;
+    const layer = 'ambos' as OrmLayer;
+    const unit: Unit = weight === 'time' ? 'ms' : 'count';
+    const link = (changes: Record<string, string> = {}) => {
+      const query = new URLSearchParams({
+        vista: 'trafico',
+        peso: weight,
+        v: window.key,
+        capa: layer,
+        ...changes,
+      });
+      return `/instances/${instanceId}/topology?${query.toString()}`;
+    };
+
+    let instance;
+    let model;
+    let schemaChoices: string[] = [];
+    try {
+      instance = await getInstance(instanceId);
+      if (!instance) notFound();
+      model = await getOrmModel(instanceId, window.minutes, weight, engine);
+      schemaChoices = model.schemas.map((schema) => schema.name);
+      const picked = schemaChoices.includes(schemaParam ?? '') ? schemaParam! : '';
+      if (picked) {
+        const schemas = model.schemas.filter((schema) => schema.name === picked);
+        const nodes = model.nodes.filter((node) =>
+          node.kind === 'schema' ? node.label === picked : node.schema === picked,
+        );
+        const ids = new Set(nodes.map((node) => node.id));
+        const links = model.links.filter((link) => ids.has(link.source) && ids.has(link.target));
+        model = {
+          ...model,
+          schemas,
+          nodes,
+          links,
+          totalTables: schemas[0]?.tableCount ?? 0,
+          foreignKeys: links.filter((link) => link.kind === 'fk').length,
+        };
+      }
+    } catch (error) {
+      return (
+        <>
+          <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
+          <div className="page">
+            <StoreError message={error instanceof Error ? error.message : String(error)} />
+          </div>
+        </>
+      );
+    }
+    if (!instance) notFound();
+
+    return (
+      <>
+        <Topbar
+          crumbs={[
+            { label: 'Fleet', href: '/' },
+            { label: instance.alias, href: `/instances/${instanceId}` },
+            { label: 'Catalog' },
+          ]}
+        />
+        <div className="page">
+          <header className="page-header">
+            <div>
+              <h1 className="page-title">Catalog · {instance.alias}</h1>
+              <p className="page-sub">
+                Foreign keys and traffic on the same graph. Columns is the schema with its tables around it.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              <Link href={`/instances/${instanceId}/topology?vista=estructura`} className="tag tag--muted">
+                Structure
+              </Link>
+              <span className="tag tag--info">Traffic</span>
+              <Link href={`/instances/${instanceId}/topology?vista=detalle`} className="tag tag--muted">
+                Columns
+              </Link>
+            </div>
+          </header>
+          <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
+          <div className="stat-grid">
+            <StatCard label="Schemas" value={formatNumber(model.schemas.length)} hint="in this view" />
+            <StatCard label="Tables" value={formatNumber(model.totalTables)} hint="user tables" />
+            <StatCard label="Foreign keys" value={formatNumber(model.foreignKeys)} hint="structural links" />
+            <StatCard
+              label="Tables with traffic"
+              value={formatNumber(model.attributedTables)}
+              hint={`window ${window.label}`}
+              tone={model.attributedTables > 0 ? 'accent' : 'neutral'}
+            />
+          </div>
+          <section className="panel">
+            <div className="panel-header">
+              <span className="panel-title">Traffic</span>
+              <div className="flex flex-wrap items-center gap-1">
+                {weights.map((option) => (
+                  <Link
+                    key={option.key}
+                    href={link({ peso: option.key })}
+                    className={`tag ${option.key === weight ? 'tag--info' : 'tag--muted'}`}
+                  >
+                    {option.label}
+                  </Link>
+                ))}
+                <span className="mx-1 text-foreground-muted">·</span>
+                {windows.map((option) => (
+                  <Link
+                    key={option.key}
+                    href={link({ v: option.key })}
+                    className={`tag ${option.key === window.key ? 'tag--info' : 'tag--muted'}`}
+                  >
+                    {option.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+            <form action={`/instances/${instanceId}/topology`} className="border-b border-border">
+              <div className="panel-body flex flex-wrap items-center gap-2">
+                <input type="hidden" name="vista" value="trafico" />
+                <input type="hidden" name="peso" value={weight} />
+                <input type="hidden" name="v" value={window.key} />
+                <label className="text-[11px] uppercase tracking-wide text-foreground-muted" htmlFor="catalog-schema">
+                  Schema
+                </label>
+                <select
+                  id="catalog-schema"
+                  name="schema"
+                  defaultValue={schemaChoices.includes(schemaParam ?? '') ? schemaParam : ''}
+                  className="rounded-[3px] border border-border bg-[var(--surface)] px-2 py-1 font-mono text-[12px]"
+                >
+                  <option value="">All schemas</option>
+                  {schemaChoices.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <button type="submit" className="tag tag--info">
+                  Filter
+                </button>
+                {schemaParam ? (
+                  <Link href={link()} className="tag tag--muted">
+                    clear
+                  </Link>
+                ) : null}
+              </div>
+            </form>
+            <div className="panel-body">
+              {model.totalTables === 0 ? (
+                <div className="empty">No tables in the catalog yet. Wait for the collector vacuum scan.</div>
+              ) : (
+                <OrmGraph model={model} instanceId={instanceId} unit={unit} layer={layer} />
+              )}
+              {model.attributedTables > 0 ? (
+                <p className="mt-2 text-[11px] text-foreground-muted">
+                  {formatUnit(
+                    model.nodes.reduce((sum, node) => sum + node.writeHeat, 0),
+                    unit,
+                  )}{' '}
+                  write and{' '}
+                  {formatUnit(
+                    model.nodes.reduce((sum, node) => sum + node.readHeat, 0),
+                    unit,
+                  )}{' '}
+                  read on foreign-key links in the last {window.label}.
+                </p>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      </>
+    );
+  }
+
+  if (view === 'catalog') {
+    let instance;
+    let catalog: Awaited<ReturnType<typeof getCatalog>>;
+    try {
+      instance = await getInstance(instanceId);
+      if (!instance) notFound();
+      catalog = await getCatalog(instanceId);
+    } catch (error) {
+      return (
+        <>
+          <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: id }]} />
+          <div className="page">
+            <StoreError message={error instanceof Error ? error.message : String(error)} />
+          </div>
+        </>
+      );
+    }
+    if (!instance) notFound();
+    const needle = (q ?? '').trim().toLowerCase();
+    const schemaNames = [...new Set(catalog.map((row) => row.schema))].sort();
+    const schemaName = schemaNames.includes(schemaParam ?? '') ? (schemaParam ?? '') : '';
+    const shown = catalog.filter((row) => {
+      if (schemaName && row.schema !== schemaName) return false;
+      if (!needle) return true;
+      return (
+        row.schema.toLowerCase().includes(needle) || row.table.toLowerCase().includes(needle)
+      );
+    });
+    const groups = new Map<string, typeof catalog>();
+    for (const row of shown) {
+      const list = groups.get(row.schema) ?? [];
+      list.push(row);
+      groups.set(row.schema, list);
+    }
+    return (
+      <>
+        <Topbar
+          crumbs={[
+            { label: 'Fleet', href: '/' },
+            { label: instance.alias, href: `/instances/${instanceId}` },
+            { label: 'Topology' },
+          ]}
+        />
+        <div className="page">
+          <header className="page-header">
+            <div>
+              <h1 className="page-title">Catalog · {instance.alias}</h1>
+              <p className="page-sub">
+                Every user schema and table, without traffic. Partitions are rolled into the parent.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              <Link href={`/instances/${instanceId}/topology`} className="tag tag--muted">
+                Traffic
+              </Link>
+              <span className="tag tag--info">Structure</span>
+              <Link href={`/instances/${instanceId}/topology?vista=detalle`} className="tag tag--muted">
+                Columns
+              </Link>
+            </div>
+          </header>
+          <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
+          <div className="stat-grid">
+            <div className="stat">
+              <div className="stat__label">Schemas</div>
+              <div className="stat__value">{formatNumber(groups.size)}</div>
+            </div>
+            <div className="stat">
+              <div className="stat__label">Tables</div>
+              <div className="stat__value">{formatNumber(shown.length)}</div>
+              <div className="stat__hint">
+                {needle ? `${formatNumber(catalog.length)} in the catalog` : 'partitions included in the parent'}
+              </div>
+            </div>
+          </div>
+          <form action={`/instances/${instanceId}/topology`} className="panel">
+            <div className="panel-body flex flex-wrap items-center gap-2">
+              <input type="hidden" name="vista" value="estructura" />
+              <select
+                name="schema"
+                defaultValue={schemaName}
+                className="rounded-[3px] border border-border bg-[var(--surface)] px-2 py-1 font-mono text-[12px]"
+              >
+                <option value="">All schemas</option>
+                {schemaNames.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="search"
+                name="q"
+                defaultValue={needle}
+                placeholder="Filter schema or table"
+                className="w-full max-w-md rounded-[3px] border border-border bg-[var(--surface)] px-2 py-1 font-mono text-[12px]"
+              />
+              <button type="submit" className="tag tag--info">
+                Filter
+              </button>
+              {needle ? (
+                <Link href={`/instances/${instanceId}/topology?vista=estructura`} className="tag tag--muted">
+                  clear
+                </Link>
+              ) : null}
+            </div>
+          </form>
+          {catalog.length === 0 ? (
+            <div className="empty">
+              The catalog is filled on the collector vacuum cycle, about every two minutes.
+            </div>
+          ) : shown.length === 0 ? (
+            <div className="empty">No schema or table matches that filter.</div>
+          ) : (
+            <section className="panel">
+              <div className="panel-header">
+                <span className="panel-title">Structure</span>
+                <span className="font-mono text-[10px] text-foreground-muted">
+                  schemas and tables, no traffic
+                </span>
+              </div>
+              <div className="panel-body">
+                <OrmGraph
+                  model={catalogModel(shown)}
+                  instanceId={instanceId}
+                  unit="count"
+                  layer="estructura"
+                />
+              </div>
+            </section>
+          )}
+          <p className="text-[12px] text-foreground-secondary">
+            <Link href={`/instances/${instanceId}/topology?vista=detalle`} className="btn-secondary">
+              Open column detail
+            </Link>
+          </p>
+        </div>
+      </>
+    );
+  }
 
   let instance;
   let weeks: Date[];
@@ -135,6 +557,9 @@ export default async function TopologyPage({
               className={`tag ${direction === 'lectura' ? 'tag--info' : 'tag--muted'}`}
             >
               reads
+            </Link>
+            <Link href={`${base}`} className="tag tag--muted">
+              structure
             </Link>
             <Link
               href={href({ vista: 'burbujas' })}

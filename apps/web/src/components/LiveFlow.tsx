@@ -462,6 +462,8 @@ export function LiveFlow({
       min: String(Math.max(1, Math.min(10080, Math.round(windowMinutes)))),
     });
     if (instanceId !== undefined) parametros.set('instancia', String(instanceId));
+    if (engine) parametros.set('engine', engine);
+    if (alias) parametros.set('conn', alias);
     return `/api/flow-live?${parametros.toString()}`;
   }, [scope, instanceId, weight, windowMinutes]);
 
@@ -1033,6 +1035,10 @@ export function LiveFlow({
           const cardH = nodo.cardH ?? 56;
           const x = nodo.x - cardW + 6;
           const y = nodo.y - cardH / 2;
+          nodo.hitX = x;
+          nodo.hitY = y;
+          nodo.hitW = cardW;
+          nodo.hitH = cardH;
 
           roundRect(ctx, x, y, cardW, cardH, 3);
           ctx.fillStyle = THEME.card;
@@ -1251,6 +1257,17 @@ export function LiveFlow({
           mejor = nodo;
         }
       }
+      if (x < nodo.hitX || y < nodo.hitY || x > nodo.hitX + nodo.hitW || y > nodo.hitY + nodo.hitH) {
+        continue;
+      }
+      mejor = {
+        label: nodo.label,
+        depth: nodo.depth,
+        name: nodo.name,
+        writeIn: nodo.writeIn,
+        readIn: nodo.readIn,
+      };
+      break;
     }
     if (mejor?.isOthers) {
       setTablePage((p) => Math.min(p + 1, Math.max(0, packMetaRef.current.pageCount - 1)));
@@ -1312,14 +1329,20 @@ export function LiveFlow({
             <button
               type="button"
               className={`tag ${groupMode === 'table' ? 'tag--info' : 'tag--muted'}`}
-              onClick={() => setGroupMode('table')}
+              onClick={() => {
+                pageRef.current = 0;
+                setGroupMode('table');
+              }}
             >
               By table
             </button>
             <button
               type="button"
               className={`tag ${groupMode === 'schema' ? 'tag--info' : 'tag--muted'}`}
-              onClick={() => setGroupMode('schema')}
+              onClick={() => {
+                pageRef.current = 0;
+                setGroupMode('schema');
+              }}
             >
               By schema
             </button>
@@ -1377,6 +1400,33 @@ export function LiveFlow({
                 Demo · {DEMO_TABLE_COUNT}
               </div>
             )}
+            {flowNav.pages > 1 ? (
+              <>
+                <button
+                  type="button"
+                  className="tag tag--muted"
+                  disabled={flowNav.page <= 1}
+                  onClick={() => {
+                    pageRef.current = Math.max(0, pageRef.current - 1);
+                  }}
+                >
+                  Previous
+                </button>
+                <span className="font-mono text-[10px] text-foreground-muted">
+                  {flowNav.page}/{flowNav.pages}
+                </span>
+                <button
+                  type="button"
+                  className="tag tag--muted"
+                  disabled={flowNav.page >= flowNav.pages}
+                  onClick={() => {
+                    pageRef.current = Math.min(flowNav.pages - 1, pageRef.current + 1);
+                  }}
+                >
+                  Next
+                </button>
+              </>
+            ) : null}
             <button
               type="button"
               className={`tag ${liveMotion ? 'tag--info' : 'tag--muted'}`}

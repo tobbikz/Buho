@@ -14,6 +14,7 @@ import {
   listFleetAlerts,
   type FleetAlert,
 } from '@/lib/alerts';
+import { listScopeChoices, scopeEngines } from '@/lib/fleet-scope';
 
 export const metadata = { title: 'Alerts · Búho' };
 
@@ -113,11 +114,16 @@ export default async function AlertsPage({
   let alerts: FleetAlert[];
   let counts: Awaited<ReturnType<typeof countOpenAlerts>>;
   let heatmap: Awaited<ReturnType<typeof getAlertDayHeatmap>>;
+  let choices: Awaited<ReturnType<typeof listScopeChoices>> = [];
   try {
-    [alerts, counts, heatmap] = await Promise.all([
-      listFleetAlerts(showResolved ? ['resolved'] : ['pending', 'firing']),
+    [alerts, counts, heatmap, choices] = await Promise.all([
+      listFleetAlerts(showResolved ? ['resolved'] : ['pending', 'firing'], {
+        engine: engine || undefined,
+        alias: conn || undefined,
+      }),
       countOpenAlerts(),
       getAlertDayHeatmap(14),
+      listScopeChoices(),
     ]);
   } catch (err) {
     return (
@@ -148,7 +154,17 @@ export default async function AlertsPage({
             </p>
           </div>
           <div className="page-header__actions">
-            <Link className="btn" href={showResolved ? '/alerts' : '/alerts?view=resolved'}>
+            <Link
+              className="btn"
+              href={(() => {
+                const params = new URLSearchParams();
+                if (!showResolved) params.set('view', 'resolved');
+                if (engine) params.set('engine', engine);
+                if (conn) params.set('conn', conn);
+                const query = params.toString();
+                return query ? `/alerts?${query}` : '/alerts';
+              })()}
+            >
               {showResolved ? 'Show open' : 'Show resolved'}
             </Link>
             <Link className="btn btn--primary" href="/admin/alerts">

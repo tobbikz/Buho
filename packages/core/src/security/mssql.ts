@@ -50,21 +50,21 @@ const WEAK_PASSWORDS: (string | null)[] = [
 const SURFACE_AREA: Record<string, { severity: 'alta' | 'media'; why: string }> = {
   xp_cmdshell: {
     severity: 'alta',
-    why: 'permite ejecutar comandos del sistema operativo con la cuenta del servicio de SQL Server',
+    why: 'runs operating-system commands as the SQL Server service account',
   },
   'Ole Automation Procedures': {
     severity: 'alta',
-    why: 'permite instanciar objetos COM y salir del motor',
+    why: 'can instantiate COM objects and leave the engine',
   },
   'Ad Hoc Distributed Queries': {
     severity: 'media',
-    why: 'permite abrir conexiones arbitrarias con OPENROWSET desde una consulta',
+    why: 'can open arbitrary connections with OPENROWSET from a query',
   },
-  'clr enabled': { severity: 'media', why: 'ejecuta ensamblados .NET dentro del motor' },
-  'Database Mail XPs': { severity: 'media', why: 'permite enviar correo, y con ello exfiltrar datos' },
+  'clr enabled': { severity: 'media', why: 'runs .NET assemblies inside the engine' },
+  'Database Mail XPs': { severity: 'media', why: 'can send mail, and with it exfiltrate data' },
   'cross db ownership chaining': {
     severity: 'media',
-    why: 'extiende los permisos entre bases por cadena de propiedad y rompe el aislamiento',
+    why: 'extends permissions across databases by ownership chain and breaks isolation',
   },
 };
 
@@ -93,8 +93,8 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
       unverifiable(
         'mssql_logins',
         'privilegios',
-        'Logins del servidor',
-        'Requiere VIEW ANY DEFINITION o pertenencia a securityadmin. Sin esto no se ven los logins ni su política de contraseñas.',
+        'Server logins',
+        'Requires VIEW ANY DEFINITION or membership in securityadmin. Without it, logins and their password policy are invisible.',
         logins.error,
       ),
     );
@@ -124,11 +124,11 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
         checkId: 'mssql_builtin_admins',
         category: 'privilegios',
         severity: 'alta',
-        title: 'Los administradores del sistema son sysadmin',
+        title: 'Operating-system administrators are sysadmin',
         detail:
-          'El grupo BUILTIN\\Administrators pertenece al rol sysadmin: cualquier administrador del servidor operativo tiene control total de SQL Server sin que nadie le haya concedido permisos en la base.',
+          'The BUILTIN\\Administrators group is in the sysadmin role: any administrator of the operating system has full control of SQL Server without a grant inside the database.',
         remediation:
-          'Quitar el grupo del rol y conceder sysadmin a cuentas nominales: alter server role sysadmin drop member [BUILTIN\\Administrators];',
+          'Drop the group from the role and grant sysadmin to named accounts: alter server role sysadmin drop member [BUILTIN\\Administrators];',
         evidence: { miembros: builtin.map((principal) => principal.name) },
       });
     }
@@ -138,15 +138,15 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
         checkId: 'mssql_sysadmin_sprawl',
         category: 'privilegios',
         severity: 'media',
-        title: 'Demasiados sysadmin',
-        detail: `${sysadmins.length} logins activos son sysadmin: ${sysadmins
+        title: 'Too many sysadmins',
+        detail: `${sysadmins.length} active logins are sysadmin: ${sysadmins
           .map((principal) => principal.name)
           .join(', ')}.`,
-        remediation: 'Revisar la lista y dejar sólo lo imprescindible; para tareas concretas existen roles como dbcreator, processadmin o diskadmin.',
+        remediation: 'Review the list and keep only what is required; concrete jobs can use roles such as dbcreator, processadmin, or diskadmin.',
         evidence: { sysadmins: sysadmins.map((principal) => principal.name) },
       });
     } else {
-      findings.push(ok('mssql_sysadmin_sprawl', 'privilegios', 'Miembros de sysadmin', `${sysadmins.length} login(s).`));
+      findings.push(ok('mssql_sysadmin_sprawl', 'privilegios', 'sysadmin members', `${sysadmins.length} login(s).`));
     }
 
     const sa = logins.rows.find((row) => String(row['name']).toLowerCase() === 'sa');
@@ -155,15 +155,15 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
         checkId: 'mssql_sa_enabled',
         category: 'autenticacion',
         severity: 'alta',
-        title: 'La cuenta sa está habilitada',
+        title: 'The sa account is enabled',
         detail:
-          'sa está activa y con su nombre original. Es la primera cuenta que prueba cualquier ataque automatizado, y su nombre no se puede adivinar mal porque es idéntico en todas las instalaciones.',
+          'sa is active under its original name. It is the first account every automated attack tries, and the name cannot be guessed wrong because it is the same on every install.',
         remediation:
-          'Deshabilitarla si no se usa (alter login sa disable) o al menos renombrarla (alter login sa with name = …), dejando cuentas nominales para la administración.',
+          'Disable it if it is unused (alter login sa disable) or at least rename it (alter login sa with name = …), and use named accounts for administration.',
         evidence: { create_date: sa['create_date'] },
       });
     } else if (sa) {
-      findings.push(ok('mssql_sa_enabled', 'autenticacion', 'Cuenta sa', 'Deshabilitada.'));
+      findings.push(ok('mssql_sa_enabled', 'autenticacion', 'sa account', 'Disabled.'));
     }
 
     const noPolicy = logins.rows.filter((row) => row['is_policy_checked'] === false);
@@ -172,15 +172,15 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
         checkId: 'mssql_password_policy',
         category: 'autenticacion',
         severity: 'alta',
-        title: 'Logins exentos de la política de contraseñas',
-        detail: `${noPolicy.length} login(s) tienen CHECK_POLICY desactivado, así que aceptan cualquier contraseña por débil que sea: ${noPolicy
+        title: 'Logins exempt from the password policy',
+        detail: `${noPolicy.length} login(s) have CHECK_POLICY off, so they accept any password no matter how weak: ${noPolicy
           .map((row) => String(row['name']))
           .join(', ')}.`,
         remediation: 'alter login … with check_policy = on;',
         evidence: { logins: noPolicy.map((row) => row['name']) },
       });
     } else {
-      findings.push(ok('mssql_password_policy', 'autenticacion', 'Política de contraseñas', 'Todos los logins la aplican.'));
+      findings.push(ok('mssql_password_policy', 'autenticacion', 'Password policy', 'Every login enforces it.'));
     }
 
     const noExpiry = logins.rows.filter(
@@ -191,11 +191,11 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
         checkId: 'mssql_password_expiration',
         category: 'autenticacion',
         severity: 'media',
-        title: 'Contraseñas que nunca caducan',
-        detail: `${noExpiry.length} login(s) activos tienen CHECK_EXPIRATION desactivado: ${noExpiry
+        title: 'Passwords that never expire',
+        detail: `${noExpiry.length} active login(s) have CHECK_EXPIRATION off: ${noExpiry
           .map((row) => String(row['name']))
-          .join(', ')}. Una credencial filtrada sirve para siempre.`,
-        remediation: 'alter login … with check_expiration = on; y acordar una rotación.',
+          .join(', ')}. A leaked credential works forever.`,
+        remediation: 'alter login … with check_expiration = on; and agree a rotation.',
         evidence: { logins: noExpiry.map((row) => row['name']) },
       });
     }
@@ -218,8 +218,8 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
       unverifiable(
         'mssql_weak_passwords',
         'autenticacion',
-        'Contraseñas conocidas',
-        'Requiere CONTROL SERVER o pertenencia a securityadmin para leer password_hash de sys.sql_logins.',
+        'Known passwords',
+        'Requires CONTROL SERVER or membership in securityadmin to read password_hash from sys.sql_logins.',
         weak.error,
       ),
     );
@@ -229,11 +229,11 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
       checkId: 'mssql_weak_passwords',
       category: 'autenticacion',
       severity: active.length > 0 ? 'critica' : 'media',
-      title: 'Logins con contraseña de diccionario',
-      detail: `${weak.rows.length} login(s) tienen una contraseña de una lista de doce valores triviales${
-        active.length < weak.rows.length ? ' (algunos deshabilitados)' : ''
-      }: ${weak.rows.map((row) => String(row['name'])).join(', ')}. La comprobación usa PWDCOMPARE, que compara contra el hash sin intentar iniciar sesión.`,
-      remediation: 'Cambiar esas contraseñas ya y activar CHECK_POLICY en los logins afectados.',
+      title: 'Logins with a dictionary password',
+      detail: `${weak.rows.length} login(s) use a password from a list of twelve trivial values${
+        active.length < weak.rows.length ? ' (some disabled)' : ''
+      }: ${weak.rows.map((row) => String(row['name'])).join(', ')}. The check uses PWDCOMPARE, which compares the hash without attempting a login.`,
+      remediation: 'Change those passwords now and turn CHECK_POLICY on for the affected logins.',
       evidence: { logins: weak.rows.map((row) => row['name']) },
     });
   } else {
@@ -241,8 +241,8 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
       ok(
         'mssql_weak_passwords',
         'autenticacion',
-        'Contraseñas conocidas',
-        'Ningún login coincide con las doce contraseñas triviales probadas (blanco, nombre del login, password, Password1, sa, 123456 y similares).',
+        'Known passwords',
+        'No login matches the twelve trivial passwords that were tested (blank, the login name, password, Password1, sa, 123456, and similar).',
       ),
     );
   }
@@ -258,10 +258,10 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
       checkId: 'mssql_mixed_auth',
       category: 'autenticacion',
       severity: 'baja',
-      title: 'Autenticación mixta habilitada',
+      title: 'Mixed authentication is enabled',
       detail:
-        'El servidor acepta logins de SQL Server además de los de Windows. No es un fallo, pero cada login de SQL es una contraseña que hay que rotar y vigilar por separado, sin las políticas del directorio.',
-      remediation: 'Si todos los clientes pueden usar autenticación integrada, cambiar el modo a "sólo Windows".',
+        'The server accepts SQL Server logins as well as Windows logins. That is not a failure, but each SQL login is a password that must be rotated and watched on its own, outside directory policy.',
+      remediation: 'If every client can use integrated authentication, switch the mode to Windows only.',
       evidence: {},
     });
   }
@@ -274,29 +274,29 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
 
   if (databases.error) {
     findings.push(
-      unverifiable('mssql_tde', 'cifrado', 'Cifrado de datos en reposo', 'Requiere lectura de sys.databases.', databases.error),
+      unverifiable('mssql_tde', 'cifrado', 'Encryption at rest', 'Requires read access to sys.databases.', databases.error),
     );
   } else {
     const userDbs = databases.rows.filter((row) => Number(row['database_id']) > 4);
     const unencrypted = userDbs.filter((row) => row['is_encrypted'] !== true);
 
     if (userDbs.length === 0) {
-      findings.push(ok('mssql_tde', 'cifrado', 'Cifrado en reposo', 'No hay bases de usuario que evaluar.'));
+      findings.push(ok('mssql_tde', 'cifrado', 'Encryption at rest', 'No user databases to evaluate.'));
     } else if (unencrypted.length > 0) {
       findings.push({
         checkId: 'mssql_tde',
         category: 'cifrado',
         severity: 'media',
-        title: 'Bases sin cifrado en reposo',
-        detail: `${unencrypted.length} de ${userDbs.length} base(s) de usuario no tienen TDE: ${unencrypted
+        title: 'Databases without encryption at rest',
+        detail: `${unencrypted.length} of ${userDbs.length} user database(s) do not have TDE: ${unencrypted
           .map((row) => String(row['name']))
-          .join(', ')}. Quien obtenga los archivos .mdf o una copia de respaldo puede leerlos íntegros.`,
+          .join(', ')}. Anyone who obtains the .mdf files or a backup can read them in full.`,
         remediation:
-          'Habilitar Transparent Data Encryption, y guardar la copia de seguridad de la clave maestra en un lugar distinto al de los respaldos.',
+          'Enable Transparent Data Encryption, and store the master-key backup somewhere other than the database backups.',
         evidence: { bases: unencrypted.map((row) => row['name']) },
       });
     } else {
-      findings.push(ok('mssql_tde', 'cifrado', 'Cifrado en reposo', 'Todas las bases de usuario tienen TDE.'));
+      findings.push(ok('mssql_tde', 'cifrado', 'Encryption at rest', 'Every user database has TDE.'));
     }
 
     // TRUSTWORTHY en msdb viene activado de fábrica; en una base de usuario es
@@ -307,13 +307,13 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
         checkId: 'mssql_trustworthy',
         category: 'privilegios',
         severity: 'alta',
-        title: 'Bases de usuario con TRUSTWORTHY activado',
-        detail: `${trustworthy.map((row) => String(row['name'])).join(', ')} tienen TRUSTWORTHY ON. Combinado con un propietario sysadmin, es una vía conocida de escalada de privilegios: quien pueda crear un procedimiento en esa base puede llegar a sysadmin.`,
-        remediation: 'alter database … set trustworthy off; y usar firma de módulos con certificado si se necesita acceso entre bases.',
+        title: 'User databases with TRUSTWORTHY on',
+        detail: `${trustworthy.map((row) => String(row['name'])).join(', ')} have TRUSTWORTHY ON. Combined with a sysadmin owner, this is a known privilege-escalation path: anyone who can create a procedure in that database can reach sysadmin.`,
+        remediation: 'alter database … set trustworthy off; and use certificate module signing if cross-database access is required.',
         evidence: { bases: trustworthy.map((row) => row['name']) },
       });
     } else {
-      findings.push(ok('mssql_trustworthy', 'privilegios', 'TRUSTWORTHY', 'Ninguna base de usuario lo tiene activado.'));
+      findings.push(ok('mssql_trustworthy', 'privilegios', 'TRUSTWORTHY', 'No user database has it enabled.'));
     }
   }
 
@@ -329,14 +329,14 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
         checkId: 'mssql_unencrypted_connections',
         category: 'cifrado',
         severity: 'alta',
-        title: 'Hay conexiones sin cifrar ahora mismo',
-        detail: `${plain['total']} de ${total} conexión(es) activas no están cifradas. No es una configuración teórica: son sesiones reales enviando datos y credenciales en claro por la red.`,
+        title: 'Connections are unencrypted right now',
+        detail: `${plain['total']} of ${total} active connection(s) are not encrypted. This is not a theoretical setting: these are live sessions sending data and credentials in clear text.`,
         remediation:
-          'Activar Force Encryption en la configuración de red del servidor y verificar que los clientes usen Encrypt=true con validación de certificado.',
+          'Turn on Force Encryption in the server network configuration and confirm clients use Encrypt=true with certificate validation.',
         evidence: { conexiones: connections.rows },
       });
     } else if (total > 0) {
-      findings.push(ok('mssql_unencrypted_connections', 'cifrado', 'Conexiones cifradas', `Las ${total} conexiones activas están cifradas.`));
+      findings.push(ok('mssql_unencrypted_connections', 'cifrado', 'Encrypted connections', `All ${total} active connections are encrypted.`));
     }
   }
 
@@ -351,24 +351,24 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
       checkId: 'mssql_force_encryption',
       category: 'cifrado',
       severity: 'no_verificable',
-      title: 'Cifrado obligatorio en el protocolo',
+      title: 'Protocol encryption required',
       detail:
-        'No se pudo leer ForceEncryption: sys.dm_server_registry sólo devuelve datos en instalaciones sobre Windows. En Linux esta opción se configura con mssql-conf y no se expone por T-SQL.',
-      remediation: 'En Linux, verificar a mano con: mssql-conf get network.forceencryption',
+        'ForceEncryption could not be read: sys.dm_server_registry only returns data on Windows installs. On Linux this option is set with mssql-conf and is not exposed over T-SQL.',
+      remediation: 'On Linux, check by hand: mssql-conf get network.forceencryption',
       evidence: {},
     });
   } else {
     const forced = String(registry.rows[0]?.['value_data'] ?? '0') === '1';
     findings.push(
       forced
-        ? ok('mssql_force_encryption', 'cifrado', 'Cifrado obligatorio', 'ForceEncryption activado.')
+        ? ok('mssql_force_encryption', 'cifrado', 'Encryption required', 'ForceEncryption is on.')
         : {
             checkId: 'mssql_force_encryption',
             category: 'cifrado',
             severity: 'alta',
-            title: 'El cifrado no es obligatorio',
-            detail: 'ForceEncryption está desactivado: el cliente decide si cifra, y por omisión muchos no lo hacen.',
-            remediation: 'Activar Force Encryption en SQL Server Configuration Manager.',
+            title: 'Encryption is not required',
+            detail: 'ForceEncryption is off: the client decides whether to encrypt, and many do not by default.',
+            remediation: 'Turn on Force Encryption in SQL Server Configuration Manager.',
             evidence: {},
           },
     );
@@ -389,17 +389,17 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
         checkId: 'mssql_surface_area',
         category: 'superficie',
         severity: worst ? 'alta' : 'media',
-        title: 'Opciones peligrosas habilitadas',
+        title: 'Dangerous options enabled',
         detail: enabled
           .map((row) => `${row['name']} (${SURFACE_AREA[String(row['name'])]?.why})`)
           .join('; '),
         remediation:
-          'Deshabilitar lo que no se use: exec sp_configure \'<opción>\', 0; reconfigure with override;',
+          "Disable what is unused: exec sp_configure '<option>', 0; reconfigure with override;",
         evidence: { opciones: enabled.map((row) => row['name']) },
       });
     } else {
       findings.push(
-        ok('mssql_surface_area', 'superficie', 'Opciones peligrosas', 'xp_cmdshell, CLR, OLE Automation y consultas distribuidas ad hoc están deshabilitadas.'),
+        ok('mssql_surface_area', 'superficie', 'Dangerous options', 'xp_cmdshell, CLR, OLE Automation, and ad hoc distributed queries are disabled.'),
       );
     }
   }
@@ -411,7 +411,7 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
   );
   if (audits.error) {
     findings.push(
-      unverifiable('mssql_audit', 'auditoria', 'Auditoría del servidor', 'Requiere VIEW ANY DEFINITION.', audits.error),
+      unverifiable('mssql_audit', 'auditoria', 'Server audit', 'Requires VIEW ANY DEFINITION.', audits.error),
     );
   } else {
     const active = audits.rows.filter((row) => row['is_state_enabled'] === true);
@@ -420,17 +420,17 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
         checkId: 'mssql_audit',
         category: 'auditoria',
         severity: 'media',
-        title: 'Sin auditoría configurada',
+        title: 'No audit configured',
         detail:
           audits.rows.length === 0
-            ? 'No existe ninguna especificación de SQL Server Audit. No hay registro de accesos ni de cambios de permisos.'
-            : `Hay ${audits.rows.length} auditoría(s) definidas pero ninguna habilitada.`,
+            ? 'No SQL Server Audit specification exists. There is no record of access or permission changes.'
+            : `${audits.rows.length} audit(s) are defined but none are enabled.`,
         remediation:
-          'Crear una auditoría de servidor con al menos los grupos de acciones de inicio de sesión fallido y cambios de permisos, y habilitarla.',
+          'Create a server audit with at least the failed-login and permission-change action groups, and enable it.',
         evidence: { definidas: audits.rows.length },
       });
     } else {
-      findings.push(ok('mssql_audit', 'auditoria', 'Auditoría del servidor', `${active.length} auditoría(s) habilitada(s).`));
+      findings.push(ok('mssql_audit', 'auditoria', 'Server audit', `${active.length} audit(s) enabled.`));
     }
   }
 
@@ -444,11 +444,11 @@ export async function auditMssql(client: EngineClient): Promise<SecurityAudit> {
       checkId: 'mssql_cert_expiry',
       category: 'cifrado',
       severity: 'media',
-      title: 'Certificados por vencer',
+      title: 'Certificates expiring soon',
       detail: certificates.rows
-        .map((row) => `${row['name']} vence el ${String(row['expiry_date']).slice(0, 10)}`)
+        .map((row) => `${row['name']} expires on ${String(row['expiry_date']).slice(0, 10)}`)
         .join('; '),
-      remediation: 'Renovar el certificado antes del vencimiento; si respalda TDE, planificar la rotación de la clave.',
+      remediation: 'Renew the certificate before it expires; if it backs TDE, plan the key rotation.',
       evidence: { certificados: certificates.rows },
     });
   }

@@ -126,7 +126,10 @@ export async function getFleetChecks(
   for (const group of result) {
     group.instances = new Set(group.occurrences.map((entry) => entry.instanceId)).size;
     group.occurrences.sort(
-      (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || a.alias.localeCompare(b.alias),
+      (a, b) =>
+        SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] ||
+        (a.group ?? '\uffff').localeCompare(b.group ?? '\uffff') ||
+        a.alias.localeCompare(b.alias),
     );
   }
 

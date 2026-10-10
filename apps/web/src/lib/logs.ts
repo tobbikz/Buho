@@ -18,6 +18,7 @@ export type LogKind =
   | 'checkpoint'
   | 'autovacuum'
   | 'temp_file'
+  | 'timeout'
   | 'cancelled'
   | 'other';
 
@@ -65,12 +66,13 @@ export const KIND_LABEL: Record<LogKind, string> = {
   checkpoint: 'Checkpoint',
   autovacuum: 'Autovacuum',
   temp_file: 'Temp file',
+  timeout: 'Timeout',
   cancelled: 'Cancelled',
   other: 'Other',
 };
 
 /** Los tipos que representan algo que la aplicación vio fallar. */
-export const FAILURE_KINDS: LogKind[] = ['fatal', 'error', 'deadlock', 'cancelled'];
+export const FAILURE_KINDS: LogKind[] = ['fatal', 'error', 'deadlock', 'cancelled', 'timeout'];
 
 export async function getLogCoverage(instanceId: number): Promise<LogCoverage | null> {
   const rows = await query<{
@@ -313,7 +315,7 @@ export async function getFleetLogPatterns(
        join buho.instances i using (instance_id)
       where e.at >= now() - ($1 || ' hours')::interval
         and (
-          e.kind in ('fatal', 'error', 'deadlock', 'cancelled')
+          e.kind in ('fatal', 'error', 'deadlock', 'cancelled', 'timeout')
           or lower(e.level) in ('fatal', 'panic', 'error', 'critical', 'warning', 'warn')
         )
       group by e.instance_id, i.alias, i.engine, e.fingerprint, e.kind, e.level
@@ -408,5 +410,49 @@ export async function getFleetLogLevelCounts(hours = 24): Promise<FleetLogLevelC
     engine: row.engine,
     level: row.level,
     times: Number(row.times),
+  }));
+}
+
+export type TimeoutLane = 'statement' | 'lock' | 'idle';
+
+export interface TimeoutEvent {
+  at: number;
+  lane: TimeoutLane;
+  message: string;
+  database: string | null;
+}
+
+function timeoutLane(message: string): TimeoutLane {
+  const text = message.toLowerCase();
+  if (text.includes('lock timeout')) return 'lock';
+  if (text.includes('idle')) return 'idle';
+  return 'statement';
+}
+
+/** Each point is one statement, lock, or idle timeout from the server log. */
+export async function getTimeoutEvents(instanceId: number, windowMinutes: number): Promise<TimeoutEvent[]> {
+  const rows = await query<{ at: Date; message: string; database: string | null }>(
+    `select at, message, database
+       from buho.log_events
+      where instance_id = $1
+        and at > now() - make_interval(mins => $2::int)
+        and (
+          kind = 'timeout'
+          or message ilike '%statement timeout%'
+          or message ilike '%lock timeout%'
+          or message ilike '%idle-in-transaction timeout%'
+          or message ilike '%idle session timeout%'
+          or message ilike '%idle-session timeout%'
+        )
+      order by at
+      limit 400`,
+    [instanceId, windowMinutes],
+  );
+
+  return rows.map((row) => ({
+    at: row.at.getTime(),
+    lane: timeoutLane(row.message),
+    message: row.message,
+    database: row.database,
   }));
 }

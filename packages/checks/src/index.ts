@@ -1,10 +1,10 @@
 import type { Pool } from 'pg';
 import { tagged } from '@buho/core';
 import type { Capabilities } from '@buho/core';
-import { CHECKS } from './definitions';
+import { CHECKS, POSTGRES_ONLY_CHECKS } from './definitions';
 import type { CheckResult, Severity } from './types';
 
-export { CHECKS } from './definitions';
+export { CHECKS, POSTGRES_ONLY_CHECKS } from './definitions';
 export type { CheckDefinition, CheckResult, Finding, Severity } from './types';
 
 export interface CheckRunError {
@@ -65,7 +65,7 @@ export async function runChecks(pool: Pool, caps: Capabilities): Promise<CheckRu
   const results: CheckResult[] = [];
   const errors: CheckRunError[] = [];
 
-  for (const check of CHECKS) {
+  for (const check of [...CHECKS, ...POSTGRES_ONLY_CHECKS]) {
     if (check.appliesTo && !check.appliesTo(caps)) continue;
     try {
       const sql = check.sql(caps);

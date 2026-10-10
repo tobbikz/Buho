@@ -7,6 +7,7 @@ import { Topbar } from '@/components/Topbar';
 import { formatNumber, formatPct } from '@/lib/format';
 import { formatUnit, type Unit } from '@/lib/units';
 import { getFleetFlow } from '@/lib/fleet-flow';
+import { listScopeChoices, scopeEngines } from '@/lib/fleet-scope';
 import type { FlowWeight } from '@buho/core';
 
 export const dynamic = 'force-dynamic';
@@ -42,8 +43,15 @@ export default async function FleetFlowPage({
   const window = WINDOWS.find((entrada) => entrada.key === v) ?? WINDOWS[2]!;
 
   let flow;
+  let choices: Awaited<ReturnType<typeof listScopeChoices>> = [];
   try {
-    flow = await getFleetFlow(window.minutes, weight, 20);
+    [flow, choices] = await Promise.all([
+      getFleetFlow(window.minutes, weight, 20, {
+        engine: engine || undefined,
+        alias: conn || undefined,
+      }),
+      listScopeChoices(),
+    ]);
   } catch (error) {
     return (
       <>
@@ -87,6 +95,14 @@ export default async function FleetFlowPage({
             </p>
           </div>
         </header>
+
+        <FleetScopeFilters
+          engines={scopeEngines(choices)}
+          instances={choices}
+          engine={engine}
+          conn={conn}
+          preserve={{ peso: weight, v: window.key, vista: enVivo ? 'vivo' : 'acumulado' }}
+        />
 
         <div className="stat-grid">
           <StatCard

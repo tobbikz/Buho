@@ -474,6 +474,102 @@ select.input-field {
   background: var(--surface-muted);
 }
 
+/* Logical subscription rows. <details> so the whole row opens without client JS. */
+.sub-list__head,
+.sub-row__summary {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr) 7.5rem 6.5rem;
+  align-items: center;
+  column-gap: 0.5rem;
+  padding: 0.4375rem 0.75rem;
+}
+
+.sub-list__head {
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--border-strong);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--foreground-muted);
+}
+
+.sub-list__lag,
+.sub-row__lag,
+.sub-list__worker,
+.sub-row__worker {
+  text-align: right;
+}
+
+.sub-row {
+  border-bottom: 1px solid var(--border);
+}
+
+.sub-row:last-child {
+  border-bottom: none;
+}
+
+.sub-row__summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 12px;
+  color: inherit;
+}
+
+.sub-row__summary::-webkit-details-marker {
+  display: none;
+}
+
+.sub-row__summary:hover,
+.sub-row[open] > .sub-row__summary {
+  background: var(--surface-muted);
+}
+
+.sub-row__chevron {
+  display: block;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-left: 0.15rem;
+  border-right: 1.5px solid var(--foreground-muted);
+  border-bottom: 1.5px solid var(--foreground-muted);
+  transform: rotate(-45deg);
+}
+
+.sub-row[open] > .sub-row__summary .sub-row__chevron {
+  transform: rotate(45deg);
+}
+
+.sub-row__name {
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--accent);
+}
+
+.sub-row__lag {
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  font-size: 11px;
+}
+
+.sub-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem 0.75rem 2.15rem;
+  background: var(--surface-muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--foreground-secondary);
+}
+
+.sub-row__body ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.sub-row__body a {
+  color: var(--accent);
+}
+
 /* Layout fijo para que las etiquetas largas se corten con ellipsis en vez de
    empujar la barra y el valor fuera de la celda. */
 .data-table--bars {
@@ -1148,6 +1244,62 @@ button.tab {
 
 /* --------------------------------------------------------- árbol de bloqueo */
 
+.lock-why {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--foreground-secondary);
+}
+
+.lock-list__head,
+.lock-ep__summary {
+  display: grid;
+  grid-template-columns: 1.25rem 9.5rem 5.5rem 8.5rem minmax(8rem, 1fr) minmax(8rem, 1.1fr) minmax(10rem, 1.6fr);
+  align-items: center;
+  column-gap: 0.5rem;
+  padding: 0.4375rem 0.75rem;
+}
+
+.lock-list__head {
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--border-strong);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--foreground-muted);
+}
+
+.lock-ep {
+  border-bottom: 1px solid var(--border);
+}
+
+.lock-ep:last-child {
+  border-bottom: none;
+}
+
+.lock-ep__summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 12px;
+}
+
+.lock-ep__summary::-webkit-details-marker {
+  display: none;
+}
+
+.lock-ep__summary:hover,
+.lock-ep[open] > .lock-ep__summary {
+  background: var(--surface-muted);
+}
+
+.lock-ep .lock-tree {
+  border-bottom: none;
+  background: var(--surface-muted);
+}
+
 .lock-tree {
   display: grid;
   gap: 0.375rem;
@@ -1303,6 +1455,29 @@ button.tab {
   margin-top: 0.125rem;
   font-size: 11px;
   color: var(--foreground-muted);
+}
+
+.stat--split .stat-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-width: 0;
+}
+
+.stat-split__side {
+  min-width: 0;
+}
+
+.stat-split__side + .stat-split__side {
+  border-left: 1px solid var(--border);
+  padding-left: 0.65rem;
+}
+
+.stat--split .stat__value {
+  font-size: clamp(0.85rem, 1.5vw, 1.05rem);
+}
+
+.stat__value--warn {
+  color: var(--warning);
 }
 
 /* --------------------------------------------------------------- hallazgos */
@@ -1531,6 +1706,78 @@ button.tab {
   color: var(--foreground-muted);
   border-left: 2px solid var(--border);
   padding-left: 0.5rem;
+}
+
+.finding--line {
+  display: grid;
+  grid-template-columns: minmax(7rem, 14rem) minmax(0, 1fr);
+  gap: 0.5rem 0.75rem;
+  align-items: baseline;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  border-left: none;
+  background: transparent;
+}
+
+.finding--line:last-child {
+  border-bottom: none;
+}
+
+.finding--line .finding__message {
+  margin-top: 0;
+}
+
+.finding-section + .finding-section {
+  border-top: 1px solid var(--border);
+}
+
+.finding-section__head,
+.finding-category__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+}
+
+.finding-section__title,
+.finding-category__title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--foreground-secondary);
+}
+
+.finding-category + .finding-category {
+  border-top: 1px solid var(--border);
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.4375rem 0.875rem;
+}
+
+.pager__status {
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--foreground-muted);
+  min-width: 4.5rem;
+  text-align: center;
+}
+
+.check-card__group-row td {
+  padding: 0.375rem 0.75rem;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--foreground-muted);
+  background: var(--surface-muted);
 }
 
 /* ------------------------------------------------------------ score badge */
@@ -2963,6 +3210,21 @@ button.tab {
   background: transparent;
   text-align: left;
   cursor: pointer;
+}
+
+.event-card > .event-card__summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  color: inherit;
+  font: inherit;
+}
+
+.event-card > .event-card__summary:hover,
+.event-card.is-open > .event-card__summary {
+  background: var(--surface-muted);
 }
 
 .event-card__meta {

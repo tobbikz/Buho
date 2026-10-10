@@ -49,7 +49,7 @@ export interface ReplicationRow {
    * una réplica con el primario del que recibe. Separarlos evita que una
    * réplica vigilada se liste a sí misma como su propio standby.
    */
-  role: 'primary' | 'standby' | 'upstream' | 'slot' | 'replica' | 'availability_group';
+  role: 'primary' | 'standby' | 'upstream' | 'slot' | 'replica' | 'availability_group' | 'subscription';
   peer?: string;
   state?: string | null;
   lagBytes?: number | null;

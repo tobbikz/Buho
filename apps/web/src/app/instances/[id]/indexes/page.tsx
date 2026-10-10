@@ -10,8 +10,15 @@ import { formatAgo, formatBytes, formatDuration, formatNumber } from '@/lib/form
 import { getInstanceEngine } from '@/lib/estate';
 import { getInstance } from '@/lib/queries';
 import { getIndexFindings, getIndexSuggestions } from '@/lib/advisor';
-import { getIndexInventory, getIndexSummary } from '@/lib/indexes';
-import type { IndexRow } from '@/lib/indexes';
+import {
+  getBloatedIndexes,
+  getIndexInventory,
+  getIndexPage,
+  getIndexSchemaGroups,
+  getIndexSummary,
+  getIndexTableGroups,
+} from '@/lib/indexes';
+import type { IndexRow, IndexSchemaGroup, IndexTableGroup } from '@/lib/indexes';
 import type { IndexStatus } from '@buho/core';
 
 export const dynamic = 'force-dynamic';
@@ -61,9 +68,17 @@ function groupByTable(rows: IndexRow[]) {
 
 function buildIndexesHref(
   instanceId: number,
-  filter: 'all' | IndexStatus,
+  filter: 'all' | IndexStatus | 'bloated',
   schema: string | null,
-  opts?: { q?: string; sort?: string; dir?: 'asc' | 'desc' },
+  opts?: {
+    q?: string;
+    sort?: string;
+    dir?: 'asc' | 'desc';
+    page?: number;
+    fp?: string | null;
+    ft?: string;
+    fpage?: number;
+  },
 ): string {
   const params = new URLSearchParams();
   if (filter !== 'all') params.set('filter', filter);
@@ -71,6 +86,10 @@ function buildIndexesHref(
   if (opts?.q) params.set('q', opts.q);
   if (opts?.sort) params.set('sort', opts.sort);
   if (opts?.dir) params.set('dir', opts.dir);
+  if (opts?.page && opts.page > 1) params.set('page', String(opts.page));
+  if (opts?.fp) params.set('fp', opts.fp);
+  if (opts?.ft) params.set('ft', opts.ft);
+  if (opts?.fpage && opts.fpage > 1) params.set('fpage', String(opts.fpage));
   const query = params.toString();
   return query ? `/instances/${instanceId}/indexes?${query}` : `/instances/${instanceId}/indexes`;
 }
@@ -86,10 +105,24 @@ export default async function IndexesPage({
     q?: string;
     sort?: string;
     dir?: string;
+    page?: string;
+    fp?: string;
+    ft?: string;
+    fpage?: string;
   }>;
 }) {
   const { id } = await params;
-  const { filter: filterParam, schema: schemaParam, q: qParam, sort: sortParam, dir: dirParam } = await searchParams;
+  const {
+    filter: filterParam,
+    schema: schemaParam,
+    q: qParam,
+    sort: sortParam,
+    dir: dirParam,
+    page: pageParam,
+    fp: fpParam,
+    ft: ftParam,
+    fpage: fpageParam,
+  } = await searchParams;
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
 
@@ -99,20 +132,38 @@ export default async function IndexesPage({
   let suggestions: Awaited<ReturnType<typeof getIndexSuggestions>>;
   let findings: Awaited<ReturnType<typeof getIndexFindings>>;
   let summary: Awaited<ReturnType<typeof getIndexSummary>>;
-  let allIndexes: IndexRow[];
-  let problemIndexes: IndexRow[];
+  let schemaGroups: IndexSchemaGroup[];
+  let tableGroups: { rows: IndexTableGroup[]; total: number };
+  let inventory: { rows: IndexRow[]; total: number };
+  let unusedIndexes: IndexRow[];
+  let redundantIndexes: IndexRow[];
+  let invalidIndexes: IndexRow[];
+
+  const fragmented = filterParam === 'bloated';
+  const activeFilter: 'all' | IndexStatus =
+    filterParam === 'unused' || filterParam === 'redundant' || filterParam === 'invalid' || filterParam === 'ok'
+      ? filterParam
+      : 'all';
+  const q = typeof qParam === 'string' ? qParam.trim() : '';
+  const sort =
+    sortParam === 'size' || sortParam === 'scans' || sortParam === 'name' || sortParam === 'table'
+      ? sortParam
+      : 'size';
+  const dir: 'asc' | 'desc' = dirParam === 'asc' ? 'asc' : 'desc';
+  const page = Math.max(1, Number(pageParam) || 1);
 
   try {
-    [instance, suggestions, findings, summary, allIndexes, problemIndexes] = await Promise.all([
-      getInstance(instanceId),
-      getIndexSuggestions(instanceId),
-      getIndexFindings(instanceId),
-      getIndexSummary(instanceId),
-      getIndexInventory(instanceId, 'all'),
-      getIndexInventory(instanceId, 'all').then((rows) =>
-        rows.filter((row) => row.status !== 'ok'),
-      ),
-    ]);
+    [instance, suggestions, findings, summary, schemaGroups, unusedIndexes, redundantIndexes, invalidIndexes] =
+      await Promise.all([
+        getInstance(instanceId),
+        getIndexSuggestions(instanceId),
+        getIndexFindings(instanceId),
+        getIndexSummary(instanceId),
+        getIndexSchemaGroups(instanceId),
+        getIndexInventory(instanceId, 'unused', 25),
+        getIndexInventory(instanceId, 'redundant', 25),
+        getIndexInventory(instanceId, 'invalid', 25),
+      ]);
   } catch (error) {
     return (
       <>
@@ -133,61 +184,44 @@ export default async function IndexesPage({
 
   const wastedRows = suggestions.suggestions.reduce((sum, item) => sum + item.wastedRows, 0);
   const observedMs = suggestions.suggestions.reduce((sum, item) => sum + item.observedMs, 0);
-  const unusedIndexes = allIndexes.filter((row) => row.status === 'unused');
-  const redundantIndexes = allIndexes.filter((row) => row.status === 'redundant');
-  const invalidIndexes = allIndexes.filter((row) => row.status === 'invalid');
-  const schemaGroups = groupBySchema(allIndexes);
-  const tableGroups = groupByTable(allIndexes).slice(0, 12);
-  const activeFilter: 'all' | IndexStatus =
-    filterParam === 'unused' || filterParam === 'redundant' || filterParam === 'invalid' || filterParam === 'ok'
-      ? filterParam
-      : 'all';
+  const unusedFindings = findings.filter((finding) => finding.checkId.includes('unused'));
+  const redundantFindings = findings.filter((finding) => !finding.checkId.includes('unused'));
+  const unusedCount = summary.unused || unusedFindings.length;
+  const redundantCount = summary.redundant || redundantFindings.length;
+  const countsFromChecks = summary.total === 0 && findings.length > 0;
   const activeSchema = schemaParam && schemaGroups.some((row) => row.schema === schemaParam) ? schemaParam : null;
-  const q = typeof qParam === 'string' ? qParam.trim() : '';
-
-  const sort =
-    sortParam === 'size' || sortParam === 'scans' || sortParam === 'name' || sortParam === 'table'
-      ? sortParam
-      : 'size';
-  const dir: 'asc' | 'desc' = dirParam === 'asc' ? 'asc' : 'desc';
-
-  const inventoryRows = allIndexes.filter((row) => {
-    if (activeFilter !== 'all' && row.status !== activeFilter) return false;
-    if (activeSchema && row.schema !== activeSchema) return false;
-    return true;
-  });
-
-  const searchedRows = !q
-    ? inventoryRows
-    : inventoryRows.filter((row) => {
-        const haystack = [
-          row.name,
-          row.schema,
-          row.table,
-          row.columns.join(', '),
-          row.definition ?? '',
-          row.status,
-          row.coveredBy ?? '',
-        ]
-          .join(' ')
-          .toLowerCase();
-        return haystack.includes(q.toLowerCase());
-      });
-
-  const sortedRows = [...searchedRows].sort((a, b) => {
-    const mul = dir === 'asc' ? 1 : -1;
-    switch (sort) {
-      case 'scans':
-        return mul * (a.idxScan - b.idxScan);
-      case 'name':
-        return mul * a.name.localeCompare(b.name);
-      case 'table':
-        return mul * `${a.schema}.${a.table}`.localeCompare(`${b.schema}.${b.table}`);
-      case 'size':
-      default:
-        return mul * (a.sizeBytes - b.sizeBytes);
-    }
-  });
+  const footprintSchema = fpParam && schemaGroups.some((row) => row.schema === fpParam) ? fpParam : null;
+  const footprintQuery = typeof ftParam === 'string' ? ftParam.trim() : '';
+  const footprintPage = Math.max(1, Number(fpageParam) || 1);
+  const listFilter: 'all' | IndexStatus | 'bloated' = fragmented ? 'bloated' : activeFilter;
+  try {
+    inventory = fragmented
+      ? { rows: await getBloatedIndexes(instanceId, INDEX_PAGE_SIZE), total: 0 }
+      : await getIndexPage(instanceId, activeFilter, activeSchema, q, sort, dir, page, INDEX_PAGE_SIZE);
+    if (fragmented) inventory = { ...inventory, total: inventory.rows.length };
+    tableGroups = await getIndexTableGroups(instanceId, {
+      schema: footprintSchema,
+      q: footprintQuery || undefined,
+      page: footprintPage,
+      size: FOOTPRINT_PAGE_SIZE,
+    });
+  } catch (error) {
+    return (
+      <>
+        <Topbar crumbs={crumbs} />
+        <div className="page">
+          <StoreError message={error instanceof Error ? error.message : String(error)} />
+        </div>
+      </>
+    );
+  }
+  const pageCount = Math.max(1, Math.ceil(inventory.total / INDEX_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const footprintPages = Math.max(1, Math.ceil(tableGroups.total / FOOTPRINT_PAGE_SIZE));
+  const footprintCurrent = Math.min(footprintPage, footprintPages);
+  const footprintSchemas = footprintSchema
+    ? schemaGroups.filter((row) => row.schema === footprintSchema)
+    : schemaGroups;
 
   function ToggleSortLink({
     label,
@@ -200,7 +234,13 @@ export default async function IndexesPage({
     const nextDir: 'asc' | 'desc' = isActive ? (dir === 'asc' ? 'desc' : 'asc') : 'desc';
     return (
       <Link
-        href={buildIndexesHref(instanceId, activeFilter, activeSchema, { q, sort: keyName, dir: nextDir })}
+        href={buildIndexesHref(instanceId, listFilter, activeSchema, {
+          q,
+          sort: keyName,
+          dir: nextDir,
+          fp: footprintSchema,
+          ft: footprintQuery,
+        })}
         className={isActive ? 'tag tag--info' : 'btn-secondary'}
       >
         {label} {isActive ? (dir === 'asc' ? '↑' : '↓') : ''}
@@ -238,7 +278,8 @@ export default async function IndexesPage({
         <div className="stat-grid">
           <StatCard
             label="Indexes"
-            value={formatNumber(summary.total)}
+            value={summary.total > 0 ? formatNumber(summary.total) : countsFromChecks ? formatNumber(findings.length) : formatNumber(0)}
+            tone={summary.total === 0 && countsFromChecks ? 'warn' : 'ok'}
             hint={
               summary.capturedAt
                 ? `total size ${formatBytes(summary.totalBytes)} · ${formatAgo(summary.capturedAt)}`
@@ -249,8 +290,8 @@ export default async function IndexesPage({
           />
           <StatCard
             label="Unused"
-            value={formatNumber(summary.unused)}
-            tone={summary.unused > 0 ? 'warn' : 'ok'}
+            value={formatNumber(unusedCount)}
+            tone={unusedCount > 0 ? 'warn' : 'ok'}
             hint={
               engine === 'mariadb'
                 ? 'secondary indexes with zero P_S reads (needs performance_schema)'
@@ -263,9 +304,13 @@ export default async function IndexesPage({
           />
           <StatCard
             label="Redundant"
-            value={formatNumber(summary.redundant)}
-            tone={summary.redundant > 0 ? 'warn' : 'ok'}
-            hint="left prefix of another index on the same table"
+            value={formatNumber(redundantCount)}
+            tone={redundantCount > 0 ? 'warn' : 'ok'}
+            hint={
+              summary.redundant === 0 && redundantFindings.length > 0
+                ? 'from the last 24h check — inventory snapshot is still empty'
+                : 'left prefix of another index on the same table'
+            }
           />
           <StatCard
             label="Invalid"
@@ -317,9 +362,9 @@ export default async function IndexesPage({
           <>
             <section className="panel">
               <div className="panel-header">
-                <span className="panel-title">Existing indexes</span>
+                <span className="panel-title">{fragmented ? 'Larger than the table' : 'All indexes'}</span>
                 <span className="font-mono text-[10px] text-foreground-muted">
-                  keep, drop, or rebuild
+                  {summary.capturedAt ? `as of ${formatAgo(summary.capturedAt)} · size desc` : ''}
                 </span>
               </div>
               <div className="panel-body text-[12px]">
@@ -411,10 +456,25 @@ export default async function IndexesPage({
 
             <section className="panel">
               <div className="panel-header">
-                <span className="panel-title">Index footprint by schema</span>
+                <span className="panel-title">Footprint by schema and table</span>
+                <span className="font-mono text-[10px] text-foreground-muted">
+                  {formatNumber(tableGroups.total)} tables
+                </span>
               </div>
               <div className="panel-body">
-                <div className="table-scroll">
+                <FootprintFilters
+                  action={`/instances/${instanceId}/indexes`}
+                  status={listFilter}
+                  schema={activeSchema}
+                  q={q}
+                  sort={sort}
+                  dir={dir}
+                  page={currentPage}
+                  schemas={schemaGroups}
+                  footprintSchema={footprintSchema}
+                  footprintQuery={footprintQuery}
+                />
+                <div className="table-scroll" style={{ maxHeight: '16rem' }}>
                   <table className="data-table">
                     <thead>
                       <tr>
@@ -425,7 +485,7 @@ export default async function IndexesPage({
                       </tr>
                     </thead>
                     <tbody>
-                      {schemaGroups.map((row) => (
+                      {footprintSchemas.map((row) => (
                         <tr key={row.schema}>
                           <td className="font-mono text-[11px]">{row.schema}</td>
                           <td className="num">{formatNumber(row.indexes)}</td>
@@ -436,16 +496,7 @@ export default async function IndexesPage({
                     </tbody>
                   </table>
                 </div>
-              </div>
-            </section>
-
-            <section className="panel">
-              <div className="panel-header">
-                <span className="panel-title">Largest index footprints by table</span>
-                <span className="font-mono text-[10px] text-foreground-muted">top 12</span>
-              </div>
-              <div className="panel-body">
-                <div className="table-scroll">
+                <div className="table-scroll mt-4">
                   <table className="data-table">
                     <thead>
                       <tr>
@@ -457,7 +508,7 @@ export default async function IndexesPage({
                       </tr>
                     </thead>
                     <tbody>
-                      {tableGroups.map((row) => (
+                      {tableGroups.rows.map((row) => (
                         <tr key={`${row.schema}.${row.table}`}>
                           <td className="font-mono text-[11px]">
                             {row.schema}.{row.table}
@@ -471,79 +522,21 @@ export default async function IndexesPage({
                     </tbody>
                   </table>
                 </div>
-              </div>
-            </section>
-
-            <section className="panel">
-              <div className="panel-header">
-                <span className="panel-title">All indexes</span>
-                <span className="font-mono text-[10px] text-foreground-muted">
-                  {summary.capturedAt ? `as of ${formatAgo(summary.capturedAt)} · size desc` : ''}
-                </span>
-              </div>
-              <div className="panel-body">
-                <div className="mb-4 flex flex-wrap gap-2">
-                  {(['all', 'redundant', 'unused', 'invalid', 'ok'] as const).map((filter) => (
+                <div className="mt-3 flex gap-2">
+                  {footprintCurrent > 1 ? (
                     <Link
-                      key={filter}
-                      href={buildIndexesHref(instanceId, filter, activeSchema, { q, sort, dir })}
-                      className={activeFilter === filter ? 'tag tag--info' : 'btn-secondary'}
-                    >
-                      {filter === 'all' ? 'All statuses' : STATUS_LABEL[filter]}
-                    </Link>
-                  ))}
-                </div>
-                <div className="mb-4 flex flex-wrap gap-2">
-                  <Link
-                    href={buildIndexesHref(instanceId, activeFilter, null, { q, sort, dir })}
-                    className={activeSchema === null ? 'tag tag--info' : 'btn-secondary'}
-                  >
-                    All schemas
-                  </Link>
-                  {schemaGroups.map((group) => (
-                    <Link
-                      key={group.schema}
-                      href={buildIndexesHref(instanceId, activeFilter, group.schema, { q, sort, dir })}
-                      className={activeSchema === group.schema ? 'tag tag--info' : 'btn-secondary'}
-                    >
-                      {group.schema} ({formatNumber(group.indexes)})
-                    </Link>
-                  ))}
-                </div>
-                <div className="mb-4 flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] text-foreground-muted font-mono">Sort</span>
-                  <ToggleSortLink label="Size" keyName="size" />
-                  <ToggleSortLink label="Scans" keyName="scans" />
-                  <ToggleSortLink label="Index" keyName="name" />
-                  <ToggleSortLink label="Table" keyName="table" />
-                </div>
-
-                <form
-                  method="get"
-                  className="mb-4 flex flex-wrap items-center gap-2"
-                  action={`/instances/${instanceId}/indexes`}
-                >
-                  <input type="hidden" name="filter" value={activeFilter} />
-                  {activeSchema && <input type="hidden" name="schema" value={activeSchema} />}
-                  <input type="hidden" name="sort" value={sort} />
-                  <input type="hidden" name="dir" value={dir} />
-                  <input
-                    type="text"
-                    name="q"
-                    defaultValue={q}
-                    placeholder="Search index / table / definition…"
-                    className="input"
-                    style={{ flex: '1 1 240px' }}
-                  />
-                  <button type="submit" className="btn-secondary">
-                    Search
-                  </button>
-                  {q ? (
-                    <Link
-                      href={buildIndexesHref(instanceId, activeFilter, activeSchema, { q: '', sort, dir })}
+                      href={buildIndexesHref(instanceId, listFilter, activeSchema, {
+                        q,
+                        sort,
+                        dir,
+                        page: currentPage,
+                        fp: footprintSchema,
+                        ft: footprintQuery,
+                        fpage: footprintCurrent - 1,
+                      })}
                       className="btn-secondary"
                     >
-                      Clear
+                      Previous
                     </Link>
                   ) : null}
                 </form>
@@ -663,29 +656,8 @@ export default async function IndexesPage({
               <span className="font-mono text-[10px] text-foreground-muted">last 24h</span>
             </div>
             {findings.length > 0 ? (
-              <div>
-                {findings.map((finding) => {
-                  const isUnused = finding.checkId.includes('unused');
-                  return (
-                  <article
-                    key={`${finding.checkId}-${finding.object}`}
-                    className={`finding finding--${isUnused ? 'warning' : 'info'}`}
-                  >
-                    <div>
-                      <span className={`tag ${isUnused ? 'tag--warn' : 'tag--info'}`}>
-                        {isUnused ? 'Unused' : 'Redundant'}
-                      </span>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="finding__title">
-                        {isUnused ? 'Unused index' : 'Redundant index prefix'}
-                      </div>
-                      <div className="finding__object font-mono">{finding.object}</div>
-                      <div className="finding__message">{finding.message}</div>
-                    </div>
-                  </article>
-                  );
-                })}
+              <div className="panel-body">
+                <IndexFindingsList findings={findings} />
               </div>
             ) : (
               <div className="panel-body">

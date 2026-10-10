@@ -43,9 +43,12 @@ import {
   summarizeSessions,
   enrichMssqlDerivedSamples,
   readLog,
+  readSqlLog,
+  readStatErrorDeltas,
   sampleVacuum,
   vacuumSamples,
   sampleIndexes,
+  sampleCatalog,
   runCollectors,
   sampleBlocking,
   sampleStatements,
@@ -456,6 +459,8 @@ function startSessionLoop(instance: InstanceConfig, instanceId: number, pool: Po
  * encender el log de esperas de bloqueo a mediodía y Búho tiene que darse cuenta
  * sin reiniciarse.
  */
+const statErrorTotals = new Map<number, { deadlocks: number; conflicts: number; checksums: number }>();
+
 function startLogLoop(instance: InstanceConfig, instanceId: number, pool: Pool): void {
   // Default for Postgres: read logs over SQL (pg_ls_logdir). File/journal still
   // work when explicitly configured. Console-added targets have no logs block.
@@ -476,7 +481,7 @@ function startLogLoop(instance: InstanceConfig, instanceId: number, pool: Pool):
       // Las limitaciones de configuración importan tanto como los fallos de
       // lectura: una pantalla sin deadlocks porque log_lock_waits está apagado
       // no es lo mismo que una sin deadlocks.
-      [...result.warnings, ...info.limitations],
+      configured ? [...result.warnings, ...info.limitations] : result.warnings,
       written,
     );
 
@@ -1062,8 +1067,22 @@ async function monitorInstance(instance: InstanceConfig): Promise<void> {
       await store.saveVacuum(instanceId, snapshot);
       await store.insertSamples(instanceId, vacuumSamples(snapshot));
       if (instance.engine === 'postgres') {
-        const indexes = await sampleIndexes(pool);
-        await store.saveIndexes(instanceId, indexes);
+        try {
+          const catalog = await sampleCatalog(pool, caps.versionNum);
+          await store.saveCatalog(instanceId, catalog);
+          log('info', `${instance.alias}/catalog: ${catalog.tables.length} tabla(s)`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log('warn', `${instance.alias}/catalog: el catálogo no se guardó: ${message}`);
+        }
+        try {
+          const indexes = await sampleIndexes(pool);
+          await store.saveIndexes(instanceId, indexes);
+          log('info', `${instance.alias}/indexes: ${indexes.indexes.length} índice(s)`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log('warn', `${instance.alias}/indexes: el inventario no se guardó: ${message}`);
+        }
       }
 
       const running = snapshot.progress.length;
@@ -1268,6 +1287,7 @@ function targetToInstance(target: Awaited<ReturnType<typeof store.listMonitorTar
  */
 async function ensureMonitors(): Promise<void> {
   const fromStore = await store.listMonitorTargets(true);
+  const suppressed = new Set(await store.listSuppressedAliases());
   const byAlias = new Map<string, InstanceConfig>();
   for (const target of fromStore) {
     byAlias.set(target.alias, targetToInstance(target));

@@ -186,7 +186,27 @@ export class Store {
     await this.pool.end();
   }
 
+  async listSuppressedAliases(): Promise<string[]> {
+    try {
+      const result = await this.pool.query<{ alias: string }>(
+        `select alias from buho.suppressed_aliases`,
+      );
+      return result.rows.map((row) => row.alias);
+    } catch {
+      return [];
+    }
+  }
+
   async upsertInstance(instance: InstanceConfig): Promise<number> {
+    try {
+      const blocked = await this.pool.query(
+        `select 1 from buho.suppressed_aliases where alias = $1`,
+        [instance.alias],
+      );
+      if ((blocked.rowCount ?? 0) > 0) return 0;
+    } catch {
+      // Suppression table is created with the store schema. Older databases skip the check.
+    }
     const result = await this.pool.query<{ instance_id: string }>(
       `insert into buho.instances (tenant, alias, host, port, database, environment, engine, last_seen_at)
             values ($1, $2, $3, $4, $5, $6, $7, null)
@@ -1477,6 +1497,83 @@ export class Store {
     }
   }
 
+  async saveCatalog(instanceId: number, snapshot: CatalogSnapshot): Promise<void> {
+    if (snapshot.tables.length === 0) return;
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      const CHUNK = 400;
+      for (let start = 0; start < snapshot.tables.length; start += CHUNK) {
+        const slice = snapshot.tables.slice(start, start + CHUNK);
+        const values: unknown[] = [];
+        const tuples: string[] = [];
+        slice.forEach((table, rowIndex) => {
+          const base = rowIndex * 5;
+          tuples.push(`(${Array.from({ length: 5 }, (_, offset) => `$${base + offset + 1}`).join(', ')}, now())`);
+          values.push(instanceId, table.schema, table.table, Math.round(table.sizeBytes), table.partitions);
+        });
+        await client.query(
+          `insert into buho.catalog_tables
+                (instance_id, schema_name, table_name, size_bytes, partitions, captured_at)
+           values ${tuples.join(', ')}
+           on conflict (instance_id, schema_name, table_name) do update
+                  set size_bytes = excluded.size_bytes,
+                      partitions = excluded.partitions,
+                      captured_at = excluded.captured_at`,
+          values,
+        );
+      }
+      await client.query(
+        `delete from buho.catalog_tables
+          where instance_id = $1 and captured_at < now() - interval '1 minute'`,
+        [instanceId],
+      );
+      const columns = snapshot.columns ?? [];
+      for (let start = 0; start < columns.length; start += CHUNK) {
+        const slice = columns.slice(start, start + CHUNK);
+        const values: unknown[] = [];
+        const tuples: string[] = [];
+        slice.forEach((column, rowIndex) => {
+          const base = rowIndex * 7;
+          tuples.push(`(${Array.from({ length: 7 }, (_, offset) => `$${base + offset + 1}`).join(', ')}, now())`);
+          values.push(
+            instanceId,
+            column.schema,
+            column.table,
+            column.column,
+            column.dataType,
+            column.notNull,
+            column.position,
+          );
+        });
+        await client.query(
+          `insert into buho.catalog_columns
+                (instance_id, schema_name, table_name, column_name, data_type, not_null, position, captured_at)
+           values ${tuples.join(', ')}
+           on conflict (instance_id, schema_name, table_name, column_name) do update
+                  set data_type = excluded.data_type,
+                      not_null = excluded.not_null,
+                      position = excluded.position,
+                      captured_at = excluded.captured_at`,
+          values,
+        );
+      }
+      if (columns.length > 0) {
+        await client.query(
+          `delete from buho.catalog_columns
+            where instance_id = $1 and captured_at < now() - interval '1 minute'`,
+          [instanceId],
+        );
+      }
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async saveIndexes(instanceId: number, snapshot: IndexSnapshot): Promise<void> {
     // Empty collect is a probe miss, not "the instance has no indexes".
     if (snapshot.indexes.length === 0) return;
@@ -1485,9 +1582,12 @@ export class Store {
     try {
       await client.query('begin');
 
-      const values: unknown[] = [];
-      const tuples: string[] = [];
-      snapshot.indexes.forEach((index, rowIndex) => {
+      const CHUNK = 300;
+      for (let start = 0; start < snapshot.indexes.length; start += CHUNK) {
+        const slice = snapshot.indexes.slice(start, start + CHUNK);
+        const values: unknown[] = [];
+        const tuples: string[] = [];
+        slice.forEach((index, rowIndex) => {
           const base = rowIndex * 17;
           tuples.push(
             `(${Array.from({ length: 17 }, (_, offset) => `$${base + offset + 1}`).join(', ')}, now())`,
@@ -1511,30 +1611,31 @@ export class Store {
             index.status,
             index.coveredBy,
           );
-      });
-      await client.query(
-        `insert into buho.index_objects
-             (instance_id, schema_name, table_name, index_name, size_bytes, idx_scan,
-              idx_tup_read, idx_tup_fetch, is_primary, is_unique, is_valid, is_partial,
-              has_expression, columns, definition, status, covered_by, captured_at)
-           values ${tuples.join(', ')}
-           on conflict (instance_id, schema_name, table_name, index_name) do update
-                  set size_bytes = excluded.size_bytes,
-                      idx_scan = excluded.idx_scan,
-                      idx_tup_read = excluded.idx_tup_read,
-                      idx_tup_fetch = excluded.idx_tup_fetch,
-                      is_primary = excluded.is_primary,
-                      is_unique = excluded.is_unique,
-                      is_valid = excluded.is_valid,
-                      is_partial = excluded.is_partial,
-                      has_expression = excluded.has_expression,
-                      columns = excluded.columns,
-                      definition = excluded.definition,
-                      status = excluded.status,
-                      covered_by = excluded.covered_by,
-                      captured_at = excluded.captured_at`,
-        values,
-      );
+        });
+        await client.query(
+          `insert into buho.index_objects
+               (instance_id, schema_name, table_name, index_name, size_bytes, idx_scan,
+                idx_tup_read, idx_tup_fetch, is_primary, is_unique, is_valid, is_partial,
+                has_expression, columns, definition, status, covered_by, captured_at)
+             values ${tuples.join(', ')}
+             on conflict (instance_id, schema_name, table_name, index_name) do update
+                    set size_bytes = excluded.size_bytes,
+                        idx_scan = excluded.idx_scan,
+                        idx_tup_read = excluded.idx_tup_read,
+                        idx_tup_fetch = excluded.idx_tup_fetch,
+                        is_primary = excluded.is_primary,
+                        is_unique = excluded.is_unique,
+                        is_valid = excluded.is_valid,
+                        is_partial = excluded.is_partial,
+                        has_expression = excluded.has_expression,
+                        columns = excluded.columns,
+                        definition = excluded.definition,
+                        status = excluded.status,
+                        covered_by = excluded.covered_by,
+                        captured_at = excluded.captured_at`,
+          values,
+        );
+      }
 
       await client.query(
         `delete from buho.index_objects

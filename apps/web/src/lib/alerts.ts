@@ -89,7 +89,10 @@ export async function saveAlertSettings(settings: AlertSettings, updatedBy: stri
   );
 }
 
-export async function listFleetAlerts(statuses: AlertStatus[] = ['pending', 'firing']): Promise<FleetAlert[]> {
+export async function listFleetAlerts(
+  statuses: AlertStatus[] = ['pending', 'firing'],
+  scope: { engine?: string; alias?: string } = {},
+): Promise<FleetAlert[]> {
   const rows = await query<Record<string, unknown>>(
     `select a.alert_id, a.instance_id, i.alias, i.engine, a.check_id, a.object,
             a.severity, a.title, a.message, a.remediation, a.status, a.pending_count,
@@ -97,10 +100,12 @@ export async function listFleetAlerts(statuses: AlertStatus[] = ['pending', 'fir
        from buho.alerts a
        join buho.instances i using (instance_id)
       where a.status = any($1::text[])
+        and ($2::text is null or i.engine = $2)
+        and ($3::text is null or i.alias = $3)
       order by case a.severity when 'critical' then 0 when 'warning' then 1 else 2 end,
                a.last_seen_at desc
       limit 300`,
-    [statuses],
+    [statuses, scope.engine || null, scope.alias || null],
   );
   return rows.map((row) => ({
     alertId: Number(row['alert_id']),

@@ -40,6 +40,70 @@ function findingClass(severity: keyof typeof SEVERITY_LABEL): string {
   return 'finding finding--info';
 }
 
+const CATALOG_RELATION = /^(pg_|information_schema)/i;
+const VERDICT_RANK: Record<string, number> = { critica: 0, alta: 1, media: 2, baja: 3 };
+
+function planVerdict(
+  findings: PlanRequest['findings'],
+  analyzed: boolean,
+  summary: { calls: number; meanMs: number; sharedRead: number } | null,
+): { tone: 'ok' | 'warn' | 'error'; title: string; body: string } {
+  const ranked = [...findings].sort(
+    (a, b) => (VERDICT_RANK[a.severity] ?? 9) - (VERDICT_RANK[b.severity] ?? 9),
+  );
+  const relations = ranked
+    .map((finding) => String(finding.evidence['tabla'] ?? finding.evidence['objeto'] ?? ''))
+    .filter((relation) => relation.length > 0);
+  const catalogOnly = ranked.length > 0 && relations.every((relation) => CATALOG_RELATION.test(relation));
+  const measured = summary
+    ? ` Measured in pg_stat_statements: ${formatNumber(summary.calls)} calls, ${summary.meanMs.toFixed(0)} ms mean, ${formatNumber(summary.sharedRead)} blocks read from disk.`
+    : '';
+  const top = ranked[0];
+
+  if (catalogOnly) {
+    const names = [...new Set(relations)].join(', ');
+    return {
+      tone: 'warn',
+      title: 'Catalog scan, not a missing index on your tables',
+      body:
+        `The cost is inside PostgreSQL catalogs (${names}). information_schema is built from those scans; an index on application data would not remove them. ` +
+        (analyzed
+          ? 'Row counts come from execution.'
+          : 'This plan was not executed, so those row counts are estimates.') +
+        measured +
+        ' If the totals are large, the fault is how often the statement runs.',
+    };
+  }
+  if (top && (top.severity === 'critica' || top.severity === 'alta')) {
+    return {
+      tone: 'error',
+      title: 'Bad plan',
+      body: `${top.title}. ${top.detail}${measured}`,
+    };
+  }
+  if (top && top.severity === 'media') {
+    return {
+      tone: 'warn',
+      title: 'Weak plan',
+      body: `${top.title}. ${top.detail}${measured}`,
+    };
+  }
+  if (top) {
+    return {
+      tone: 'ok',
+      title: 'Minor',
+      body: `${top.title}. ${top.detail}${measured}`,
+    };
+  }
+  return {
+    tone: 'ok',
+    title: analyzed ? 'No known fault' : 'No structural fault in the estimate',
+    body: analyzed
+      ? `Nothing in the executed plan matches a known bad pattern.${measured}`
+      : `The estimate has no known bad shape. Real row counts, spills, and loop counts only appear with ANALYZE.${measured}`,
+  };
+}
+
 /**
  * Pide un plan y deja el identificador del encargo en la URL.
  *
@@ -227,7 +291,7 @@ export default async function QueryPlanPage({
             <span className="text-[11px] text-foreground-muted">
               {[
                 statement.truncated
-                  ? 'cortada a 4000 caracteres'
+                  ? 'stored text was cut off'
                   : parameterized
                     ? 'normalizada por pg_stat_statements'
                     : 'with concrete values',
@@ -280,10 +344,9 @@ export default async function QueryPlanPage({
 
             {statement.truncated ? (
               <p className="text-[12px] text-warning">
-                Búho guarda hasta 4000 caracteres del texto de cada consulta, y esta llegaba más lejos. No se
-                puede explicar un fragmento: al planificador le falta el final de la sentencia. Para verla, hay
-                que tomar el texto completo de{' '}
-                <span className="font-mono">pg_stat_statements</span> en la instancia y explicarla a mano.
+                This copy of the statement was stored cut off, so EXPLAIN cannot see the end of it. PostgreSQL
+                statements are now kept in full; this row is replaced the next time the collector samples{' '}
+                <span className="font-mono">pg_stat_statements</span>.
               </p>
             ) : kind === 'utilitaria' ? (
               <p className="text-[12px] text-foreground-secondary">
@@ -393,6 +456,21 @@ export default async function QueryPlanPage({
                 }
               />
             </div>
+
+            {(() => {
+              const verdict = planVerdict(request.findings, analyzed, summary);
+              const tag =
+                verdict.tone === 'error' ? 'tag--error' : verdict.tone === 'warn' ? 'tag--warn' : 'tag--ok';
+              return (
+                <section className="panel">
+                  <div className="panel-header">
+                    <span className="panel-title">Verdict</span>
+                    <span className={`tag ${tag}`}>{verdict.title}</span>
+                  </div>
+                  <div className="panel-body text-[12px] text-foreground-secondary">{verdict.body}</div>
+                </section>
+              );
+            })()}
 
             <section className="panel">
               <div className="panel-header">

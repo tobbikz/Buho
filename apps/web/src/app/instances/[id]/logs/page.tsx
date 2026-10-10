@@ -68,6 +68,7 @@ const FILTERS: { key: string; label: string; kinds: LogKind[] }[] = [
       'checkpoint',
       'autovacuum',
       'temp_file',
+      'timeout',
       'cancelled',
       'other',
     ],

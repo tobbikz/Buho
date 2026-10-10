@@ -61,6 +61,12 @@ export interface VacuumTotals {
 }
 
 export type VacuumOrder = 'muertas' | 'bloat' | 'antiguedad' | 'tamano' | 'wraparound';
+export type VacuumView = 'todas' | 'analyze';
+
+const VIEW_SQL: Record<VacuumView, string> = {
+  todas: 'true',
+  analyze: 'last_analyze is null and last_autoanalyze is null',
+};
 
 const ORDER_SQL: Record<VacuumOrder, string> = {
   muertas: 'dead_tuples desc, size_bytes desc',
@@ -109,16 +115,30 @@ function toRow(row: Record<string, unknown>): VacuumTableRow {
 export async function getVacuumTables(
   instanceId: number,
   order: VacuumOrder = 'muertas',
-  limit = 40,
+  limit = 25,
+  offset = 0,
+  view: VacuumView = 'todas',
 ): Promise<VacuumTableRow[]> {
   const rows = await query<Record<string, unknown>>(
     `select * from buho.vacuum_tables
       where instance_id = $1
+        and ${VIEW_SQL[view]}
       order by ${ORDER_SQL[order]}
-      limit $2`,
-    [instanceId, limit],
+      limit $2 offset $3`,
+    [instanceId, limit, offset],
   );
   return rows.map(toRow);
+}
+
+export async function countVacuumTables(instanceId: number, view: VacuumView = 'todas'): Promise<number> {
+  const rows = await query<{ n: string }>(
+    `select count(*)::bigint as n
+       from buho.vacuum_tables
+      where instance_id = $1
+        and ${VIEW_SQL[view]}`,
+    [instanceId],
+  );
+  return Number(rows[0]?.n ?? 0);
 }
 
 export async function getVacuumProgress(instanceId: number): Promise<VacuumProgressRow[]> {

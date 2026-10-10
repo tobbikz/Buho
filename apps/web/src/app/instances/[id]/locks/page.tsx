@@ -1,12 +1,37 @@
+import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { InstanceTabs } from '@/components/InstanceTabs';
+import { PollWhilePending } from '@/components/PollWhilePending';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { TimeseriesPanel } from '@/components/TimeseriesPanel';
 import { Topbar } from '@/components/Topbar';
 import { formatAgo, formatClock, formatDuration, formatNumber } from '@/lib/format';
+import { explainLock } from '@/lib/lock-reason';
 import { getInstance, getLockEpisodes, getSeries, type LockEpisode } from '@/lib/queries';
+import { getPlanRequest, requestPlan } from '@/lib/plans';
+import { currentSession } from '@/lib/session';
+import { statementKind } from '@buho/core';
 import { getInstanceEngine } from '@/lib/estate';
+
+const LOCK_PAGE_SIZE = 15;
+
+async function explainLockQuery(formData: FormData): Promise<void> {
+  'use server';
+  const session = await currentSession();
+  const instanceId = Number(formData.get('instanceId'));
+  const episodeId = Number(formData.get('episodeId'));
+  const page = String(formData.get('page') ?? '1');
+  const sql = String(formData.get('sql') ?? '').trim();
+  const back = `/instances/${instanceId}/locks?page=${page}&episode=${episodeId}`;
+  if (!sql) redirect(`${back}&error=${encodeURIComponent('This episode has no query text to explain.')}`);
+  const kind = statementKind(sql);
+  if (kind === 'utilitaria') {
+    redirect(`${back}&error=${encodeURIComponent('This statement has no query plan.')}`);
+  }
+  const requestId = await requestPlan(instanceId, sql, 'estimate', session.username, null);
+  redirect(`${back}&plan=${requestId}`);
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -36,14 +61,35 @@ function session(
   );
 }
 
-function LockTree({ episode }: { episode: LockEpisode }) {
+function LockTree({
+  episode,
+  instanceId,
+  page,
+  planText,
+  planState,
+  planError,
+}: {
+  episode: LockEpisode;
+  instanceId: number;
+  page: number;
+  planText: string | null;
+  planState: string | null;
+  planError: string | null;
+}) {
   const chain =
     episode.blockerPids.length > 1
       ? `chain of ${episode.blockerPids.length} blockers: ${episode.blockerPids.join(', ')}`
       : null;
 
+  const why = explainLock(episode);
+
   return (
     <div className="lock-tree">
+      <div className="lock-why">
+        {why.map((line) => (
+          <p key={line}>{line}</p>
+        ))}
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <span className={`tag ${episode.active ? 'tag--error' : 'tag--muted'}`}>
           {episode.active ? 'active' : 'resolved'}
@@ -84,12 +130,38 @@ function LockTree({ episode }: { episode: LockEpisode }) {
       )}
 
       {chain && <div className="text-[11px] text-foreground-muted">{chain}</div>}
+
+      <form action={explainLockQuery} className="mt-2 flex flex-wrap items-center gap-2">
+        <input type="hidden" name="instanceId" value={instanceId} />
+        <input type="hidden" name="episodeId" value={episode.episodeId} />
+        <input type="hidden" name="page" value={page} />
+        <input type="hidden" name="sql" value={episode.waiterQuery} />
+        <button type="submit" className="tag tag--info">
+          Estimated plan
+        </button>
+        <span className="text-[11px] text-foreground-muted">
+          EXPLAIN of the waiting query, without running it.
+        </span>
+      </form>
+      {planError ? <p className="mt-2 text-[12px] text-[var(--error)]">{planError}</p> : null}
+      {planState === 'pendiente' || planState === 'corriendo' ? (
+        <p className="mt-2 text-[12px] text-foreground-secondary">Waiting for the collector to explain this query.</p>
+      ) : null}
+      {planText ? <pre className="query-block mt-2 whitespace-pre-wrap">{planText}</pre> : null}
     </div>
   );
 }
 
-export default async function LocksPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function LocksPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ page?: string; plan?: string; episode?: string; error?: string }>;
+}) {
   const { id } = await params;
+  const { page: pageParam, plan: planParam, episode: episodeParam, error: errorParam } = await searchParams;
+  const page = Math.max(1, Number(pageParam) || 1);
 
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
@@ -118,12 +190,26 @@ export default async function LocksPage({ params }: { params: Promise<{ id: stri
   if (!instance) notFound();
 
   let episodes: LockEpisode[];
+  let episodeTotal = 0;
+  let activeTotal = 0;
   let blocking: Awaited<ReturnType<typeof getSeries>>;
+  let planText: string | null = null;
+  let planState: string | null = null;
+  const openEpisode = Number(episodeParam) || 0;
   try {
-    [episodes, blocking] = await Promise.all([
-      getLockEpisodes(instanceId, 24, 60),
+    const [locks, series, plan] = await Promise.all([
+      getLockEpisodes(instanceId, 24, LOCK_PAGE_SIZE, (page - 1) * LOCK_PAGE_SIZE),
       getSeries(instanceId, ['blocked_sessions', 'max_blocked_seconds'], 360, 300),
+      planParam ? getPlanRequest(Number(planParam)) : Promise.resolve(null),
     ]);
+    episodes = locks.episodes;
+    episodeTotal = locks.total;
+    activeTotal = locks.active;
+    blocking = series;
+    if (plan && plan.instanceId === instanceId) {
+      planText = plan.planText ?? plan.error;
+      planState = plan.state;
+    }
   } catch (error) {
     return (
       <>
@@ -140,6 +226,11 @@ export default async function LocksPage({ params }: { params: Promise<{ id: stri
   const active = episodes.filter((episode) => episode.active);
   const history = episodes.filter((episode) => !episode.active);
   const worst = episodes.reduce((peak, episode) => Math.max(peak, episode.waitSeconds), 0);
+  const pageCount = Math.max(1, Math.ceil(episodeTotal / LOCK_PAGE_SIZE));
+  const planFor = (episodeId: number) =>
+    episodeId === openEpisode
+      ? { planText, planState, planError: errorParam ?? null }
+      : { planText: null, planState: null, planError: null };
 
   return (
     <>
@@ -187,16 +278,16 @@ export default async function LocksPage({ params }: { params: Promise<{ id: stri
           </div>
         </header>
 
-        <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={active.length} />
+        <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={activeTotal} />
 
         <div className="stat-grid">
           <StatCard
             label="Active now"
-            value={formatNumber(active.length)}
-            tone={active.length > 0 ? 'error' : 'ok'}
-            hint={active.length === 0 ? 'nobody waiting on locks' : 'sessions waiting'}
+            value={formatNumber(activeTotal)}
+            tone={activeTotal > 0 ? 'error' : 'ok'}
+            hint={activeTotal === 0 ? 'nobody waiting on locks' : 'sessions waiting'}
           />
-          <StatCard label="Episodes 24 h" value={formatNumber(episodes.length)} tone={episodes.length > 0 ? 'warn' : 'ok'} />
+          <StatCard label="Episodes 24 h" value={formatNumber(episodeTotal)} tone={episodeTotal > 0 ? 'warn' : 'ok'} />
           <StatCard
             label="Max wait"
             value={worst > 0 ? formatDuration(worst) : '—'}
@@ -238,7 +329,15 @@ export default async function LocksPage({ params }: { params: Promise<{ id: stri
           {active.length === 0 ? (
             <div className="empty">No session waiting on a lock right now.</div>
           ) : (
-            active.map((episode) => <LockTree key={episode.episodeId} episode={episode} />)
+            active.map((episode) => (
+              <LockTree
+                key={episode.episodeId}
+                episode={episode}
+                instanceId={instanceId}
+                page={page}
+                {...planFor(episode.episodeId)}
+              />
+            ))
           )}
         </section>
 
@@ -295,6 +394,26 @@ export default async function LocksPage({ params }: { params: Promise<{ id: stri
               </table>
             </div>
           )}
+          {pageCount > 1 ? (
+            <div className="panel-body flex items-center justify-between gap-2 border-t border-border">
+              <span className="font-mono text-[11px] text-foreground-muted">
+                Page {page} of {pageCount}
+              </span>
+              <span className="flex gap-2">
+                {page > 1 ? (
+                  <Link href={`/instances/${instanceId}/locks?page=${page - 1}`} className="tag tag--muted">
+                    Previous
+                  </Link>
+                ) : null}
+                {page < pageCount ? (
+                  <Link href={`/instances/${instanceId}/locks?page=${page + 1}`} className="tag tag--muted">
+                    Next
+                  </Link>
+                ) : null}
+              </span>
+            </div>
+          ) : null}
+          {planState === 'pendiente' || planState === 'corriendo' ? <PollWhilePending intervalMs={2000} /> : null}
         </section>
       </div>
     </>

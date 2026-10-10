@@ -35,6 +35,7 @@ export interface FleetInstance {
   cacheHitPct: number | null;
   xidAgePct: number | null;
   commitsPerSec: number | null;
+  rollbacksPerSec: number | null;
   replicationLagSeconds: number | null;
   cpuPct: number | null;
   memUsedPct: number | null;
@@ -68,8 +69,8 @@ metrics as (
          max(value) filter (where metric = 'blocked_sessions')              as blocked_sessions,
          max(value) filter (where metric = 'max_blocked_seconds')           as max_blocked_seconds,
          min(value) filter (where metric = 'db_cache_hit_pct')              as cache_hit_pct,
-         max(value) filter (where metric = 'xid_age_pct')                   as xid_age_pct,
          sum(value) filter (where metric = 'db_xact_commit_per_sec')        as commits_per_sec,
+         sum(value) filter (where metric = 'db_xact_rollback_per_sec')      as rollbacks_per_sec,
          sum(value) filter (where metric in (
            'db_tup_inserted_per_sec', 'db_tup_updated_per_sec', 'db_tup_deleted_per_sec'
          ))                                                                  as dml_tuples_per_sec,
@@ -83,6 +84,18 @@ metrics as (
            'mongo_op_delete_per_sec', 'mongo_op_command_per_sec'
          ))                                                                  as mongo_ops_per_sec
     from latest
+   group by instance_id
+),
+xid as (
+  select instance_id, max(value) as xid_age_pct
+    from (
+      select distinct on (instance_id, labels)
+             instance_id, value
+        from buho.metric_samples
+       where metric = 'xid_age_pct'
+         and ts > now() - interval '36 hours'
+       order by instance_id, labels, ts desc
+    ) latest_xid
    group by instance_id
 ),
 scores as (
@@ -104,8 +117,8 @@ select i.instance_id, i.alias, i.host, i.port, i.database, i.environment, i.engi
        coalesce(s.warning, 0)  as warning,
        coalesce(s.info, 0)     as info,
        m.connections_used_pct, m.connections_total, m.connections_max,
-       m.uptime_seconds, m.blocked_sessions, m.max_blocked_seconds, m.cache_hit_pct, m.xid_age_pct,
-       m.commits_per_sec, m.dml_tuples_per_sec, m.replication_lag_seconds,
+       m.uptime_seconds, m.blocked_sessions, m.max_blocked_seconds, m.cache_hit_pct, x.xid_age_pct,
+       m.commits_per_sec, m.rollbacks_per_sec, m.dml_tuples_per_sec, m.replication_lag_seconds,
        m.host_cpu_pct, m.host_mem_used_pct, m.mongo_mem_resident_mb,
        m.queries_per_sec, m.mongo_ops_per_sec
   from buho.instances i
@@ -113,6 +126,8 @@ select i.instance_id, i.alias, i.host, i.port, i.database, i.environment, i.engi
   left join scores s on s.instance_id = i.instance_id
   left join tags t on t.instance_id = i.instance_id
   left join metrics m on m.instance_id = i.instance_id
+  left join xid x on x.instance_id = i.instance_id
+ where coalesce(i.retired, false) = false
  order by s.score asc nulls first, i.alias`;
 
 const FLEET_METRICS = [
@@ -123,8 +138,8 @@ const FLEET_METRICS = [
   'blocked_sessions',
   'max_blocked_seconds',
   'db_cache_hit_pct',
-  'xid_age_pct',
   'db_xact_commit_per_sec',
+  'db_xact_rollback_per_sec',
   'db_tup_inserted_per_sec',
   'db_tup_updated_per_sec',
   'db_tup_deleted_per_sec',
@@ -171,6 +186,7 @@ function toFleetInstance(row: Record<string, unknown>): FleetInstance {
     cacheHitPct: num(row['cache_hit_pct']),
     xidAgePct: num(row['xid_age_pct']),
     commitsPerSec: num(row['commits_per_sec']),
+    rollbacksPerSec: num(row['rollbacks_per_sec']),
     dmlTuplesPerSec: num(row['dml_tuples_per_sec']),
     replicationLagSeconds: num(row['replication_lag_seconds']),
     cpuPct: num(row['host_cpu_pct']),
@@ -181,8 +197,19 @@ function toFleetInstance(row: Record<string, unknown>): FleetInstance {
   };
 }
 
+const FLEET_SQL_LEGACY = FLEET_SQL.replace(' where coalesce(i.retired, false) = false\n', '\n');
+
+async function fleetRows(params: unknown[]): Promise<Record<string, unknown>[]> {
+  try {
+    return await query<Record<string, unknown>>(FLEET_SQL, params);
+  } catch (error) {
+    if (!String(error).includes('retired')) throw error;
+    return await query<Record<string, unknown>>(FLEET_SQL_LEGACY, params);
+  }
+}
+
 export async function listInstances(): Promise<FleetInstance[]> {
-  const rows = await query<Record<string, unknown>>(FLEET_SQL, [FLEET_METRICS]);
+  const rows = await fleetRows([FLEET_METRICS]);
   return rows.map(toFleetInstance);
 }
 
@@ -190,7 +217,13 @@ export async function getInstance(instanceId: number): Promise<FleetInstance | n
   const rows = await query<Record<string, unknown>>(
     `select * from (${FLEET_SQL}) f where f.instance_id = $2`,
     [FLEET_METRICS, instanceId],
-  );
+  ).catch(async (error) => {
+    if (!String(error).includes('retired')) throw error;
+    return query<Record<string, unknown>>(
+      `select * from (${FLEET_SQL_LEGACY}) f where f.instance_id = $2`,
+      [FLEET_METRICS, instanceId],
+    );
+  });
   const row = rows[0];
   return row ? toFleetInstance(row) : null;
 }
@@ -846,24 +879,38 @@ const ACTIVE_WINDOW = "interval '30 seconds'";
 export async function getLockEpisodes(
   instanceId: number,
   hours = 24,
-  limit = 60,
-): Promise<LockEpisode[]> {
-  const rows = await query<Record<string, unknown>>(
-    `select episode_id, waiter_pid, first_seen_at, last_seen_at, samples, wait_seconds,
-            waiter_user, waiter_application, waiter_database, waiter_query,
-            wait_event, lock_type, lock_mode, lock_object,
-            blocker_pids, blocker_pid, blocker_state, blocker_query,
-            blocker_user, blocker_application, blocker_xact_seconds,
-            last_seen_at > now() - ${ACTIVE_WINDOW} as active
-       from buho.lock_episodes
-      where instance_id = $1
-        and last_seen_at > now() - make_interval(hours => $2::int)
-      order by active desc, wait_seconds desc
-      limit $3`,
-    [instanceId, hours, limit],
-  );
+  limit = 20,
+  offset = 0,
+): Promise<{ episodes: LockEpisode[]; total: number; active: number }> {
+  const [rows, counts] = await Promise.all([
+    query<Record<string, unknown>>(
+      `select episode_id, waiter_pid, first_seen_at, last_seen_at, samples, wait_seconds,
+              waiter_user, waiter_application, waiter_database, waiter_query,
+              wait_event, lock_type, lock_mode, lock_object,
+              blocker_pids, blocker_pid, blocker_state, blocker_query,
+              blocker_user, blocker_application, blocker_xact_seconds,
+              last_seen_at > now() - ${ACTIVE_WINDOW} as active
+         from buho.lock_episodes
+        where instance_id = $1
+          and last_seen_at > now() - make_interval(hours => $2::int)
+        order by active desc, wait_seconds desc
+        limit $3 offset $4`,
+      [instanceId, hours, limit, offset],
+    ),
+    query<{ total: string; active: string }>(
+      `select count(*)::bigint as total,
+              count(*) filter (where last_seen_at > now() - ${ACTIVE_WINDOW})::bigint as active
+         from buho.lock_episodes
+        where instance_id = $1
+          and last_seen_at > now() - make_interval(hours => $2::int)`,
+      [instanceId, hours],
+    ),
+  ]);
 
-  return rows.map((row) => ({
+  return {
+    total: Number(counts[0]?.total ?? 0),
+    active: Number(counts[0]?.active ?? 0),
+    episodes: rows.map((row) => ({
     episodeId: Number(row['episode_id']),
     active: Boolean(row['active']),
     waiterPid: Number(row['waiter_pid']),
@@ -886,7 +933,8 @@ export async function getLockEpisodes(
     blockerUser: (row['blocker_user'] as string | null) ?? null,
     blockerApplication: (row['blocker_application'] as string | null) ?? null,
     blockerXactSeconds: num(row['blocker_xact_seconds']),
-  }));
+  })),
+  };
 }
 
 // ------------------------------------------------------------------- eventos

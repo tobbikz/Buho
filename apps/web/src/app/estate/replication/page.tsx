@@ -9,6 +9,7 @@ import { getReplicationLagTrends } from '@/lib/replication';
 export const dynamic = 'force-dynamic';
 
 function isDangerous(row: ReplicationRow): boolean {
+  if (row.role === 'subscription' && row.state === 'down') return true;
   if (row.role === 'slot' && (row.state === 'inactivo' || row.state === 'inactive')) return true;
   if (row.role === 'replica' && row.state !== 'Yes') return true;
   if ((row.lagBytes ?? 0) > 0 && (row.lagSeconds ?? 0) > 300) return true;

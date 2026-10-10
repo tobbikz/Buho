@@ -246,15 +246,14 @@ create index if not exists lock_episodes_recent
 
 -- ---------------------------------------------------- análisis por consulta
 
--- El texto normalizado se guarda una vez por queryid, no en cada muestra: son
--- hasta 4 KB por fila y no cambian.
+-- El texto normalizado se guarda una vez por queryid, no en cada muestra.
+-- Se guarda completo: un corte a mitad de sentencia no se puede explicar.
 create table if not exists buho.statement_texts (
   instance_id   bigint      not null references buho.instances (instance_id) on delete cascade,
   queryid       bigint      not null,
   query         text        not null,
-  -- El texto se guardó cortado a 4000 caracteres. Importa saberlo: una consulta
-  -- incompleta no se puede explicar, y mostrarla sin avisar hace creer que eso
-  -- es todo lo que ejecuta la aplicación.
+  -- Filas viejas pueden seguir marcadas: el colector las reescribe en el
+  -- siguiente ciclo. Los otros motores todavía pueden cortar el texto.
   truncated     boolean     not null default false,
   first_seen_at timestamptz not null,
   last_seen_at  timestamptz not null,
@@ -549,7 +548,7 @@ create table if not exists buho.disk_objects (
 
 create table if not exists buho.replication_state (
   instance_id  bigint      not null references buho.instances (instance_id) on delete cascade,
-  -- 'primary' | 'standby' | 'slot' | 'replica' | 'availability_group'
+  -- 'primary' | 'standby' | 'slot' | 'replica' | 'availability_group' | 'subscription'
   role         text        not null,
   peer         text        not null default '',
   state        text,
@@ -758,6 +757,30 @@ create table if not exists buho.vacuum_tables (
 );
 
 create index if not exists vacuum_tables_dead on buho.vacuum_tables (instance_id, dead_tuples desc);
+
+-- Full user-table catalog for Topology. Partitions are rolled into the parent.
+-- Replaced each vacuum cycle; it is the current shape of the database, not history.
+create table if not exists buho.catalog_tables (
+  instance_id  bigint not null references buho.instances (instance_id) on delete cascade,
+  schema_name  text   not null,
+  table_name   text   not null,
+  size_bytes   bigint not null,
+  partitions   integer not null default 0,
+  captured_at  timestamptz not null default now(),
+  primary key (instance_id, schema_name, table_name)
+);
+create table if not exists buho.catalog_columns (
+  instance_id  bigint not null references buho.instances (instance_id) on delete cascade,
+  schema_name  text   not null,
+  table_name   text   not null,
+  column_name  text   not null,
+  data_type    text   not null,
+  not_null     boolean not null,
+  position     integer not null,
+  captured_at  timestamptz not null default now(),
+  primary key (instance_id, schema_name, table_name, column_name)
+);
+
 create index if not exists vacuum_tables_bloat on buho.vacuum_tables (instance_id, bloat_bytes desc nulls last);
 
 alter table buho.vacuum_tables add column if not exists xid_age        bigint not null default 0;
@@ -1098,6 +1121,14 @@ create index if not exists monitor_targets_enabled_idx
 
 -- Host metrics (CPU/mem/disk) declared from the console — same shape as config.json hostMetrics.
 alter table buho.monitor_targets add column if not exists host_metrics jsonb not null default '{}'::jsonb;
+
+-- Console "remove" hides an instance even when config.json would start it again.
+alter table buho.instances add column if not exists retired boolean not null default false;
+
+create table if not exists buho.suppressed_aliases (
+  alias         text        primary key,
+  suppressed_at timestamptz not null default now()
+);
 
 -- Allow MongoDB on the instances table (older installs had a narrower check).
 alter table buho.instances drop constraint if exists instances_engine_check;
