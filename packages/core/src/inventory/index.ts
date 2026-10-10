@@ -37,5 +37,13 @@ export async function collectInventory(client: EngineClient): Promise<InventoryS
       throw new Error(
         'collectInventory() no aplica a engine=endpoint — las sondas sintéticas no tienen inventario de BD.',
       );
+    case 'infra':
+      throw new Error(
+        'collectInventory() no aplica a engine=infra — los dispositivos usan @buho/sensors, no inventario SQL.',
+      );
+    default: {
+      const _exhaustive: never = client.kind;
+      throw new Error(`collectInventory() motor no soportado: ${String(_exhaustive)}`);
+    }
   }
 }

@@ -18,7 +18,18 @@ import { tagged } from './tag';
  * ("¿esta versión tiene soporte?", "¿cuándo fue el último backup?") y no de
  * implementación.
  */
-export type EngineKind = 'postgres' | 'mariadb' | 'mssql' | 'mongodb' | 'redis' | 'oracle' | 'cassandra' | 'elasticsearch' | 'endpoint';
+export type EngineKind =
+  | 'postgres'
+  | 'mariadb'
+  | 'mssql'
+  | 'mongodb'
+  | 'redis'
+  | 'oracle'
+  | 'cassandra'
+  | 'elasticsearch'
+  | 'endpoint'
+  /** PRTG-class device + sensors (Halcón runtime → @buho/sensors). */
+  | 'infra';
 
 export const ENGINE_LABEL: Record<EngineKind, string> = {
   postgres: 'PostgreSQL',
@@ -30,6 +41,7 @@ export const ENGINE_LABEL: Record<EngineKind, string> = {
   cassandra: 'Cassandra',
   elasticsearch: 'Elasticsearch',
   endpoint: 'Endpoint',
+  infra: 'Infra',
 };
 
 export const DEFAULT_PORT: Record<EngineKind, number> = {
@@ -42,6 +54,7 @@ export const DEFAULT_PORT: Record<EngineKind, number> = {
   cassandra: 9042,
   elasticsearch: 9200,
   endpoint: 443,
+  infra: 0,
 };
 
 /**
@@ -153,6 +166,11 @@ export async function openEngine(
   if (kind === 'endpoint') {
     throw new Error(
       `La instancia "${instance.alias}" es un endpoint sintético — no usa openEngine(); el colector llama probeEndpoint().`,
+    );
+  }
+  if (kind === 'infra') {
+    throw new Error(
+      `La instancia "${instance.alias}" es infra (sensores) — no usa openEngine(); el colector llama @buho/sensors.`,
     );
   }
   const statementTimeout = opts.statementTimeoutMs ?? 10_000;

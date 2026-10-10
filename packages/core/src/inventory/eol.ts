@@ -69,6 +69,7 @@ const EOL: Record<EngineKind, Record<string, string>> = {
     '9': '2028-12-31',
   },
   endpoint: {},
+  infra: {},
 };
 
 const PRODUCT_NAME: Record<string, string> = {

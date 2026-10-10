@@ -488,3 +488,16 @@ npm run seed:demo-users   # demo-dba / demo-sre / demo-sec (+ -ro); password dem
 
 App OTLP logs: `POST /api/otlp/v1/logs` (same token policy as traces) · UI `/observability/app-logs`.  
 DB engine scrape stays on `/observability/logs`. Probe kinds: HTTP · TCP · ICMP · Journey (HTTP steps).
+
+### Infra Hosts (PRTG-class sensors)
+
+`engine: "infra"` + `infra.sensors[]` (package `@buho/sensors`: host · icmp · tcp · udp · http · tls_cert · dns · snmp).  
+UI: Observability → **Hosts** → drill-down `/observability/hosts/<host>`.
+
+```bash
+npm run lab:infra:snmp    # fake SNMP agents UDP 1161/1162 — leave running
+npm run lab:infra:seed    # probe lab devices → metric_samples
+npm run test:sensors
+```
+
+Lab config fragment: `lab/infra/config.infra.lab.json` (merge into `instances[]` for continuous collector scrape).

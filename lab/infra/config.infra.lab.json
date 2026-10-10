@@ -1,0 +1,54 @@
+{
+  "_comment": "Merge these into config.json instances[] for infra lab. ADR buho-infra-prtg-sensors-2026-10-10",
+  "instances": [
+    {
+      "alias": "lab-local-host",
+      "engine": "infra",
+      "host": "127.0.0.1",
+      "port": 0,
+      "database": "",
+      "user": "",
+      "infra": {
+        "role": "server",
+        "sensors": [
+          { "type": "host", "id": "os" },
+          { "type": "icmp", "id": "ping", "count": 2, "timeoutMs": 1500 },
+          { "type": "dns", "id": "resolve", "name": "example.com", "recordType": "A", "server": "1.1.1.1" },
+          { "type": "http", "id": "example", "url": "https://example.com/", "expectStatus": [200], "timeoutMs": 10000 },
+          { "type": "snmp", "id": "sw-if1", "port": 1161, "community": "public", "preset": "interface", "ifIndex": 1 }
+        ]
+      }
+    },
+    {
+      "alias": "lab-edge-dns",
+      "engine": "infra",
+      "host": "1.1.1.1",
+      "port": 53,
+      "database": "",
+      "user": "",
+      "infra": {
+        "role": "other",
+        "sensors": [
+          { "type": "icmp", "id": "ping", "count": 1, "timeoutMs": 2000 },
+          { "type": "tcp", "id": "dns-tcp", "port": 53, "timeoutMs": 3000 }
+        ]
+      }
+    },
+    {
+      "alias": "lab-core-sw01",
+      "engine": "infra",
+      "host": "127.0.0.1",
+      "port": 1161,
+      "database": "",
+      "user": "",
+      "infra": {
+        "role": "switch",
+        "sensors": [
+          { "type": "icmp", "id": "ping", "count": 1 },
+          { "type": "snmp", "id": "device", "port": 1161, "community": "public", "preset": "device" },
+          { "type": "snmp", "id": "if1", "port": 1161, "community": "public", "preset": "interface", "ifIndex": 1 }
+        ]
+      }
+    }
+  ]
+}

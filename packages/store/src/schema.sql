@@ -495,7 +495,7 @@ alter table buho.instances
 alter table buho.instances drop constraint if exists instances_engine_check;
 alter table buho.instances
   add constraint instances_engine_check
-  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint'));
+  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint', 'infra'));
 
 create table if not exists buho.engine_info (
   instance_id      bigint      primary key references buho.instances (instance_id) on delete cascade,
@@ -1077,7 +1077,7 @@ create table if not exists buho.monitor_targets (
   tenant       text        not null default 'default',
   alias        text        not null,
   engine       text        not null
-               check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint')),
+               check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint', 'infra')),
   host         text        not null,
   port         integer     not null,
   database     text        not null default '',
@@ -1103,7 +1103,7 @@ alter table buho.monitor_targets add column if not exists host_metrics jsonb not
 alter table buho.instances drop constraint if exists instances_engine_check;
 alter table buho.instances
   add constraint instances_engine_check
-  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint'));
+  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint', 'infra'));
 
 -- --------------------------------------------------- registro de operaciones
 
@@ -1606,12 +1606,12 @@ on conflict (key) do update
 alter table buho.instances drop constraint if exists instances_engine_check;
 alter table buho.instances
   add constraint instances_engine_check
-  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint'));
+  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint', 'infra'));
 
 alter table buho.monitor_targets drop constraint if exists monitor_targets_engine_check;
 alter table buho.monitor_targets
   add constraint monitor_targets_engine_check
-  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint'));
+  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint', 'infra'));
 
 create table if not exists buho.otlp_spans (
   span_pk          bigint generated always as identity primary key,
@@ -1743,3 +1743,14 @@ create table if not exists buho.security_cases (
 
 create index if not exists security_cases_status_idx
   on buho.security_cases (status, updated_at desc);
+
+-- engine=infra — PRTG-class devices (@buho/sensors). ADR buho-infra-prtg-sensors-2026-10-10
+alter table buho.instances drop constraint if exists instances_engine_check;
+alter table buho.instances
+  add constraint instances_engine_check
+  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint', 'infra'));
+
+alter table buho.monitor_targets drop constraint if exists monitor_targets_engine_check;
+alter table buho.monitor_targets
+  add constraint monitor_targets_engine_check
+  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint', 'infra'));

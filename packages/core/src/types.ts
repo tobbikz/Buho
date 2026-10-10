@@ -5,6 +5,19 @@ import type { EndpointProbeConfig } from './endpoints/probe';
 
 export type { EndpointProbeConfig };
 
+/** Infra device sensors (engine=infra). Shape matches @buho/sensors TargetConfig.sensors. */
+export type InfraSensorConfig = {
+  type: string;
+  id: string;
+  [key: string]: unknown;
+};
+
+export type InfraDeviceConfig = {
+  /** PRTG-style role: server | switch | firewall | router | endpoint | ups | other */
+  role?: string;
+  sensors: InfraSensorConfig[];
+};
+
 export interface InstanceConfig {
   alias: string;
   /**
@@ -12,6 +25,7 @@ export interface InstanceConfig {
    * MariaDB y SQL Server entran por el inventario del parque; el pipeline de
    * métricas de 5 s y los 22 checks siguen siendo de PostgreSQL.
    * `endpoint` = sonda sintética HTTP/TCP/TLS (app layer, no SNMP).
+   * `infra` = dispositivo + sensores PRTG (@buho/sensors).
    */
   engine?: EngineKind;
   host: string;
@@ -37,6 +51,8 @@ export interface InstanceConfig {
   logs?: LogConfig;
   /** Probe config when engine = endpoint. */
   endpoint?: EndpointProbeConfig;
+  /** Device + sensors when engine = infra (also persisted in monitor_targets.endpoint jsonb). */
+  infra?: InfraDeviceConfig;
 }
 
 /**

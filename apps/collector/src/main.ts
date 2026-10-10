@@ -80,6 +80,15 @@ import {
   probeEndpoint,
 } from '@buho/core';
 import type { Capabilities, EngineClient, InstanceConfig, Tier } from '@buho/core';
+import {
+  enrichSnmpBandwidth,
+  probeTarget,
+  sensorSamplesToBuho,
+  type Sample as SensorSample,
+  type SampleHistory,
+  type SensorConfig,
+  type TargetConfig,
+} from '@buho/sensors';
 import { Store } from '@buho/store';
 import type { Pool } from 'pg';
 
@@ -95,6 +104,8 @@ const CHECKS_INTERVAL_MS = 300_000;
 // segundos y no se ve es un incidente que nadie puede explicar después.
 const LOCKS_INTERVAL_MS = 10_000;
 const ENDPOINT_INTERVAL_MS = 30_000;
+/** Infra sensors (PRTG / Halcón) — same cadence as probes. */
+const INFRA_INTERVAL_MS = 30_000;
 const STATEMENTS_INTERVAL_MS = 60_000;
 // 30 s: la CPU necesita dos lecturas para dar un porcentaje, y con intervalos
 // más largos el primer dato tarda demasiado en aparecer.
@@ -902,9 +913,67 @@ async function monitorEndpoint(instance: InstanceConfig): Promise<void> {
   });
 }
 
+async function monitorInfra(instance: InstanceConfig): Promise<void> {
+  const instanceId = await store.upsertInstance(instance);
+  const sensors = (instance.infra?.sensors ?? []) as SensorConfig[];
+  if (sensors.length === 0) {
+    log('warn', `${instance.alias}/infra: no sensors configured — idle`);
+    return;
+  }
+
+  const lastBySensor = new Map<string, SensorSample>();
+  const history: SampleHistory = {
+    lastSample(targetId, sensorId) {
+      const hit = lastBySensor.get(`${targetId}/${sensorId}`);
+      if (!hit) return null;
+      return { ts: hit.ts, metrics: hit.metrics };
+    },
+  };
+
+  startLoop(`${instance.alias}/infra`, INFRA_INTERVAL_MS, async () => {
+    const target: TargetConfig = {
+      id: instance.alias,
+      host: instance.host,
+      role: (instance.infra?.role as TargetConfig['role']) ?? 'server',
+      sensors,
+    };
+    let samples = await probeTarget(target);
+    samples = enrichSnmpBandwidth(samples, history);
+    for (const s of samples) lastBySensor.set(`${s.targetId}/${s.sensorId}`, s);
+
+    const buhoSamples = sensorSamplesToBuho(samples);
+    const written = await store.insertSamples(instanceId, buhoSamples);
+    const down = samples.filter((s) => !s.ok).length;
+    const findings = samples
+      .filter((s) => !s.ok)
+      .map((s) => ({
+        checkId: `infra.${s.sensorType}.${s.sensorId}`,
+        severity: 'critical' as const,
+        title: `Sensor ${s.sensorId} down`,
+        object: s.sensorType,
+        message: s.error ?? 'sensor failed',
+        remediation: 'Check network path, credentials, and sensor config on this infra device.',
+        value: 0,
+      }));
+    const score =
+      samples.length === 0
+        ? 0
+        : Math.round(((samples.length - down) / samples.length) * 100);
+    await store.saveCheckResults(instanceId, findings, score);
+    log(
+      'info',
+      `${instance.alias}/infra: ${written} métricas, ${samples.length - down}/${samples.length} sensors up, score ${score}/100`,
+    );
+  });
+}
+
 async function monitorInstance(instance: InstanceConfig): Promise<void> {
   if (engineOf(instance) === 'endpoint') {
     await monitorEndpoint(instance);
+    return;
+  }
+  if (engineOf(instance) === 'infra') {
+    await monitorInfra(instance);
     return;
   }
   if (engineOf(instance) !== 'postgres') {
@@ -1143,12 +1212,24 @@ function targetToInstance(target: Awaited<ReturnType<typeof store.listMonitorTar
     hostMetrics.source &&
     hostMetrics.source !== 'none';
 
-  const endpoint =
+  const endpointRaw =
     target.endpoint &&
     typeof target.endpoint === 'object' &&
     Object.keys(target.endpoint).length > 0
-      ? (target.endpoint as InstanceConfig['endpoint'])
+      ? target.endpoint
       : undefined;
+
+  const isInfra = target.engine === 'infra';
+  const infra =
+    isInfra && endpointRaw && Array.isArray(endpointRaw['sensors'])
+      ? {
+          role: typeof endpointRaw['role'] === 'string' ? endpointRaw['role'] : 'server',
+          sensors: endpointRaw['sensors'] as NonNullable<InstanceConfig['infra']>['sensors'],
+        }
+      : undefined;
+
+  const endpoint =
+    !isInfra && endpointRaw ? (endpointRaw as InstanceConfig['endpoint']) : undefined;
 
   return {
     alias: target.alias,
@@ -1164,11 +1245,12 @@ function targetToInstance(target: Awaited<ReturnType<typeof store.listMonitorTar
     tags: target.tags,
     hostMetrics: hasHostMetrics ? (hostMetrics as InstanceConfig['hostMetrics']) : undefined,
     endpoint,
+    infra,
     // Console-added Postgres: prefer journald (typical when logging_collector=off
     // under systemd). File/sql needs logging_collector=on.
-    // Endpoint synthetics have no log extractor — APM/Events cover app logs.
+    // Endpoint / infra have no SQL log extractor.
     logs:
-      target.engine === 'endpoint'
+      target.engine === 'endpoint' || target.engine === 'infra'
         ? undefined
         : target.engine === 'postgres' || !target.engine
           ? { source: 'journal', unit: 'postgresql.service' }
@@ -1198,7 +1280,9 @@ async function ensureMonitors(): Promise<void> {
     const key =
       engineOf(instance) === 'endpoint'
         ? `endpoint:${instance.alias}`
-        : instanceKey(instance);
+        : engineOf(instance) === 'infra'
+          ? `infra:${instance.alias}`
+          : instanceKey(instance);
     if (startedKeys.has(key)) continue;
     startedKeys.add(key);
     log('info', `${instance.alias}: starting monitor (${instance.engine ?? 'postgres'})`);

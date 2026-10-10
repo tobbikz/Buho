@@ -6,6 +6,7 @@
   "dependencies": {
     "@buho/checks": "*",
     "@buho/core": "*",
+    "@buho/sensors": "*",
     "@buho/store": "*"
   }
 }

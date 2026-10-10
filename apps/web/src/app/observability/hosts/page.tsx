@@ -15,8 +15,8 @@ function pct(v: number | null): string {
 }
 
 /**
- * Derived host fleet (ADR buho-host-inventory-derived-2026-10-10).
- * Not Kibana Infra Agents · Halcón archived into Buho vision.
+ * Host fleet + PRTG-class infra sensors.
+ * ADR buho-host-inventory-derived-2026-10-10 · buho-infra-prtg-sensors-2026-10-10
  */
 export default async function ObservabilityHostsPage() {
   let rows;
@@ -33,13 +33,14 @@ export default async function ObservabilityHostsPage() {
   const withMetrics = rows.filter((r) => r.hostMetricsAt != null).length;
   const dbHosts = rows.filter((r) => r.roles.includes('database')).length;
   const probeHosts = rows.filter((r) => r.roles.includes('probe')).length;
+  const infraHosts = rows.filter((r) => r.roles.includes('infra')).length;
 
   return (
     <div className="obs-page">
       <ObsPageHeader
         section="Observability"
         title="Hosts"
-        sub="Derived fleet from Databases + Probes · not Elastic Agent inventory"
+        sub="Fleet + device sensors (PRTG-class) · not Elastic Agent"
         actions={
           <>
             <Link className="btn" href="/observability/services">
@@ -53,30 +54,30 @@ export default async function ObservabilityHostsPage() {
       />
 
       <div className="notice">
-        <strong>Not Kibana Infrastructure → Hosts.</strong> Rows are unique{' '}
-        <span className="font-mono">host</span> values from monitored DB instances and endpoint
-        probes. White-box CPU/mem/disk appear when <span className="font-mono">hostMetrics</span>{' '}
-        is enabled on a target (Databases → Host). Halcón as a separate product is archived — this
-        lane is Buho-only.
+        <strong>PRTG-depth Hosts.</strong> Unique{' '}
+        <span className="font-mono">host</span> values from Databases, Probes, and{' '}
+        <span className="font-mono">engine=infra</span> devices. White-box CPU/mem/disk via{' '}
+        <span className="font-mono">hostMetrics</span> or host sensors; network sensors (ICMP/TCP/UDP/HTTP/TLS/DNS/SNMP)
+        via <span className="font-mono">@buho/sensors</span>. Drill into a host for the sensor tree.
       </div>
 
       <div className="stat-grid">
         <StatCard label="Hosts" value={String(rows.length)} hint="unique hostnames/IPs" />
         <StatCard label="With host metrics" value={String(withMetrics)} hint="last 24h scrape" />
         <StatCard label="Database hosts" value={String(dbHosts)} hint="SQL engines" />
-        <StatCard label="Probe hosts" value={String(probeHosts)} hint="endpoint targets" />
+        <StatCard label="Infra devices" value={String(infraHosts)} hint={`probes ${probeHosts}`} />
       </div>
 
       {rows.length === 0 ? (
         <ObsEmpty
-          title="No hosts derived yet"
+          title="No hosts yet"
           actions={[
             { href: '/', label: 'Add a database', primary: true },
             { href: '/observability/synthetics', label: 'Add probe' },
           ]}
         >
-          Register a database or probe — hosts are inferred from instance{' '}
-          <span className="font-mono">host</span> fields.
+          Register a database, probe, or <span className="font-mono">engine=infra</span> device —
+          hosts are keyed by the instance <span className="font-mono">host</span> field.
         </ObsEmpty>
       ) : (
         <section className="panel">
@@ -91,6 +92,7 @@ export default async function ObservabilityHostsPage() {
                   <th>Host</th>
                   <th>Role</th>
                   <th>Linked</th>
+                  <th className="num">Sensors</th>
                   <th className="num">CPU</th>
                   <th className="num">Mem</th>
                   <th className="num">Disk</th>
@@ -100,21 +102,16 @@ export default async function ObservabilityHostsPage() {
               </thead>
               <tbody>
                 {rows.map((r) => {
-                  const primaryDb = r.aliases.find((a) => a.engine !== 'endpoint');
-                  const primaryProbe = r.aliases.find((a) => a.engine === 'endpoint');
+                  const primaryDb = r.aliases.find(
+                    (a) => a.engine !== 'endpoint' && a.engine !== 'infra',
+                  );
+                  const href = `/observability/hosts/${encodeURIComponent(r.host)}`;
                   return (
                     <tr key={r.host}>
                       <td className="font-mono text-[12px]">
-                        {primaryDb ? (
-                          <Link
-                            href={`/instances/${primaryDb.instanceId}/host`}
-                            className="underline decoration-dotted"
-                          >
-                            {r.host}
-                          </Link>
-                        ) : (
-                          r.host
-                        )}
+                        <Link href={href} className="underline decoration-dotted">
+                          {r.host}
+                        </Link>
                       </td>
                       <td>
                         <div className="flex flex-wrap gap-1">
@@ -133,7 +130,9 @@ export default async function ObservabilityHostsPage() {
                               href={
                                 a.engine === 'endpoint'
                                   ? `/observability/monitors/${a.instanceId}`
-                                  : `/instances/${a.instanceId}`
+                                  : a.engine === 'infra'
+                                    ? href
+                                    : `/instances/${a.instanceId}`
                               }
                               className="underline"
                             >
@@ -144,11 +143,21 @@ export default async function ObservabilityHostsPage() {
                         {r.aliases.length > 4 ? (
                           <span className="text-foreground-muted"> +{r.aliases.length - 4}</span>
                         ) : null}
-                        {!primaryDb && primaryProbe ? (
+                        {primaryDb ? (
                           <div className="text-[10px] text-foreground-muted mt-0.5">
-                            probe-only · no DB Host tab
+                            <Link
+                              href={`/instances/${primaryDb.instanceId}/host`}
+                              className="underline"
+                            >
+                              DB Host tab
+                            </Link>
                           </div>
                         ) : null}
+                      </td>
+                      <td className="num font-mono text-[12px]">
+                        {r.sensorsTotal != null
+                          ? `${r.sensorsUp ?? 0}/${r.sensorsTotal}`
+                          : '—'}
                       </td>
                       <td className="num font-mono text-[12px]">{pct(r.cpuPct)}</td>
                       <td className="num font-mono text-[12px]">{pct(r.memUsedPct)}</td>

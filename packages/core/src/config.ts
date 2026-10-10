@@ -69,8 +69,9 @@ export async function loadConfig(path = process.env['BUHO_CONFIG'] ?? 'config.js
   // Un motor mal escrito ("postgresql", "sqlserver") tiene que fallar en el
   // arranque con el nombre del alias, no convertirse en un intento silencioso de
   // hablar PostgreSQL con un SQL Server.
-  // Database monitors: PG / MSSQL / MariaDB / Oracle. `endpoint` = Observability probes only.
-  const engines = new Set(['postgres', 'mariadb', 'mssql', 'oracle', 'endpoint']);
+  // Database monitors: PG / MSSQL / MariaDB / Oracle.
+  // `endpoint` = Observability probes · `infra` = Hosts sensors (PRTG / Halcón).
+  const engines = new Set(['postgres', 'mariadb', 'mssql', 'oracle', 'endpoint', 'infra']);
   for (const instance of instances) {
     const engine = instance.engine ?? 'postgres';
     if (!engines.has(engine)) {

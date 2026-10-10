@@ -79,7 +79,7 @@ import { ELASTICSEARCH_COLLECTORS } from './elasticsearch';
 import type { ForeignCaps, ForeignCollector } from './types';
 
 export function foreignCollectorsFor(caps: ForeignCaps, tier?: string): ForeignCollector[] {
-  const catalogo: Record<Exclude<EngineKind, 'postgres' | 'endpoint'>, ForeignCollector[]> = {
+  const catalogo: Record<Exclude<EngineKind, 'postgres' | 'endpoint' | 'infra'>, ForeignCollector[]> = {
     mariadb: MARIADB_COLLECTORS,
     mssql: MSSQL_COLLECTORS,
     mongodb: MONGODB_COLLECTORS,
@@ -89,7 +89,9 @@ export function foreignCollectorsFor(caps: ForeignCaps, tier?: string): ForeignC
     elasticsearch: ELASTICSEARCH_COLLECTORS,
   };
   const lista =
-    caps.engine === 'postgres' || caps.engine === 'endpoint' ? [] : catalogo[caps.engine];
+    caps.engine === 'postgres' || caps.engine === 'endpoint' || caps.engine === 'infra'
+      ? []
+      : catalogo[caps.engine];
   return lista.filter(
     (collector) => (!tier || collector.tier === tier) && (!collector.appliesTo || collector.appliesTo(caps)),
   );
