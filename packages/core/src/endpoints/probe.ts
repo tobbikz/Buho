@@ -2,12 +2,27 @@
  * Synthetic endpoint probes — app-layer monitoring for Búho (not SNMP).
  * Returns numeric Samples that land in metric_samples like any DB engine.
  */
+import { execFile } from "node:child_process";
 import dns from "node:dns/promises";
 import net from "node:net";
 import tls from "node:tls";
+import { promisify } from "node:util";
 import type { Sample } from "../types.js";
 
+const execFileAsync = promisify(execFile);
+
+/** Probe check type. `browser` = sequential HTTP journey steps (not Playwright). */
+export type ProbeKind = "http" | "tcp" | "icmp" | "browser";
+
+export type JourneyStep = {
+  url: string;
+  method?: string;
+  expectStatus?: number[];
+};
+
 export type EndpointProbeConfig = {
+  /** Check type. Default http (legacy: tcp flag still honored). */
+  kind?: ProbeKind;
   /** Full URL for HTTP(S). If omitted, built from host/port + path. */
   url?: string;
   /** Base URL when probing many paths (overrides host/port URL build for HTTP). */
@@ -20,7 +35,7 @@ export type EndpointProbeConfig = {
   expectBodyIncludes?: string;
   expectBodyRegex?: string;
   timeoutMs?: number;
-  /** Also probe bare TCP connect to host:port. Default true. */
+  /** Also probe bare TCP connect to host:port. Default true for http. */
   tcp?: boolean;
   /** Also check TLS certificate expiry when scheme is https. Default true. */
   tlsCert?: boolean;
@@ -29,6 +44,8 @@ export type EndpointProbeConfig = {
   critDays?: number;
   /** Link to a monitored DB instance alias (correlation). */
   dependsOnAlias?: string;
+  /** Sequential HTTP steps when kind=browser (honest HTTP journey, not a recorder). */
+  journey?: JourneyStep[];
 };
 
 export type EndpointProbeResult = {
@@ -231,6 +248,75 @@ export async function probeHttp(
   }
 }
 
+/** ICMP reachability via system `ping` (Linux). Requires CAP_NET_RAW / setuid ping. */
+export async function probeIcmp(
+  host: string,
+  timeoutMs = 5000,
+): Promise<{ ok: boolean; ms: number; error?: string }> {
+  const started = Date.now();
+  const waitSec = Math.max(1, Math.min(10, Math.ceil(timeoutMs / 1000)));
+  try {
+    await execFileAsync("ping", ["-c", "1", "-W", String(waitSec), host], {
+      timeout: timeoutMs + 1000,
+    });
+    return { ok: true, ms: Date.now() - started };
+  } catch (err) {
+    return {
+      ok: false,
+      ms: Date.now() - started,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/** Sequential HTTP steps — journey MVP (not a browser recorder). */
+export async function probeJourney(
+  steps: JourneyStep[],
+  timeoutMs = 10_000,
+): Promise<{
+  ok: boolean;
+  ms: number;
+  stepsOk: number;
+  error?: string;
+  samples: Sample[];
+}> {
+  const started = Date.now();
+  const samples: Sample[] = [];
+  let stepsOk = 0;
+  let error: string | undefined;
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]!;
+    const http = await probeHttp(step.url, {
+      method: step.method,
+      expectStatus: step.expectStatus,
+      timeoutMs,
+    });
+    const labels = { step: String(i), path: step.url };
+    samples.push(
+      ...nowSamples([
+        { metric: "endpoint_journey_step_ok", value: http.ok ? 1 : 0, labels },
+        { metric: "endpoint_http_ms", value: http.ms, labels },
+        { metric: "endpoint_http_status", value: http.status ?? 0, labels },
+      ]),
+    );
+    if (http.ok) stepsOk += 1;
+    else {
+      error = http.error ?? `journey step ${i} failed`;
+      break;
+    }
+  }
+  const ok = stepsOk === steps.length && steps.length > 0;
+  samples.push(
+    ...nowSamples([
+      { metric: "endpoint_journey_ok", value: ok ? 1 : 0 },
+      { metric: "endpoint_journey_steps_ok", value: stepsOk },
+      { metric: "endpoint_http_ok", value: ok ? 1 : 0 },
+      { metric: "endpoint_up", value: ok ? 1 : 0 },
+    ]),
+  );
+  return { ok, ms: Date.now() - started, stepsOk, error, samples };
+}
+
 /**
  * Full endpoint probe for one monitored target.
  */
@@ -245,6 +331,76 @@ export async function probeEndpoint(opts: {
   const detail: Record<string, string | number | boolean | null> = {};
   let ok = true;
   let error: string | undefined;
+  const kind: ProbeKind = opts.probe.kind ?? "http";
+  detail.kind = kind;
+
+  if (kind === "icmp") {
+    const icmp = await probeIcmp(opts.host, timeoutMs);
+    samples.push(
+      ...nowSamples([
+        { metric: "endpoint_icmp_ok", value: icmp.ok ? 1 : 0 },
+        { metric: "endpoint_icmp_ms", value: icmp.ms },
+        { metric: "endpoint_up", value: icmp.ok ? 1 : 0 },
+      ]),
+    );
+    detail.icmpOk = icmp.ok;
+    detail.icmpMs = icmp.ms;
+    if (!icmp.ok) {
+      ok = false;
+      error = icmp.error ?? "icmp failed";
+      detail.error = error;
+    }
+    detail.ok = ok;
+    return { samples, ok, error, detail };
+  }
+
+  if (kind === "tcp") {
+    const tcp = await probeTcp(opts.host, opts.port, Math.min(timeoutMs, 5000));
+    samples.push(
+      ...nowSamples([
+        { metric: "endpoint_tcp_ok", value: tcp.ok ? 1 : 0 },
+        { metric: "endpoint_tcp_ms", value: tcp.ms },
+        { metric: "endpoint_up", value: tcp.ok ? 1 : 0 },
+      ]),
+    );
+    detail.tcpOk = tcp.ok;
+    detail.tcpMs = tcp.ms;
+    if (!tcp.ok) {
+      ok = false;
+      error = tcp.error ?? "tcp failed";
+      detail.error = error;
+    }
+    detail.ok = ok;
+    return { samples, ok, error, detail };
+  }
+
+  if (kind === "browser") {
+    const steps =
+      opts.probe.journey && opts.probe.journey.length > 0
+        ? opts.probe.journey
+        : [
+            {
+              url:
+                opts.probe.url ??
+                `${opts.ssl || opts.port === 443 ? "https" : "http"}://${opts.host}${
+                  opts.port === 443 || opts.port === 80 ? "" : `:${opts.port}`
+                }${opts.probe.path ?? "/"}`,
+              expectStatus: opts.probe.expectStatus,
+              method: opts.probe.method,
+            },
+          ];
+    const journey = await probeJourney(steps, timeoutMs);
+    detail.journeySteps = steps.length;
+    detail.journeyStepsOk = journey.stepsOk;
+    detail.httpMs = journey.ms;
+    if (!journey.ok) {
+      ok = false;
+      error = journey.error ?? "journey failed";
+      detail.error = error;
+    }
+    detail.ok = ok;
+    return { samples: journey.samples, ok, error, detail };
+  }
 
   const doTcp = opts.probe.tcp !== false;
   if (doTcp) {

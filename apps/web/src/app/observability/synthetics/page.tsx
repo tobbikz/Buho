@@ -1,7 +1,8 @@
 import Link from 'next/link';
-import { ObsPageHeader } from '@/components/ObsPageHeader';
-import { StoreError } from '@/components/StoreError';
 import { EndpointDiscover } from '@/components/EndpointDiscover';
+import { ObsPageHeader } from '@/components/ObsPageHeader';
+import { ProbeKindPanel } from '@/components/ProbeKindPanel';
+import { StoreError } from '@/components/StoreError';
 import {
   endpointAvailabilityHistogram,
   listAllEndpointPathLatencySparks,
@@ -45,7 +46,7 @@ export default async function ObservabilitySyntheticsMonitorsPage({
       <ObsPageHeader
         section="Probes"
         title={monitors.length > 0 ? 'Probes' : 'Add probe'}
-        sub="HTTP black-box checks · not APM"
+        sub="HTTP · TCP · ICMP · Journey (HTTP steps) · not APM · host metrics stay on Databases"
         actions={
           <>
             <Link className="btn" href="/observability/synthetics/tls">
@@ -60,6 +61,7 @@ export default async function ObservabilitySyntheticsMonitorsPage({
           </>
         }
       />
+      <ProbeKindPanel />
       <EndpointDiscover
         defaultBaseUrl="http://127.0.0.1:3100"
         monitors={monitors.map((m) => ({

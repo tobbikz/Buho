@@ -86,6 +86,33 @@ export function evaluateEndpointSamples(samples: Sample[]): CheckResult[] {
     });
   }
 
+  const icmpOk = byMetric.get('endpoint_icmp_ok');
+  if (icmpOk === 0) {
+    results.push({
+      checkId: 'endpoint.icmp',
+      title: 'ICMP ping failed',
+      severity: 'critical',
+      object: 'icmp',
+      message: 'ICMP ping failed',
+      remediation:
+        'Host unreachable, ICMP blocked, or Buho lacks permission to ping (CAP_NET_RAW / setuid ping).',
+      value: 0,
+    });
+  }
+
+  const journeyOk = byMetric.get('endpoint_journey_ok');
+  if (journeyOk === 0) {
+    results.push({
+      checkId: 'endpoint.journey',
+      title: 'Journey step failed',
+      severity: 'critical',
+      object: 'journey',
+      message: 'Sequential HTTP journey failed (not a browser recorder)',
+      remediation: 'Inspect journey step URLs / expectStatus; this is HTTP steps, not Playwright.',
+      value: byMetric.get('endpoint_journey_steps_ok') ?? 0,
+    });
+  }
+
   return results;
 }
 

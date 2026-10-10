@@ -106,6 +106,8 @@ export function ApmSetup({
   withTraces,
   needApm,
   initialBindings = [],
+  tokenConfigured = false,
+  logsEndpoint,
 }: {
   otlpPath: string;
   collectorEndpoint: string;
@@ -115,6 +117,10 @@ export function ApmSetup({
   withTraces: number;
   needApm: NeedApm[];
   initialBindings?: ApmBinding[];
+  /** True when BUHO_OTLP_TOKEN is set on the console process. */
+  tokenConfigured?: boolean;
+  /** Optional OTLP logs endpoint (http/json). */
+  logsEndpoint?: string;
 }) {
   const [health, setHealth] = useState<'idle' | 'ok' | 'down'>('idle');
   const [healthDetail, setHealthDetail] = useState('');
@@ -385,16 +391,25 @@ export function ApmSetup({
     : '/observability/apm/traces';
   const resolvedService = serviceName.trim() || suggestServiceName(target);
 
+  const authHeaderLine = tokenConfigured
+    ? `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer $<BUHO_OTLP_TOKEN>`
+    : `# OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <token>  # required off-loopback`;
+
   const collectorEnv = [
     `OTEL_SERVICE_NAME=${resolvedService}`,
     `OTEL_EXPORTER_OTLP_ENDPOINT=${collectorEndpoint}`,
     `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`,
+    authHeaderLine,
   ].join('\n');
 
   const directEnv = [
     `OTEL_SERVICE_NAME=${resolvedService}`,
     `OTEL_EXPORTER_OTLP_PROTOCOL=http/json`,
     `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${directEndpoint}`,
+    ...(logsEndpoint
+      ? [`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=${logsEndpoint}`]
+      : []),
+    authHeaderLine,
   ].join('\n');
 
   return (
@@ -404,8 +419,24 @@ export function ApmSetup({
         emit; <strong>off-loopback fail-closed</strong> — set <span className="font-mono">BUHO_OTLP_TOKEN</span>{' '}
         and send <span className="font-mono">Authorization: Bearer …</span> (or{' '}
         <span className="font-mono">X-Buho-Otlp-Token</span>). Protobuf needs{' '}
-        <span className="font-mono">deploy/otel-collector</span>.
+        <span className="font-mono">deploy/otel-collector</span>. See{' '}
+        <span className="font-mono">GO_LIVE.md</span> §6.
       </p>
+      <div className="notice mb-3">
+        <strong>OTLP token:</strong>{' '}
+        {tokenConfigured ? (
+          <>
+            configured on this console · copy fields below include{' '}
+            <span className="font-mono">OTEL_EXPORTER_OTLP_HEADERS</span> (substitute the real token;
+            never paste secrets into git).
+          </>
+        ) : (
+          <>
+            not set · loopback smoke works without it; before exposing OTLP off-loopback set{' '}
+            <span className="font-mono">BUHO_OTLP_TOKEN</span> or POSTs return 503.
+          </>
+        )}
+      </div>
 
       <div className="stat-grid obs-services-kpis">
         <div className="stat">

@@ -60,6 +60,7 @@ Optional: Admin → Databases / Admin → Alerts for advanced config.
 ## 6. Update path
 
 - [ ] Pin tag (`v1.6.1+`) and `./install.sh --pull`
+- [ ] Air-gapped path: `EXTERNAL_INSTALL.md` § Air-gapped (docker save/load) when no GHCR
 - [ ] If OTLP is reachable beyond loopback: set `BUHO_OTLP_TOKEN` (exporters send Bearer / `X-Buho-Otlp-Token`)
 - [ ] Document who may update / recreate containers
 - [ ] Optional: `npm run alerts:import` once for SQL catalog templates

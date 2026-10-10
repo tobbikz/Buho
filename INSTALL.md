@@ -476,3 +476,15 @@ hay recuperación a un punto en el tiempo.
 ```bash
 docker compose down -v    # -v borra también la historia del store
 ```
+
+---
+
+## Demo users + Observability FEAT (lab)
+
+```bash
+npm run seed:demo-users   # demo-dba / demo-sre / demo-sec (+ -ro); password demo-buho-pass
+# smoke console login used by verify:* → smoke / smoke-test-pass
+```
+
+App OTLP logs: `POST /api/otlp/v1/logs` (same token policy as traces) · UI `/observability/app-logs`.  
+DB engine scrape stays on `/observability/logs`. Probe kinds: HTTP · TCP · ICMP · Journey (HTTP steps).

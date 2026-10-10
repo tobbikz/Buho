@@ -1703,3 +1703,43 @@ on conflict (key) do update
        updated_at = now(),
        updated_by = excluded.updated_by;
 
+
+-- OTLP application logs (Discover-shaped). Distinct from buho.log_events (DB engine scrape).
+create table if not exists buho.otlp_log_records (
+  log_pk         bigint generated always as identity primary key,
+  time_unix_nano text             not null,
+  observed_ts    timestamptz      not null,
+  severity_text  text             not null default '',
+  severity_number integer         not null default 0,
+  body           text             not null default '',
+  service_name   text             not null default 'unknown',
+  trace_id       text,
+  span_id        text,
+  attributes     jsonb            not null default '{}',
+  ingested_at    timestamptz      not null default now()
+);
+
+create index if not exists otlp_log_records_observed
+  on buho.otlp_log_records (observed_ts desc);
+create index if not exists otlp_log_records_service
+  on buho.otlp_log_records (service_name, observed_ts desc);
+create index if not exists otlp_log_records_trace
+  on buho.otlp_log_records (trace_id)
+  where trace_id is not null;
+
+-- Security cases workflow (lab — not Elastic SIEM).
+create table if not exists buho.security_cases (
+  case_id      bigint generated always as identity primary key,
+  title        text        not null,
+  status       text        not null default 'open'
+               check (status in ('open', 'acked', 'closed')),
+  severity     text        not null default 'media',
+  assignee     text,
+  finding_keys jsonb       not null default '[]',
+  note         text,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+
+create index if not exists security_cases_status_idx
+  on buho.security_cases (status, updated_at desc);

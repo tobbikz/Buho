@@ -5,6 +5,7 @@ import { ObsPageHeader } from '@/components/ObsPageHeader';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { formatAgo } from '@/lib/format';
+import { listDbApmCorr } from '@/lib/db-apm-corr';
 import {
   getFleetLogLevelCounts,
   getFleetLogPatterns,
@@ -26,11 +27,13 @@ export default async function ObservabilityLogsPage() {
   let patterns;
   let levelCounts;
   let events: FleetLogEvent[];
+  let corr;
   try {
-    [patterns, levelCounts, events] = await Promise.all([
+    [patterns, levelCounts, events, corr] = await Promise.all([
       getFleetLogPatterns(24, 40),
       getFleetLogLevelCounts(24),
       listFleetLogEvents(24, 200),
+      listDbApmCorr(40),
     ]);
   } catch (error) {
     return (
@@ -59,6 +62,10 @@ export default async function ObservabilityLogsPage() {
             <Link href="/observability/apm/traces" className="underline">
               Traces
             </Link>
+            · app OTLP →{' '}
+            <Link href="/observability/app-logs" className="underline">
+              App logs
+            </Link>
             · acks →{' '}
             <Link href="/events" className="underline">
               Databases → Events
@@ -67,6 +74,9 @@ export default async function ObservabilityLogsPage() {
         }
         actions={
           <>
+            <Link className="btn" href="/observability/app-logs">
+              App logs
+            </Link>
             <Link className="btn" href="/observability/apm/traces">
               Traces
             </Link>
@@ -79,8 +89,35 @@ export default async function ObservabilityLogsPage() {
 
       <div className="notice">
         Kibana <strong>Logs / Discover</strong> is out of scope here. This stream is what the DB
-        collector scraped into <span className="font-mono">buho.log_events</span>.
+        collector scraped into <span className="font-mono">buho.log_events</span>. App OTLP logs
+        stay on{' '}
+        <Link href="/observability/app-logs" className="underline">
+          App logs
+        </Link>
+        ; streams are never merged.
       </div>
+
+      {corr.length > 0 ? (
+        <div className="notice">
+          <strong>Same-host / dep links:</strong>{' '}
+          {corr.slice(0, 8).map((c, i) => (
+            <span key={c.instanceId}>
+              {i > 0 ? ' · ' : null}
+              <Link href={c.logsHref} className="underline">
+                {c.alias}
+              </Link>
+              {c.tracesHref && c.serviceName ? (
+                <>
+                  {' → '}
+                  <Link href={c.tracesHref} className="underline">
+                    traces:{c.serviceName}
+                  </Link>
+                </>
+              ) : null}
+            </span>
+          ))}
+        </div>
+      ) : null}
 
       <div className="stat-grid">
         <StatCard label="Lines" value={String(events.length)} hint="recent sample" />

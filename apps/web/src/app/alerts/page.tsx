@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { silenceOpenAlert } from '@/app/alerts/actions';
 import { AlertDayHeat } from '@/components/AlertDayHeat';
+import { AlertPlanesNotice } from '@/components/AlertPlanesNotice';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { Topbar } from '@/components/Topbar';
@@ -160,6 +161,8 @@ export default async function AlertsPage({
           <div className="notice">Silence created. Collector will skip matching fires until it ends.</div>
         ) : null}
         {error ? <div className="notice notice--warn">Could not create silence — try again from the row.</div> : null}
+
+        <AlertPlanesNotice active="databases" />
 
         <div className="stat-grid">
           <StatCard

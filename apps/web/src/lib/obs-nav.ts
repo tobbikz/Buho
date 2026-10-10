@@ -70,7 +70,12 @@ export const OBS_NAV_PRIMARY: ObsNavLeaf[] = [
   {
     href: '/observability/logs',
     label: 'DB logs',
-    match: (p) => p.startsWith('/observability/logs'),
+    match: (p) => p === '/observability/logs' || p.startsWith('/observability/logs/'),
+  },
+  {
+    href: '/observability/app-logs',
+    label: 'App logs',
+    match: (p) => p.startsWith('/observability/app-logs'),
   },
 ];
 

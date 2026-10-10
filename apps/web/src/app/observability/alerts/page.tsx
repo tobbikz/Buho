@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { AlertPlanesNotice } from '@/components/AlertPlanesNotice';
 import { ObsEmpty } from '@/components/ObsEmpty';
 import { ObsPageHeader } from '@/components/ObsPageHeader';
 import { StatCard } from '@/components/StatCard';
@@ -9,6 +10,7 @@ import {
   type ObsAlert,
   type ObsAlertSource,
 } from '@/lib/obs-ops';
+import { silenceObsAlert } from './actions';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'App alerts · Observability · Búho' };
@@ -71,17 +73,7 @@ export default async function ObservabilityAlertsPage() {
         }
       />
 
-      <div className="notice">
-        <strong>Where to silence?</strong> Three planes (not Kibana’s one Alerts app):{' '}
-        <Link href="/alerts" className="underline">
-          Databases → Alerts
-        </Link>{' '}
-        (engine checks / pack) · this page (probe / APM / SLO) ·{' '}
-        <Link href="/observability/security/alerts" className="underline">
-          Security → Alerts
-        </Link>{' '}
-        (findings). Silences for DB pack live under Admin → Alerts.
-      </div>
+      <AlertPlanesNotice active="app" />
 
       <div className="stat-grid">
         <StatCard label="Critical" value={String(critical)} hint="monitor down / 5xx / errors" />
@@ -115,6 +107,7 @@ export default async function ObservabilityAlertsPage() {
                   <th>Entity</th>
                   <th>Alert</th>
                   <th className="num">Seen</th>
+                  <th>Silence</th>
                 </tr>
               </thead>
               <tbody>
@@ -137,6 +130,15 @@ export default async function ObservabilityAlertsPage() {
                     </td>
                     <td className="num font-mono text-[10px] text-foreground-muted whitespace-nowrap">
                       {formatAgo(a.seenAt)}
+                    </td>
+                    <td>
+                      <form action={silenceObsAlert} className="flex flex-wrap gap-1">
+                        <input type="hidden" name="alertId" value={a.id} />
+                        <input type="hidden" name="hours" value="4" />
+                        <button type="submit" className="btn">
+                          4h
+                        </button>
+                      </form>
                     </td>
                   </tr>
                 ))}

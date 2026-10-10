@@ -105,16 +105,23 @@ function serviceLatencySlo(s: ApmServiceRow): ObsSloRow {
 }
 
 export async function listObservabilityAlerts(): Promise<ObsAlert[]> {
-  const [monitors, paths, services] = await Promise.all([
+  const [monitors, paths, services, silences] = await Promise.all([
     listEndpointMonitors(),
     listEndpointPathDocuments(300),
     listApmServices(null),
+    import('./alerts').then((m) => m.listActiveSilences()),
   ]);
+
+  const silenced = new Set(
+    silences
+      .filter((s) => s.checkId?.startsWith('obs:'))
+      .map((s) => s.checkId!.slice(4)),
+  );
 
   const out: ObsAlert[] = [
     ...uptimeAlerts(monitors, paths),
     ...apmAlerts(services),
-  ];
+  ].filter((a) => !silenced.has(a.id));
 
   const rank = { critical: 0, warning: 1, info: 2 } as const;
   out.sort((a, b) => rank[a.severity] - rank[b.severity] || a.title.localeCompare(b.title));

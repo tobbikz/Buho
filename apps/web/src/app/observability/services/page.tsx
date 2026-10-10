@@ -4,6 +4,7 @@ import { ObsInventoryTable } from '@/components/ObsInventoryTable';
 import { ObsPageHeader } from '@/components/ObsPageHeader';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
+import { listObsAnomalies } from '@/lib/obs-anomalies';
 import {
   listInventoryEntities,
   type InventoryEntity,
@@ -47,8 +48,12 @@ export default async function ObservabilityServicesPage({
   const lens = parseLens(sp.lens ?? sp.kind);
 
   let entities: InventoryEntity[];
+  let anomalies: Awaited<ReturnType<typeof listObsAnomalies>> = [];
   try {
-    entities = await listInventoryEntities();
+    [entities, anomalies] = await Promise.all([
+      listInventoryEntities(),
+      listObsAnomalies(8),
+    ]);
   } catch (error) {
     return (
       <div className="obs-page">
@@ -96,6 +101,26 @@ export default async function ObservabilityServicesPage({
           </>
         }
       />
+
+      {anomalies.length > 0 ? (
+        <section className="panel mb-3">
+          <div className="panel-header">
+            <span className="panel-title">Explainable anomalies</span>
+            <span className="text-[11px] text-foreground-muted">threshold vs 7d median · not ML</span>
+          </div>
+          <ul className="panel-body text-[12px] space-y-1 m-0 pl-4">
+            {anomalies.map((a) => (
+              <li key={`${a.kind}:${a.entity}`}>
+                <Link href={a.href} className="underline">
+                  {a.entity}
+                </Link>
+                {' · '}
+                {a.message}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <div className="notice">
         <strong>Coming from Kibana?</strong> This fleet is APM services + HTTP Probes — not Infra

@@ -104,6 +104,53 @@ if (!process.env.BUHO_OTLP_TOKEN?.trim()) {
   ok('global traces page 200');
 }
 
+// 6) OTLP logs health + ingest
+{
+  const logsUrl = process.env.BUHO_OTLP_LOGS_URL ?? `${base}/api/otlp/v1/logs`;
+  const health = await fetch(logsUrl, { method: 'GET', headers: otlpHeaders() });
+  const hb = await health.json().catch(() => ({}));
+  if (!health.ok || hb.ok !== true) fail(`logs health ${health.status}`);
+  ok(`logs health ${hb.protocol}`);
+
+  const now = String(BigInt(Date.now()) * 1_000_000n);
+  const body = {
+    resourceLogs: [
+      {
+        resource: {
+          attributes: [{ key: 'service.name', value: { stringValue: service } }],
+        },
+        scopeLogs: [
+          {
+            logRecords: [
+              {
+                timeUnixNano: now,
+                observedTimeUnixNano: now,
+                severityText: 'INFO',
+                body: { stringValue: `smoke log ${service}` },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const res = await fetch(logsUrl, {
+    method: 'POST',
+    headers: otlpHeaders({ 'content-type': 'application/json' }),
+    body: JSON.stringify(body),
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok || !(out.acceptedLogs > 0)) {
+    fail(`logs ingest ${res.status} ${JSON.stringify(out)}`);
+  }
+  ok(`accepted ${out.acceptedLogs} log record(s)`);
+
+  const page = await fetch(`${base}/observability/app-logs`);
+  if (!page.ok) fail(`app-logs page ${page.status}`);
+  ok('app-logs page 200');
+}
+
 console.log('\nSMOKE OTLP OK');
 console.log(`  service  ${service}`);
 console.log(`  open     ${base}/observability/services/${encodeURIComponent(service)}?tab=traces`);
+console.log(`  app logs ${base}/observability/app-logs?service=${encodeURIComponent(service)}`);

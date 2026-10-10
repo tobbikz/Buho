@@ -67,15 +67,30 @@ export default async function EstateRpoPage() {
   return (
     <div className="flex flex-col gap-[0.875rem]">
       <header className="flex flex-col gap-1">
-        <h1 className="text-[1.1rem] font-semibold m-0">RPO · four engines</h1>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <h1 className="text-[1.1rem] font-semibold m-0">Estate RPO · four engines</h1>
+          <div className="flex flex-wrap gap-2">
+            <Link className="btn" href="/observability/rpo">
+              Probe RPO
+            </Link>
+          </div>
+        </div>
         <p className="text-[12px] text-foreground-secondary m-0 max-w-[62rem]">
           How much data you could lose <em>right now</em> if the instance dies — calculated from what
           each engine can prove inside the server (WAL / log backups / binlog / RMAN). Default target{' '}
           <span className="font-mono">15m</span>; override with instance tags{' '}
           <span className="font-mono">rpo_seconds</span> / <span className="font-mono">rpo_hours</span>.
-          Alert pack <span className="font-mono">rpo_exposure</span> fires on the same metric. This is
-          Databases Estate RPO, not Observability probes.
+          Alert pack <span className="font-mono">rpo_exposure</span> fires on the same metric.
         </p>
+        <div className="notice mt-2 max-w-[62rem]">
+          <strong>Which RPO?</strong> This page is <em>Databases Estate RPO</em> (engine-proven
+          backup/WAL exposure). Observability{' '}
+          <Link href="/observability/rpo" className="underline">
+            Probe RPO
+          </Link>{' '}
+          is a different plane (probe lag / backup-age samples) — do not treat them as the same
+          number.
+        </div>
       </header>
 
       <div className="stat-grid">

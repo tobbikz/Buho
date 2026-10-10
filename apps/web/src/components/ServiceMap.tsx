@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { IconDatabase, IconHttp } from '@/components/ServiceDepEdge';
 import type { ServiceMapEdge, ServiceMapNode } from '@/lib/service-map';
 
@@ -65,8 +65,8 @@ function layoutBipartite(
     return list.map((node, i) => {
       const y =
         list.length === 1
-          ? height / 2 - NODE_H / 2
-          : PAD_Y + (span * i) / Math.max(list.length - 1, 1);
+          ? Math.round(height / 2 - NODE_H / 2)
+          : Math.round(PAD_Y + (span * i) / Math.max(list.length - 1, 1));
       return { node, x: colX, y, w: NODE_W, h: NODE_H };
     });
   };
@@ -86,6 +86,11 @@ export function ServiceMap({
   edges: ServiceMapEdge[];
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // SVG bipartite layout hydrates poorly under Next (React #418) — paint after mount.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const { laid, width, height } = useMemo(() => layoutBipartite(nodes), [nodes]);
   const byId = useMemo(() => new Map(laid.map((l) => [l.node.id, l])), [laid]);
 
@@ -118,6 +123,12 @@ export function ServiceMap({
           </span>
         </div>
         <div className="svc-map__svg-wrap">
+          {!mounted ? (
+            <div className="muted text-[12px] p-4">
+              Loading map · {nodes.length} nodes · {edges.length} edges
+            </div>
+          ) : null}
+          {mounted ? (
           <svg
             className="svc-map__svg"
             viewBox={`0 0 ${width} ${height}`}
@@ -203,6 +214,7 @@ export function ServiceMap({
               );
             })}
           </svg>
+          ) : null}
         </div>
       </div>
 

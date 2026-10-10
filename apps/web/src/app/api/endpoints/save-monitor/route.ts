@@ -18,6 +18,12 @@ type Body = {
   /** Optional override; if omitted we infer from peers / existing deps. */
   dependsOnAlias?: string;
   environment?: string;
+  /** http (default) | tcp | icmp | browser */
+  kind?: string;
+  host?: string;
+  port?: number;
+  /** Sequential HTTP steps when kind=browser */
+  journey?: Array<{ url: string; method?: string; expectStatus?: number[] }>;
 };
 
 /**
@@ -88,6 +94,9 @@ export async function POST(request: Request) {
   }
 
   const alias = (body.alias ?? '').trim();
+  const kindRaw = String(body.kind ?? 'http').toLowerCase();
+  const kind =
+    kindRaw === 'tcp' || kindRaw === 'icmp' || kindRaw === 'browser' ? kindRaw : 'http';
   const baseUrl = (body.baseUrl ?? '').trim();
   const paths = Array.isArray(body.paths)
     ? Array.from(
@@ -106,31 +115,56 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  if (!baseUrl) {
-    return NextResponse.json({ error: 'baseUrl required' }, { status: 400 });
-  }
-  if (paths.length === 0) {
-    return NextResponse.json({ error: 'at least one path required' }, { status: 400 });
+
+  let host = (body.host ?? '').trim();
+  let port = Number(body.port);
+  let ssl = false;
+  let parsedBase = baseUrl;
+
+  if (kind === 'http' || kind === 'browser') {
+    if (!baseUrl && kind === 'http') {
+      return NextResponse.json({ error: 'baseUrl required' }, { status: 400 });
+    }
+    if (kind === 'http' && paths.length === 0) {
+      return NextResponse.json({ error: 'at least one path required' }, { status: 400 });
+    }
+    if (kind === 'browser') {
+      const journey = Array.isArray(body.journey) ? body.journey : [];
+      if (journey.length === 0) {
+        return NextResponse.json({ error: 'journey steps required' }, { status: 400 });
+      }
+      parsedBase = journey[0]!.url;
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(parsedBase);
+    } catch {
+      return NextResponse.json({ error: 'invalid baseUrl / journey URL' }, { status: 400 });
+    }
+    host = parsed.hostname;
+    port =
+      parsed.port !== ''
+        ? Number(parsed.port)
+        : parsed.protocol === 'https:'
+          ? 443
+          : 80;
+    ssl = parsed.protocol === 'https:';
+  } else {
+    if (!host) {
+      return NextResponse.json({ error: 'host required for tcp/icmp' }, { status: 400 });
+    }
+    if (kind === 'tcp' && (!Number.isFinite(port) || port <= 0)) {
+      return NextResponse.json({ error: 'port required for tcp' }, { status: 400 });
+    }
+    if (kind === 'icmp') port = 0;
+    parsedBase = kind === 'icmp' ? `icmp://${host}` : `tcp://${host}:${port}`;
   }
 
-  let parsed: URL;
-  try {
-    parsed = new URL(baseUrl);
-  } catch {
-    return NextResponse.json({ error: 'invalid baseUrl' }, { status: 400 });
-  }
-
-  const host = parsed.hostname;
-  const port =
-    parsed.port !== ''
-      ? Number(parsed.port)
-      : parsed.protocol === 'https:'
-        ? 443
-        : 80;
-  const ssl = parsed.protocol === 'https:';
   const manualDepends = (body.dependsOnAlias ?? '').trim();
   const dependsOnAlias =
-    manualDepends || (await inferDependsOnAlias(host, port)) || undefined;
+    manualDepends ||
+    (kind === 'http' ? await inferDependsOnAlias(host, port) : undefined) ||
+    undefined;
   const expectStatus =
     Array.isArray(body.expectStatus) && body.expectStatus.length > 0
       ? body.expectStatus.map(Number)
@@ -138,14 +172,16 @@ export async function POST(request: Request) {
   const warnMs = body.warnMs ?? 1500;
   const environment = (body.environment ?? 'PROD').trim().toUpperCase() || 'PROD';
 
-  const endpoint = {
-    baseUrl,
-    paths,
+  const endpoint: Record<string, unknown> = {
+    kind,
+    baseUrl: parsedBase,
+    paths: kind === 'http' ? paths : [],
     expectStatus,
     warnMs,
-    tcp: true,
-    tlsCert: ssl,
+    tcp: kind === 'http' || kind === 'tcp',
+    tlsCert: kind === 'http' && ssl,
     ...(dependsOnAlias ? { dependsOnAlias } : {}),
+    ...(kind === 'browser' && Array.isArray(body.journey) ? { journey: body.journey } : {}),
   };
 
   try {
@@ -215,22 +251,15 @@ export async function POST(request: Request) {
         const store = new Store(process.env['BUHO_STORE_URL']);
         const result = await probeEndpoint({
           host,
-          port,
+          port: port || 0,
           ssl,
-          probe: {
-            baseUrl,
-            paths,
-            expectStatus,
-            warnMs,
-            tcp: true,
-            tlsCert: ssl,
-          },
+          probe: endpoint as Parameters<typeof probeEndpoint>[0]['probe'],
         });
         await store.insertSamples(instanceId, result.samples);
         const findings = evaluateEndpointSamples(result.samples);
         const score = endpointHealthScore(findings);
         await store.saveCheckResults(instanceId, findings, score);
-        probedPaths = paths.length;
+        probedPaths = kind === 'http' ? paths.length : 1;
         await store.close();
       } catch {
         // Collector will fill in; save still succeeded.
@@ -240,7 +269,7 @@ export async function POST(request: Request) {
     await logConsoleEvent(
       session.username,
       'endpoint_monitor.save',
-      `${alias} · ${paths.length} paths · ${baseUrl}` +
+      `${alias} · kind=${kind} · ${parsedBase}` +
         (dependsOnAlias ? ` · depends ${dependsOnAlias}${manualDepends ? '' : ' (inferred)'}` : '') +
         (probedPaths ? ` · probed ${probedPaths}` : ''),
     );

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { AlertPlanesNotice } from '@/components/AlertPlanesNotice';
 import { ObsEmpty } from '@/components/ObsEmpty';
 import { ObsPageHeader } from '@/components/ObsPageHeader';
 import { SecurityFindingRow } from '@/components/SecurityFindingRow';
@@ -52,6 +53,8 @@ export default async function SecurityAlertsPage() {
           </>
         }
       />
+
+      <AlertPlanesNotice active="security" />
 
       <div className="stat-grid obs-services-kpis">
         <StatCard

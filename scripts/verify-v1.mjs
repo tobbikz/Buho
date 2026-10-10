@@ -135,6 +135,23 @@ await ver('Admin: users', '/admin/users');
 await ver('Admin: retention', '/admin/retention');
 await ver('Admin: discovery', '/admin/discovery');
 await ver('Admin: audit', '/admin/audit');
+await ver('Admin: targets', '/admin/targets');
+await ver('Databases alerts', '/alerts');
+await ver('Estate RPO', '/estate/rpo', 'RPO');
+
+// Observability FEAT wave (excl. host inventory)
+await ver('Obs: Services', '/observability/services', 'Services');
+await ver('Obs: App logs', '/observability/app-logs', 'App logs');
+await ver('Obs: DB logs', '/observability/logs', 'DB logs');
+await ver('Obs: Probes', '/observability/synthetics', 'Probe');
+await ver('Obs: App alerts', '/observability/alerts', 'alert');
+await ver('Obs: Probe RPO', '/observability/rpo', 'Probe RPO');
+await ver('Obs: APM setup', '/observability/apm/setup', 'APM');
+await ver('Obs: Traces', '/observability/apm/traces');
+await ver('Obs: Service map', '/observability/map');
+await ver('Obs: Security cases', '/observability/security/cases', 'Cases');
+await ver('Obs: Security alerts', '/observability/security/alerts');
+await ver('Obs: Security findings', '/observability/security/findings');
 
 // Report download: deliverable route, separate from the page.
 const exportacion = await context.request.get(`${BASE}/report/export`);

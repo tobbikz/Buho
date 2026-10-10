@@ -7,6 +7,7 @@ import { listApmEbpfBindings } from '@/lib/apm-bindings';
 import { listEndpointMonitors } from '@/lib/endpoints';
 import { listInventoryEntities } from '@/lib/obs-infra';
 import { servicePath } from '@/lib/obs-service';
+import { otlpTokenConfigured } from '@/lib/otlp-auth';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Add APM · Búho' };
@@ -68,6 +69,8 @@ export default async function ObservabilityApmSetupPage() {
   const directEndpoint =
     process.env.BUHO_OTLP_PUBLIC_URL?.trim() ||
     `http://${host}:${webPort}/api/otlp/v1/traces`;
+  const logsEndpoint = `http://${host}:${webPort}/api/otlp/v1/logs`;
+  const tokenConfigured = otlpTokenConfigured() !== null;
 
   return (
     <div className="obs-page">
@@ -79,6 +82,9 @@ export default async function ObservabilityApmSetupPage() {
           <>
             <Link className="btn" href="/observability/apm/traces">
               Traces
+            </Link>
+            <Link className="btn" href="/observability/app-logs">
+              App logs
             </Link>
             <Link className="btn" href="/observability/synthetics">
               Add probe
@@ -94,6 +100,8 @@ export default async function ObservabilityApmSetupPage() {
         withTraces={withTraces}
         needApm={needApm}
         initialBindings={initialBindings}
+        tokenConfigured={tokenConfigured}
+        logsEndpoint={logsEndpoint}
       />
     </div>
   );

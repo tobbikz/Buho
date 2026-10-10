@@ -113,6 +113,14 @@ export function AddDatabaseForm({
           ))}
         </select>
       </label>
+      {engine === 'oracle' ? (
+        <div className="notice md:col-span-2 xl:col-span-3 text-[12px] font-normal normal-case tracking-normal">
+          <strong>Oracle monitor grants:</strong> create a read-only user with{' '}
+          <span className="font-mono">sql/monitor-user-oracle.sql</span> (or{' '}
+          <span className="font-mono">GRANT SELECT_CATALOG_ROLE</span>). Missing views show as Needs
+          grants under Security → Findings — never a green empty pack.
+        </div>
+      ) : null}
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Environment
         <input

@@ -36,7 +36,8 @@
     "smoke:otlp": "node scripts/smoke-otlp.mjs",
     "apm:ebpf": "bash scripts/apm-ebpf.sh",
     "apm:ebpf:status": "bash scripts/apm-ebpf.sh status",
-    "apm:ebpf:stop": "bash scripts/apm-ebpf.sh stop"
+    "apm:ebpf:stop": "bash scripts/apm-ebpf.sh stop",
+    "seed:demo-users": "tsx scripts/seed-demo-users.ts"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",

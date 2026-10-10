@@ -2972,6 +2972,136 @@ export class Store {
     }
   }
 
+  async ingestOtlpLogs(
+    records: Array<{
+      timeUnixNano: string;
+      observedTs: Date;
+      severityText: string;
+      severityNumber: number;
+      body: string;
+      serviceName: string;
+      traceId: string | null;
+      spanId: string | null;
+      attributes: Record<string, unknown>;
+    }>,
+  ): Promise<number> {
+    if (records.length === 0) return 0;
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      let n = 0;
+      for (const r of records) {
+        await client.query(
+          `insert into buho.otlp_log_records
+                (time_unix_nano, observed_ts, severity_text, severity_number,
+                 body, service_name, trace_id, span_id, attributes)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
+          [
+            r.timeUnixNano,
+            r.observedTs,
+            r.severityText,
+            r.severityNumber,
+            r.body,
+            r.serviceName,
+            r.traceId,
+            r.spanId,
+            JSON.stringify(r.attributes),
+          ],
+        );
+        n += 1;
+      }
+      await client.query('commit');
+      return n;
+    } catch (err) {
+      await client.query('rollback');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listSecurityCases(limit = 100): Promise<
+    Array<{
+      caseId: number;
+      title: string;
+      status: string;
+      severity: string;
+      assignee: string | null;
+      findingKeys: unknown;
+      note: string | null;
+      createdAt: Date;
+      updatedAt: Date;
+    }>
+  > {
+    const { rows } = await this.pool.query(
+      `select case_id, title, status, severity, assignee, finding_keys, note,
+              created_at, updated_at
+         from buho.security_cases
+        order by updated_at desc
+        limit $1`,
+      [limit],
+    );
+    return rows.map((row) => ({
+      caseId: Number(row.case_id),
+      title: String(row.title),
+      status: String(row.status),
+      severity: String(row.severity),
+      assignee: (row.assignee as string | null) ?? null,
+      findingKeys: row.finding_keys,
+      note: (row.note as string | null) ?? null,
+      createdAt: row.created_at as Date,
+      updatedAt: row.updated_at as Date,
+    }));
+  }
+
+  async upsertSecurityCase(input: {
+    caseId?: number;
+    title: string;
+    status?: string;
+    severity?: string;
+    assignee?: string | null;
+    findingKeys?: unknown;
+    note?: string | null;
+  }): Promise<number> {
+    if (input.caseId) {
+      await this.pool.query(
+        `update buho.security_cases
+            set title = $2,
+                status = coalesce($3, status),
+                severity = coalesce($4, severity),
+                assignee = $5,
+                finding_keys = coalesce($6::jsonb, finding_keys),
+                note = $7,
+                updated_at = now()
+          where case_id = $1`,
+        [
+          input.caseId,
+          input.title,
+          input.status ?? null,
+          input.severity ?? null,
+          input.assignee ?? null,
+          input.findingKeys == null ? null : JSON.stringify(input.findingKeys),
+          input.note ?? null,
+        ],
+      );
+      return input.caseId;
+    }
+    const { rows } = await this.pool.query(
+      `insert into buho.security_cases (title, status, severity, assignee, finding_keys, note)
+       values ($1, coalesce($2, 'open'), coalesce($3, 'media'), $4, coalesce($5::jsonb, '[]'), $6)
+       returning case_id`,
+      [
+        input.title,
+        input.status ?? null,
+        input.severity ?? null,
+        input.assignee ?? null,
+        input.findingKeys == null ? null : JSON.stringify(input.findingKeys),
+        input.note ?? null,
+      ],
+    );
+    return Number(rows[0]!.case_id);
+  }
+
   /** Claim and send pending alert deliveries (webhook / Slack / Teams / Telegram / Rocket.Chat). */
   async flushAlertDeliveries(limit = 20): Promise<{ sent: number; failed: number }> {
     const client = await this.pool.connect();
