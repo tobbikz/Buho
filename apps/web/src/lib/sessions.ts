@@ -173,6 +173,14 @@ export async function getLatestLiveSessions(
   return { at: new Date(momento), sessions: foto.sessions, stale: false };
 }
 
+/** Alias for remote Queries Live UI (same snapshot, no stale flag). */
+export async function getLatestSessions(
+  instanceId: number,
+): Promise<{ at: Date | null; sessions: SessionRow[] }> {
+  const foto = await getLatestLiveSessions(instanceId, 600);
+  return { at: foto.at, sessions: foto.sessions };
+}
+
 export async function getSessionsAt(
   instanceId: number,
   at: Date,

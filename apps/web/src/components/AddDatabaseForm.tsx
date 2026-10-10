@@ -190,19 +190,13 @@ export function AddDatabaseForm({
           name="tagKey"
           className="input font-mono uppercase"
           placeholder="TEAM"
-          defaultValue={initial?.tagKey}
           onInput={forceUpper}
           style={{ textTransform: 'uppercase' }}
         />
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Tag value
-        <input
-          name="tagValue"
-          className="input font-mono"
-          placeholder="data"
-          defaultValue={initial?.tagValue}
-        />
+        <input name="tagValue" className="input font-mono" placeholder="data" />
       </label>
       <label className="flex items-center gap-2 text-[12px] text-foreground-secondary md:col-span-2">
         <input

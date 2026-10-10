@@ -1,13 +1,13 @@
 # Go-live checklist (first production customer / pilot)
 
-Use before the first paid or pilot install. Pin **`v1.7.1+`**. Pricing: `PRICING.md`. Contract template: `PILOT_AGREEMENT.md`.
+Use before the first paid or pilot install. Pin **`v1.7.2+`**. Pricing: `PRICING.md`. Contract template: `PILOT_AGREEMENT.md`.
 
 Lab console (dev): http://127.0.0.1:3100 · store `:55432`.
 
 ## 0. Ship the bits
 
 - [ ] `git push origin main` and `git push origin v1.7.0` (GHCR publish runs on the tag)
-- [ ] Confirm images: `ghcr.io/tobbikz/buho-monitor/collector:1.7.1` and `…/web:1.7.1`
+- [ ] Confirm images: `ghcr.io/tobbikz/buho-monitor/collector:1.7.2` and `…/web:1.7.2`
 - [ ] Customer host can `docker pull` those tags (or use `./install.sh --pull`)
 
 ## 1. Access & secrets
@@ -59,7 +59,7 @@ Optional: Admin → Databases / Admin → Alerts for advanced config.
 
 ## 6. Update path
 
-- [ ] Pin tag (`v1.7.1+`) and `./install.sh --pull`
+- [ ] Pin tag (`v1.7.2+`) and `./install.sh --pull`
 - [ ] Air-gapped path: `EXTERNAL_INSTALL.md` § Air-gapped (docker save/load) when no GHCR
 - [ ] If OTLP is reachable beyond loopback: set `BUHO_OTLP_TOKEN` (exporters send Bearer / `X-Buho-Otlp-Token`)
 - [ ] Document who may update / recreate containers

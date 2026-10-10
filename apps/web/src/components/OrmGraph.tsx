@@ -334,63 +334,45 @@ export function OrmGraph({
     const w = canvas.clientWidth || 800;
     const h = canvas.clientHeight || 520;
 
-    const schemas = model.nodes.filter((n) => n.kind === 'schema');
-    const tables = model.nodes.filter((n) => n.kind === 'table');
-    const schemaPos = new Map<string, { x: number; y: number }>();
-    const schemaCount = Math.max(1, schemas.length);
-    schemas.forEach((node, i) => {
-      const col = i % Math.ceil(Math.sqrt(schemaCount));
-      const row = Math.floor(i / Math.ceil(Math.sqrt(schemaCount)));
-      const cols = Math.ceil(Math.sqrt(schemaCount));
-      const rows = Math.ceil(schemaCount / cols);
-      schemaPos.set(node.label, {
-        x: w * (0.18 + (0.64 * (col + 0.5)) / cols),
-        y: h * (0.18 + (0.64 * (row + 0.5)) / rows),
-      });
+    const needle = search.trim().toLowerCase();
+    const visible = model.nodes.filter((node) => {
+      if (node.kind === 'schema') {
+        if (schemaFilter !== 'all' && node.label !== schemaFilter) return false;
+        if (!needle) return true;
+        return model.nodes.some(
+          (other) =>
+            other.kind === 'table' &&
+            other.schema === node.label &&
+            (`${other.schema}.${other.label}`.toLowerCase().includes(needle) ||
+              other.label.toLowerCase().includes(needle)),
+        );
+      }
+      if (schemaFilter !== 'all' && node.schema !== schemaFilter) return false;
+      if (!needle) return true;
+      const haystack = `${node.schema ?? ''}.${node.label}`.toLowerCase();
+      return haystack.includes(needle) || node.label.toLowerCase().includes(needle);
     });
-    const tablesBySchema = new Map<string, typeof tables>();
-    for (const node of tables) {
-      const schema = node.id.includes('.')
-        ? node.id.replace(/^table:/, '').split('.')[0] ?? 'public'
-        : 'public';
-      const list = tablesBySchema.get(schema) ?? [];
-      list.push(node);
-      tablesBySchema.set(schema, list);
-    }
+    const schemaNames = new Set(visible.filter((node) => node.kind === 'table').map((node) => node.schema));
+    const laidOut = visible.filter((node) => node.kind === 'table' || schemaNames.has(node.label));
 
-    nodesRef.current = model.nodes.map((node, i) => {
+    nodesRef.current = laidOut.map((node) => {
       const r =
         node.kind === 'schema'
           ? schemaRadius(model.schemas.find((s) => s.name === node.label)?.tableCount ?? 1)
           : tableRadius(node.sizeBytes, model.maxSize);
-      let x: number;
-      let y: number;
-      if (node.kind === 'schema') {
-        const pos = schemaPos.get(node.label) ?? { x: w / 2, y: h / 2 };
-        x = pos.x;
-        y = pos.y;
-      } else {
-        const schema = node.id.replace(/^table:/, '').split('.')[0] ?? 'public';
-        const home = schemaPos.get(schema) ?? { x: w / 2, y: h / 2 };
-        const siblings = tablesBySchema.get(schema) ?? [node];
-        const idx = siblings.findIndex((s) => s.id === node.id);
-        const angle = idx * golden;
-        const ring = 36 + Math.sqrt(idx + 1) * (siblings.length > 40 ? 14 : 22);
-        x = home.x + Math.cos(angle) * ring;
-        y = home.y + Math.sin(angle) * ring;
-      }
       return {
         id: node.id,
         kind: node.kind,
         label: node.label,
-        x,
-        y,
+        x: w / 2,
+        y: h / 2,
+        homeX: w / 2,
+        homeY: h / 2,
         vx: 0,
         vy: 0,
         r,
         data: node,
-        // Huge catalogs start nearly settled so they do not explode.
-        pinned: model.nodes.length > 180,
+        pinned: false,
       };
     });
 
@@ -404,173 +386,6 @@ export function OrmGraph({
     if (!ctx) return;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    let last = performance.now();
-
-    const nodeById = () => {
-      const map = new Map<string, SimNode>();
-      for (const n of nodesRef.current) map.set(n.id, n);
-      return map;
-    };
-
-    const simulate = (dt: number) => {
-      const nodes = nodesRef.current;
-      const alpha = Math.min(1, dt * 1.1);
-      const ids = nodeById();
-      const huge = nodes.length > 120;
-      const large = nodes.length > 60;
-
-      for (const n of nodes) {
-        if (n.pinned) continue;
-        n.vx += (w / 2 - n.x) * (huge ? 0.0002 : large ? 0.0004 : 0.001) * alpha;
-        n.vy += (h / 2 - n.y) * (huge ? 0.0002 : large ? 0.0004 : 0.001) * alpha;
-      }
-
-      // Spatial hash: O(n) neighbor checks instead of O(n²) — huge catalogs
-      // used to explode and bounce forever.
-      const cell = huge ? 56 : large ? 72 : 0;
-      if (cell > 0) {
-        const grid = new Map<string, number[]>();
-        const key = (x: number, y: number) => `${Math.floor(x / cell)}:${Math.floor(y / cell)}`;
-        for (let i = 0; i < nodes.length; i += 1) {
-          const n = nodes[i]!;
-          const k = key(n.x, n.y);
-          const bucket = grid.get(k);
-          if (bucket) bucket.push(i);
-          else grid.set(k, [i]);
-        }
-        const pushPair = (i: number, j: number) => {
-          const a = nodes[i]!;
-          const b = nodes[j]!;
-          const dx = b.x - a.x;
-          const dy = b.y - a.y;
-          const dist = Math.hypot(dx, dy) || 0.01;
-          const minDist = a.r + b.r + (a.kind === 'schema' && b.kind === 'schema' ? 40 : 12);
-          if (dist >= minDist + (huge ? 24 : 48)) return;
-          if (dist < minDist) {
-            const push = ((minDist - dist) / dist) * (huge ? 0.7 : 1.1) * alpha;
-            if (!a.pinned) {
-              a.vx -= dx * push;
-              a.vy -= dy * push;
-            }
-            if (!b.pinned) {
-              b.vx += dx * push;
-              b.vy += dy * push;
-            }
-          }
-          const repulse =
-            (a.kind === 'schema' || b.kind === 'schema' ? 180 : 90) /
-            (dist * dist * Math.max(1, Math.sqrt(nodes.length / 12)));
-          if (!a.pinned) {
-            a.vx -= (dx / dist) * repulse * alpha;
-            a.vy -= (dy / dist) * repulse * alpha;
-          }
-          if (!b.pinned) {
-            b.vx += (dx / dist) * repulse * alpha;
-            b.vy += (dy / dist) * repulse * alpha;
-          }
-        };
-        for (const [k, bucket] of grid) {
-          const [cx, cy] = k.split(':').map(Number) as [number, number];
-          for (let dx = -1; dx <= 1; dx += 1) {
-            for (let dy = -1; dy <= 1; dy += 1) {
-              const other = grid.get(`${cx + dx}:${cy + dy}`);
-              if (!other) continue;
-              for (const i of bucket) {
-                for (const j of other) {
-                  if (j <= i) continue;
-                  pushPair(i, j);
-                }
-              }
-            }
-          }
-        }
-      } else {
-        for (let i = 0; i < nodes.length; i += 1) {
-          for (let j = i + 1; j < nodes.length; j += 1) {
-            const a = nodes[i]!;
-            const b = nodes[j]!;
-            const dx = b.x - a.x;
-            const dy = b.y - a.y;
-            const dist = Math.hypot(dx, dy) || 0.01;
-            const minDist = a.r + b.r + (a.kind === 'schema' && b.kind === 'schema' ? 48 : 14);
-            if (dist < minDist) {
-              const push = ((minDist - dist) / dist) * 2.2 * alpha;
-              if (!a.pinned) {
-                a.vx -= dx * push;
-                a.vy -= dy * push;
-              }
-              if (!b.pinned) {
-                b.vx += dx * push;
-                b.vy += dy * push;
-              }
-            }
-            const repulse =
-              (a.kind === 'schema' || b.kind === 'schema' ? 420 : 180) /
-              (dist * dist * Math.max(1, Math.sqrt(nodes.length / 8)));
-            if (!a.pinned) {
-              a.vx -= (dx / dist) * repulse * alpha;
-              a.vy -= (dy / dist) * repulse * alpha;
-            }
-            if (!b.pinned) {
-              b.vx += (dx / dist) * repulse * alpha;
-              b.vy += (dy / dist) * repulse * alpha;
-            }
-          }
-        }
-      }
-
-      const capa = layerRef.current;
-      for (const link of linkIndex) {
-        if (capa === 'estructura' && link.kind === 'traffic') continue;
-        if (capa === 'trafico' && link.kind === 'membership') continue;
-        if (capa === 'trafico' && link.kind === 'fk') continue;
-
-        const a = ids.get(link.source);
-        const b = ids.get(link.target);
-        if (!a || !b) continue;
-
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const dist = Math.hypot(dx, dy) || 0.01;
-        const target =
-          link.kind === 'membership'
-            ? 38 + a.r + b.r
-            : link.kind === 'fk'
-              ? 96 + a.r + b.r
-              : 92 + a.r + b.r;
-        const strength =
-          link.kind === 'membership' ? 0.06 : link.kind === 'fk' ? 0.024 : 0.018;
-        const force = (dist - target) * strength * alpha;
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
-        if (!a.pinned) {
-          a.vx += fx;
-          a.vy += fy;
-        }
-        if (!b.pinned) {
-          b.vx -= fx;
-          b.vy -= fy;
-        }
-      }
-
-      let movement = 0;
-      for (const n of nodes) {
-        if (n.pinned) continue;
-        n.vx *= nodes.length > 120 ? 0.55 : nodes.length > 60 ? 0.65 : 0.84;
-        n.vy *= nodes.length > 120 ? 0.55 : nodes.length > 60 ? 0.65 : 0.84;
-        n.x += n.vx * alpha;
-        n.y += n.vy * alpha;
-        movement += Math.abs(n.vx) + Math.abs(n.vy);
-      }
-      settledRef.current = movement < 0.5 ? settledRef.current + 1 : 0;
-      if (settledRef.current >= (nodes.length > 120 ? 28 : nodes.length > 60 ? 40 : 90)) {
-        for (const n of nodes) {
-          n.pinned = true;
-          n.vx = 0;
-          n.vy = 0;
-        }
-      }
-    };
 
     const drawTrafficBand = (
       curve: Curve,
@@ -597,12 +412,6 @@ export function OrmGraph({
     };
 
     const draw = () => {
-      const now = performance.now();
-      const dt = Math.min((now - last) / 16, 2);
-      last = now;
-
-      if (settledRef.current < (nodesRef.current.length > 120 ? 28 : nodesRef.current.length > 60 ? 40 : 90)) simulate(dt);
-
       const ancho = canvas.clientWidth;
       const alto = canvas.clientHeight;
       if (canvas.width !== Math.floor(ancho * dpr) || canvas.height !== Math.floor(alto * dpr)) {
@@ -751,7 +560,7 @@ export function OrmGraph({
 
     animRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(animRef.current);
-  }, [model, linkIndex]);
+  }, [model, linkIndex, search, schemaFilter]);
 
   const pickNode = (sx: number, sy: number): SimNode | null => {
     const { x, y } = screenToWorld(viewportRef.current, sx, sy);

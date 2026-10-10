@@ -3,7 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import { statementKind } from '@buho/core';
 import { LiveQueryTable } from '@/components/LiveQueryTable';
 import { InstanceTabs } from '@/components/InstanceTabs';
-import { LiveQueriesPanel } from '@/components/LiveQueriesPanel';
+import { PollWhilePending } from '@/components/PollWhilePending';
 import { StatCard } from '@/components/StatCard';
 import { StatementsTable } from '@/components/StatementsTable';
 import { StoreError } from '@/components/StoreError';
@@ -21,7 +21,25 @@ import {
   type TopStatement,
 } from '@/lib/queries';
 import { getInstanceEngine } from '@/lib/estate';
-import { getLatestLiveSessions } from '@/lib/sessions';
+import { getPlanRequest, requestPlan } from '@/lib/plans';
+import { currentSession } from '@/lib/session';
+import { getLatestSessions } from '@/lib/sessions';
+
+async function explainLiveQuery(formData: FormData): Promise<void> {
+  'use server';
+  const session = await currentSession();
+  const instanceId = Number(formData.get('instanceId'));
+  const pid = String(formData.get('pid') ?? '');
+  const sql = String(formData.get('sql') ?? '').trim();
+  const back = `/instances/${instanceId}/queries?vista=live&pid=${encodeURIComponent(pid)}`;
+  if (!sql) redirect(`${back}&error=${encodeURIComponent('This session has no query text to explain.')}`);
+  const kind = statementKind(sql);
+  if (kind === 'utilitaria') {
+    redirect(`${back}&error=${encodeURIComponent('This statement has no query plan.')}`);
+  }
+  const requestId = await requestPlan(instanceId, sql, 'estimate', session.username, null);
+  redirect(`${back}&plan=${requestId}`);
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -36,9 +54,9 @@ const WINDOWS = [
 ] as const;
 
 const ORDERS: Array<{ key: StatementOrder; label: string }> = [
-  { key: 'time', label: 'Total time' },
+  { key: 'time', label: 'Tiempo total' },
   { key: 'calls', label: 'Calls' },
-  { key: 'mean', label: 'Mean' },
+  { key: 'mean', label: 'Media' },
   { key: 'rows', label: 'Rows' },
 ];
 
@@ -70,7 +88,7 @@ function ActivationAssistant({ state }: { state: string | null }) {
         </p>
 
         <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-          {preloaded ? 'One step' : 'Step 1 — preload the library (requires restart)'}
+          {preloaded ? 'Un solo paso' : 'Step 1 — preload the library (requires restart)'}
         </p>
         <pre className="mt-1 border border-border bg-surface-muted p-2 font-mono text-[11px]">
           {preloaded
@@ -79,17 +97,17 @@ function ActivationAssistant({ state }: { state: string | null }) {
         </pre>
 
         <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-          Real cost of leaving it on
+          Costo real de tenerlo activo
         </p>
         <p className="mt-1 text-[12px] text-foreground-secondary">
-          A fixed shared-memory array (<span className="font-mono">pg_stat_statements.max</span>, 5,000 entries by
-          default) and a few percent overhead per statement. It stores{' '}
-          <strong>normalized</strong> text: without literals, so it does not expose business data.
+          Un arreglo en memoria compartida de tamaño fijo (<span className="font-mono">pg_stat_statements.max</span>,
+          5.000 entradas por defecto) y unos pocos porcentajes de overhead por sentencia. Guarda el texto{' '}
+          <strong>normalized</strong>: without literals, so it does not expose business data.
         </p>
 
         <p className="mt-3 text-[12px] text-foreground-secondary">
-          Búho picks up the change on the next capability reprobe (within about an hour) and starts storing deltas
-          by <span className="font-mono">queryid</span> with no further restart.
+          Búho detecta el cambio en el siguiente reprobe (una hora como max) y empieza a guardar los deltas por
+          <span className="font-mono"> queryid</span> sin reiniciar nada.
         </p>
       </div>
     </section>
@@ -156,12 +174,21 @@ export default async function QueriesPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ w?: string; order?: string; monitor?: string; buscar?: string; vista?: string }>;
+  searchParams: Promise<{
+    w?: string;
+    order?: string;
+    monitor?: string;
+    buscar?: string;
+    vista?: string;
+    plan?: string;
+    pid?: string;
+    error?: string;
+  }>;
 }) {
   const { id } = await params;
-  const { w, order, monitor, buscar, vista } = await searchParams;
+  const { w, order, monitor, buscar, vista, plan, pid, error: planError } = await searchParams;
+  const live = vista === 'live';
   const filtro = buscar?.trim() ? buscar.trim() : null;
-  const isLive = vista === 'live';
 
   const instanceId = Number(id);
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
@@ -206,48 +233,50 @@ export default async function QueriesPage({
   let trends: Map<string, StatementPoint[]> = new Map();
   let slow: TopStatement[] = [];
   let slowSeries: Awaited<ReturnType<typeof getSeries>> = [];
-  let liveFoto: Awaited<ReturnType<typeof getLatestLiveSessions>> = {
-    at: null,
-    sessions: [],
-    stale: true,
-  };
   let failure: string | null = null;
   let planText: string | null = null;
   let planState: string | null = null;
   let planMessage: string | null = planError ?? null;
   try {
-    if (isLive) {
-      liveFoto = await getLatestLiveSessions(instanceId, 30);
+    if (live) {
+      latest = await getLatestSessions(instanceId);
+      if (plan) {
+        const requested = await getPlanRequest(Number(plan));
+        if (requested && requested.instanceId === instanceId) {
+          planText = requested.planText;
+          planState = requested.state;
+          planMessage = requested.error ?? planMessage;
+        }
+      }
     } else {
-      [statements, load] = await Promise.all([
-        getTopStatements(instanceId, window.minutes, selectedOrder, !showMonitorQueries, 25, filtro),
-        getStatementLoad(instanceId, window.minutes, window.bucketSeconds, !showMonitorQueries),
-      ]);
-      // Depende del top, así que va en un segundo viaje: pedir la evolución de
-      // todas las consultas de la window traería miles de series inútiles.
-      trends = await getStatementSeries(
+    [statements, load] = await Promise.all([
+      getTopStatements(instanceId, window.minutes, selectedOrder, !showMonitorQueries, 25, filtro),
+      getStatementLoad(instanceId, window.minutes, window.bucketSeconds, !showMonitorQueries),
+    ]);
+    // Depende del top, así que va en un segundo viaje: pedir la evolución de
+    // todas las consultas de la window traería miles de series inútiles.
+    trends = await getStatementSeries(
+      instanceId,
+      statements.map((row) => row.queryid),
+      window.minutes,
+      window.bucketSeconds,
+    );
+    if (engine === 'mariadb') {
+      const byMean = await getTopStatements(
         instanceId,
-        statements.map((row) => row.queryid),
+        window.minutes,
+        'mean',
+        !showMonitorQueries,
+        40,
+        filtro,
+      );
+      slow = byMean.filter((row) => row.meanMs >= 500).slice(0, 15);
+      slowSeries = await getSeries(
+        instanceId,
+        ['slow_queries_per_sec', 'slow_digest_count'],
         window.minutes,
         window.bucketSeconds,
       );
-      if (engine === 'mariadb') {
-        const byMean = await getTopStatements(
-          instanceId,
-          window.minutes,
-          'mean',
-          !showMonitorQueries,
-          40,
-          filtro,
-        );
-        slow = byMean.filter((row) => row.meanMs >= 500).slice(0, 15);
-        slowSeries = await getSeries(
-          instanceId,
-          ['slow_queries_per_sec', 'slow_digest_count'],
-          window.minutes,
-          window.bucketSeconds,
-        );
-      }
     }
     }
   } catch (error) {
@@ -264,10 +293,8 @@ export default async function QueriesPage({
       order: selectedOrder,
       vista: live ? 'live' : 'analytical',
       ...(showMonitorQueries ? { monitor: 'on' } : {}),
-      ...(isLive ? { vista: 'live' } : {}),
       ...patch,
     });
-    if (patch.vista === 'top') search.delete('vista');
     return `/instances/${instanceId}/queries?${search.toString()}`;
   };
 
@@ -279,121 +306,77 @@ export default async function QueriesPage({
           <div>
             <h1 className="page-title">Queries · {instance.alias}</h1>
             <p className="page-sub">
-              {isLive
-                ? 'Live sessions from the latest sample (every ~10s) — what is running right now, not a historical ranking.'
-                : 'Activity by normalized query, summed over intervals — not the cumulative counter since the last server reset: only what happened in the selected window.'}
+              {live
+                ? 'What is running in the latest session snapshot. Analytical is the retained window of normalized statements.'
+                : 'Actividad por consulta normalizada, sumada por intervalos. No es el contador acumulado desde el último reset del servidor: es lo que pasó en la window elegida.'}
             </p>
-            {!isLive ? (
-              <p className="mt-1.5 text-[11px] text-foreground-muted">
-                Trail:{' '}
-                {engine === 'postgres' ? (
-                  <>
-                    <Link href={`/instances/${instanceId}/indexes`} className="underline decoration-dotted">
-                      Indexes
-                    </Link>
-                    {' → '}
-                    <Link href={`/instances/${instanceId}/vacuum`} className="underline decoration-dotted">
-                      Vacuum
-                    </Link>
-                    {' · '}
-                    hot queries often need index coverage, then dead-tuple cleanup.
-                  </>
-                ) : engine === 'mssql' ? (
-                  <>
-                    <Link href={`/instances/${instanceId}/indexes`} className="underline decoration-dotted">
-                      Indexes
-                    </Link>
-                    {' → '}
-                    <Link href={`/instances/${instanceId}/vacuum`} className="underline decoration-dotted">
-                      Maintenance
-                    </Link>
-                    {' · '}
-                    hot queries often need index coverage, then fragmentation / forward-record cleanup.
-                  </>
-                ) : (
-                  <>
-                    <Link href={`/instances/${instanceId}/indexes`} className="underline decoration-dotted">
-                      Indexes
-                    </Link>
-                    {' → '}
-                    <Link href={`/instances/${instanceId}/slow-queries`} className="underline decoration-dotted">
-                      Slow queries
-                    </Link>
-                    {' · '}
-                    digests often need index coverage, then confirm with the slow list.
-                  </>
-                )}
-              </p>
-            ) : null}
           </div>
-          <div className="flex flex-wrap items-center gap-1">
-            <Link
-              href={queryLink({ vista: 'top' })}
-              className={`tag ${!isLive ? 'tag--info' : 'tag--muted'}`}
-            >
-              Top queries
+          <div className="flex items-center gap-1">
+            <Link href={queryLink({ vista: 'analytical' })} className={`tag ${live ? 'tag--muted' : 'tag--info'}`}>
+              Analytical
             </Link>
-            <Link
-              href={queryLink({ vista: 'live' })}
-              className={`tag ${isLive ? 'tag--info' : 'tag--muted'}`}
-            >
+            <Link href={queryLink({ vista: 'live' })} className={`tag ${live ? 'tag--ok' : 'tag--muted'}`}>
               Live
             </Link>
-            {!isLive
-              ? WINDOWS.map((candidate) => (
-                  <Link
-                    key={candidate.key}
-                    href={queryLink({ w: candidate.key })}
-                    className={`tag ${candidate.key === window.key ? 'tag--info' : 'tag--muted'}`}
-                  >
-                    {candidate.key}
-                  </Link>
-                ))
-              : null}
+            {live ? null : (
+            <>
+            <span className="mx-1 text-foreground-muted">·</span>
+            {WINDOWS.map((candidate) => (
+              <Link
+                key={candidate.key}
+                href={queryLink({ w: candidate.key })}
+                className={`tag ${candidate.key === window.key ? 'tag--info' : 'tag--muted'}`}
+              >
+                {candidate.key}
+              </Link>
+            ))}
+            </>
+            )}
           </div>
         </header>
 
         <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
 
-        {isLive ? (
-          failure ? (
-            <StoreError message={failure} />
-          ) : (
-            <LiveQueriesPanel
-              instanceId={instanceId}
-              engine={engine}
-              initial={{
-                at: liveFoto.at ? liveFoto.at.toISOString() : null,
-                stale: liveFoto.stale,
-                sessions: liveFoto.sessions.map((sesion) => ({
-                  pid: sesion.pid,
-                  state: sesion.state,
-                  waitType: sesion.waitType,
-                  waitEvent: sesion.waitEvent,
-                  application: sesion.application,
-                  username: sesion.username,
-                  database: sesion.database,
-                  queryMs: sesion.queryMs,
-                  xactMs: sesion.xactMs,
-                  query: sesion.query,
-                })),
-              }}
-            />
-          )
-        ) : null}
-
-        {!isLive && engine === 'mariadb' && !failure && statements.length === 0 ? (
-          <div className="panel" style={{ borderLeft: '3px solid var(--warning)' }}>
-            <div className="panel-body text-[12px]">
-              <strong>No statement digests in this window.</strong> Performance Schema statement consumers are
-              likely off — Búho falls back to PROCESSLIST sampling (lossy). Enable{' '}
-              <span className="font-mono">performance_schema</span> digests on the server, or compare with a ring
-              node that has PS ON (lab: maria-1 / maria-2).
+        {live ? (
+          <section className="panel">
+            <div className="panel-header">
+              <span className="panel-title">Running now</span>
+              <span className="font-mono text-[10px] text-foreground-muted">
+                {latest?.at ? formatAgo(latest.at) : 'no snapshot'}
+              </span>
             </div>
-          </div>
+            {planMessage ? (
+              <div className="panel-body text-[12px]" style={{ color: 'var(--warning)' }}>
+                {planMessage}
+              </div>
+            ) : null}
+            {planState === 'pendiente' || planState === 'corriendo' ? <PollWhilePending /> : null}
+            {!latest || latest.sessions.length === 0 ? (
+              <div className="empty">No session snapshot in the last 10 minutes.</div>
+            ) : (
+              <LiveQueryTable
+                instanceId={instanceId}
+                planPid={pid ?? null}
+                planText={planText}
+                planState={planState}
+                planMessage={planMessage}
+                explain={explainLiveQuery}
+                rows={latest.sessions.map((session) => ({
+                  pid: session.pid,
+                  state: session.state,
+                  application: session.application,
+                  queryMs: session.queryMs,
+                  query: session.query,
+                  explainable: statementKind(session.query ?? '') !== 'utilitaria',
+                }))}
+              />
+            )}
+          </section>
         ) : null}
 
-        {!isLive && filtro && (
+        {live ? null : (
+        <>
+        {filtro && (
 
           <div className="panel">
 
@@ -402,7 +385,8 @@ export default async function QueriesPage({
               <span>
 
                 Filtering by <span className="font-mono">{filtro}</span>. Only queries whose text,
-                role, or database contain it.
+
+                rol o base lo contienen.
 
               </span>
 
@@ -418,8 +402,7 @@ export default async function QueriesPage({
 
         )}
 
-        {!isLive &&
-        (engine === 'postgres' && instance.statStatements !== 'active' ? (
+        {engine === 'postgres' && instance.statStatements !== 'active' ? (
           <ActivationAssistant state={instance.statStatements} />
         ) : engine !== 'postgres' && statements.length === 0 ? (
           <ForeignQueriesNotice engine={engine} instanceId={instanceId} />
@@ -434,10 +417,10 @@ export default async function QueriesPage({
                 hint={`window ${window.key}`}
                 tone="accent"
               />
-              <StatCard label="Execution time" value={duration(totalExecMs)} hint="sum of top 25" />
-              <StatCard label="Calls" value={formatNumber(totalCalls)} hint="sum of top 25" />
+              <StatCard label="Execution time" value={duration(totalExecMs)} hint="suma del top 25" />
+              <StatCard label="Calls" value={formatNumber(totalCalls)} hint="suma del top 25" />
               <StatCard
-                label="Peak DB time"
+                label="Pico de DB time"
                 value={peakLoad > 0 && peakLoad < 0.01 ? '<0.01' : peakLoad.toFixed(2)}
                 unit=" sessions"
                 hint="1.00 = one fully busy session"
@@ -448,15 +431,7 @@ export default async function QueriesPage({
             <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
               <TimeseriesPanel
                 title="DB time (equivalent sessions)"
-                hint={
-                  engine === 'postgres'
-                    ? 'load approximation: PostgreSQL does not expose host CPU'
-                    : engine === 'oracle'
-                      ? 'load approximation from DB time (Oracle sessions)'
-                      : engine === 'mssql'
-                        ? 'load approximation from SQL Server wait/worker activity'
-                        : 'load approximation from engine session activity'
-                }
+                hint="load approximation: PostgreSQL does not expose host CPU"
                 data={load}
                 unit="count"
                 height={160}
@@ -525,14 +500,13 @@ export default async function QueriesPage({
                     <div className="panel-body empty text-[12px]">
                       No digests with mean ≥ 500 ms in this window. Lower{' '}
                       <span className="font-mono">long_query_time</span> or wait for slower traffic. Without
-                      performance_schema, sort Top queries by Mean after PROCESSLIST sampling catches a long
+                      performance_schema, sort Top queries by Media after PROCESSLIST sampling catches a long
                       statement.
                     </div>
                   ) : (
                     <StatementsTable
                       instanceId={instanceId}
                       explainable={true}
-                      showWal={false}
                       totalExecMs={slow.reduce((sum, row) => sum + row.execMs, 0)}
                       rows={slow.map((row) => ({
                         queryid: row.queryid,
@@ -582,7 +556,6 @@ export default async function QueriesPage({
               <StatementsTable
                 instanceId={instanceId}
                 explainable={engine === 'postgres' || engine === 'mariadb'}
-                showWal={engine === 'postgres'}
                 totalExecMs={totalExecMs}
                 rows={statements.map((row) => {
                   const points = trends.get(row.queryid) ?? [];
@@ -604,7 +577,9 @@ export default async function QueriesPage({
               />
             </section>
           </>
-        ))}
+        )}
+        </>
+        )}
       </div>
     </>
   );

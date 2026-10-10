@@ -244,36 +244,10 @@ export default async function LocksPage({
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">
-              {engine === 'mongodb'
-                ? `Lock waiters · ${instance.alias}`
-                : engine === 'redis'
-                  ? `Blocked clients · ${instance.alias}`
-                  : engine === 'elasticsearch'
-                    ? `Allocation pressure · ${instance.alias}`
-                    : `Locks · ${instance.alias}`}
-            </h1>
+            <h1 className="page-title">Locks · {instance.alias}</h1>
             <p className="page-sub">
-              {engine === 'mongodb' ? (
-                <>
-                  Global lock queue and ops with <span className="font-mono">waitingForLock</span> from{' '}
-                  <span className="font-mono">currentOp</span> / serverStatus. Episodes last 24 h.
-                </>
-              ) : engine === 'redis' ? (
-                <>
-                  Clients blocked on <span className="font-mono">BLPOP</span> / modules /{' '}
-                  <span className="font-mono">BUSY</span> — from INFO clients. Episodes last 24 h.
-                </>
-              ) : engine === 'elasticsearch' ? (
-                <>
-                  Cluster allocation / pending-task pressure (not SQL row locks). Episodes last 24 h.
-                </>
-              ) : (
-                <>
-                  Episodes from the last 24 h. An episode is a session waiting on a lock — not a sample: the same
-                  row updates while the wait is alive.
-                </>
-              )}
+              Episodes from the last 24 h. An episode is one session waiting on a lock, not a sample: while the
+              block lasts, the same row is updated.
             </p>
           </div>
         </header>
@@ -347,51 +321,47 @@ export default async function LocksPage({
             <span className="font-mono text-[10px] text-foreground-muted">last 24 h</span>
           </div>
           {history.length === 0 ? (
-            <div className="empty">No blocking episodes in the last 24 h.</div>
+            <div className="empty">No lock episodes in the last 24 h.</div>
           ) : (
-            <div className="table-scroll">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Inicio</th>
-                    <th className="text-right">Duration</th>
-                    <th>Object</th>
-                    <th>Mode</th>
-                    <th>Esperaba</th>
-                    <th>Bloqueaba</th>
-                    <th>Blocked query</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.map((episode) => (
-                    <tr key={episode.episodeId}>
-                      <td className="font-mono text-[11px] text-foreground-muted">
-                        {formatClock(episode.firstSeenAt)}
-                      </td>
-                      <td className="num">{formatDuration(episode.waitSeconds)}</td>
-                      <td className="font-mono text-[11px]">{episode.lockObject ?? '—'}</td>
-                      <td className="font-mono text-[11px] text-foreground-secondary">{episode.lockMode ?? '—'}</td>
-                      <td className="font-mono text-[11px]">
-                        pid {episode.waiterPid}
-                        {episode.waiterApplication && (
-                          <span className="text-foreground-muted"> · {episode.waiterApplication}</span>
-                        )}
-                      </td>
-                      <td className="font-mono text-[11px]">
-                        {episode.blockerPid ? `pid ${episode.blockerPid}` : '—'}
-                        {episode.blockerApplication && (
-                          <span className="text-foreground-muted"> · {episode.blockerApplication}</span>
-                        )}
-                      </td>
-                      <td className="max-w-[24rem]">
-                        <div className="truncate font-mono text-[11px]" title={episode.waiterQuery}>
-                          {episode.waiterQuery}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="lock-list">
+              <div className="lock-list__head">
+                <span />
+                <span>Start</span>
+                <span className="text-right">Duration</span>
+                <span>Mode</span>
+                <span>Waiter</span>
+                <span>Blocker</span>
+                <span>Blocked query</span>
+              </div>
+              {history.map((episode) => (
+                <details key={episode.episodeId} className="lock-ep">
+                  <summary className="lock-ep__summary">
+                    <span className="sub-row__chevron" aria-hidden />
+                    <span className="font-mono text-[11px] text-foreground-muted">
+                      {formatClock(episode.firstSeenAt)}
+                    </span>
+                    <span className="text-right font-mono text-[11px]">{formatDuration(episode.waitSeconds)}</span>
+                    <span className="font-mono text-[11px]">{episode.lockMode ?? '—'}</span>
+                    <span className="truncate font-mono text-[11px]">
+                      pid {episode.waiterPid}
+                      {episode.waiterApplication ? ` · ${episode.waiterApplication}` : ''}
+                    </span>
+                    <span className="truncate font-mono text-[11px]">
+                      {episode.blockerPid ? `pid ${episode.blockerPid}` : '—'}
+                      {episode.blockerApplication ? ` · ${episode.blockerApplication}` : ''}
+                    </span>
+                    <span className="truncate font-mono text-[11px] text-foreground-secondary">
+                      {episode.waiterQuery}
+                    </span>
+                  </summary>
+                  <LockTree
+                    episode={episode}
+                    instanceId={instanceId}
+                    page={page}
+                    {...planFor(episode.episodeId)}
+                  />
+                </details>
+              ))}
             </div>
           )}
           {pageCount > 1 ? (

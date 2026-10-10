@@ -523,7 +523,11 @@ export async function buildBlamePicture(
   const [inventory, forecasts, lockEps, waitShares, host, statements] = await Promise.all([
     getInstanceInventory(instanceId).catch(() => null),
     getCapacityBudget(instanceId, 28).catch(() => []),
-    getLockEpisodes(instanceId, 6, 40).catch(() => [] as LockEpisode[]),
+    getLockEpisodes(instanceId, 6, 40).catch(() => ({
+      episodes: [] as LockEpisode[],
+      total: 0,
+      active: 0,
+    })),
     getWaitShares(instanceId, windowMinutes).catch(() => ({
       waits: [],
       samples: 0,
@@ -546,7 +550,7 @@ export async function buildBlamePicture(
     }
   }
 
-  const lockStory = buildLockStory(lockEps);
+  const lockStory = buildLockStory(lockEps.episodes);
   const recovery = recoveryFromInventory(inventory);
 
   const changes: ChangeRadarItem[] = [];

@@ -63,10 +63,10 @@ export async function GET(request: Request) {
       'select engine from buho.instances where instance_id = $1',
       [instanceId],
     );
-    const engine = engineRows[0]?.engine ?? 'postgres';
+    const instanceEngine = engineRows[0]?.engine ?? 'postgres';
 
     const [flujo, referencia] = await Promise.all([
-      getFlow(instanceId, minutos, weight, 'both', engine, 'aplicacion', 18),
+      getFlow(instanceId, minutos, weight, 'both', instanceEngine, 'aplicacion', 18),
       referenceRate(instanceId, weight),
     ]);
 

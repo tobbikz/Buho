@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { IndexInventoryTable } from '@/components/IndexInventoryTable';
+import { FootprintFilters, IndexFilters } from '@/components/IndexFilters';
+import { IndexFindingsList } from '@/components/IndexFindingsList';
 import { IndexSuggestionCards } from '@/components/IndexSuggestionCards';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StatCard } from '@/components/StatCard';
@@ -30,41 +31,29 @@ const STATUS_LABEL: Record<IndexStatus, string> = {
   invalid: 'Invalid',
 };
 
-function groupBySchema(rows: IndexRow[]) {
-  const groups = new Map<string, { schema: string; indexes: number; bytes: number; flagged: number }>();
-  for (const row of rows) {
-    const existing = groups.get(row.schema) ?? { schema: row.schema, indexes: 0, bytes: 0, flagged: 0 };
-    existing.indexes += 1;
-    existing.bytes += row.sizeBytes;
-    if (row.status !== 'ok') existing.flagged += 1;
-    groups.set(row.schema, existing);
-  }
-  return [...groups.values()].sort((a, b) => b.bytes - a.bytes || b.indexes - a.indexes);
+const STATUS_TAG: Record<IndexStatus, string> = {
+  ok: 'tag--ok',
+  unused: 'tag--warn',
+  redundant: 'tag--warn',
+  invalid: 'tag--error',
+};
+
+function IndexBadge({ status }: { status: IndexStatus }) {
+  return <span className={`tag ${STATUS_TAG[status]}`}>{STATUS_LABEL[status]}</span>;
 }
 
-function groupByTable(rows: IndexRow[]) {
-  const groups = new Map<
-    string,
-    { schema: string; table: string; indexes: number; bytes: number; flagged: number; scans: number }
-  >();
-  for (const row of rows) {
-    const key = `${row.schema}.${row.table}`;
-    const existing = groups.get(key) ?? {
-      schema: row.schema,
-      table: row.table,
-      indexes: 0,
-      bytes: 0,
-      flagged: 0,
-      scans: 0,
-    };
-    existing.indexes += 1;
-    existing.bytes += row.sizeBytes;
-    existing.scans += row.idxScan;
-    if (row.status !== 'ok') existing.flagged += 1;
-    groups.set(key, existing);
-  }
-  return [...groups.values()].sort((a, b) => b.bytes - a.bytes || b.indexes - a.indexes);
+function IndexDefinition({ row }: { row: IndexRow }) {
+  if (!row.definition) return null;
+  return (
+    <details>
+      <summary className="cursor-pointer font-mono text-[10px] text-foreground-muted">definition</summary>
+      <div className="mt-1 font-mono text-[10px] text-foreground-muted">{row.definition}</div>
+    </details>
+  );
 }
+
+const INDEX_PAGE_SIZE = 40;
+const FOOTPRINT_PAGE_SIZE = 20;
 
 function buildIndexesHref(
   instanceId: number,
@@ -92,6 +81,62 @@ function buildIndexesHref(
   if (opts?.fpage && opts.fpage > 1) params.set('fpage', String(opts.fpage));
   const query = params.toString();
   return query ? `/instances/${instanceId}/indexes?${query}` : `/instances/${instanceId}/indexes`;
+}
+
+function IndexTable({ rows }: { rows: IndexRow[] }) {
+  if (rows.length === 0) {
+    return <div className="empty">No indexes in this category.</div>;
+  }
+
+  return (
+    <div className="table-scroll">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Index</th>
+            <th>Table</th>
+            <th>Columns</th>
+            <th className="text-right">Size</th>
+            <th className="text-right">Scans</th>
+            <th>Flags</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={`${row.schema}.${row.table}.${row.name}`}>
+              <td className="font-mono text-[11px]">{row.name}</td>
+              <td className="font-mono text-[11px]">
+                {row.schema}.{row.table}
+              </td>
+              <td className="font-mono text-[11px]">{row.columns.join(', ') || '·'}</td>
+              <td className="num">{formatBytes(row.sizeBytes)}</td>
+              <td className="num">{formatNumber(row.idxScan)}</td>
+              <td className="text-[11px] text-foreground-muted">
+                {[
+                  row.isPrimary ? 'PK' : null,
+                  row.isUnique && !row.isPrimary ? 'UNIQUE' : null,
+                  row.isPartial ? 'partial' : null,
+                  row.hasExpression ? 'expression' : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || '·'}
+              </td>
+              <td>
+                <IndexBadge status={row.status} />
+                {row.coveredBy && (
+                  <div className="mt-1 font-mono text-[10px] text-foreground-muted">
+                    covered by {row.coveredBy}
+                  </div>
+                )}
+                <IndexDefinition row={row} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 export default async function IndexesPage({
@@ -258,11 +303,7 @@ export default async function IndexesPage({
             <p className="page-sub">
               {engine === 'mariadb'
                 ? 'Inventory from information_schema.statistics (+ performance_schema index I/O when enabled). Unused needs P_S; suggestions still come from ANALYZE plans.'
-                : engine === 'mssql'
-                  ? 'Inventory from sys.indexes, dm_db_index_usage_stats, and partitions. Unused when seeks+scans+lookups=0 (excluding PK / unique clustered).'
-                : engine === 'oracle'
-                  ? 'Inventory from ALL_INDEXES / ALL_IND_COLUMNS (+ V$OBJECT_USAGE when monitoring is enabled). Plan-based suggestions still apply when ANALYZE plans exist.'
-                  : (
+                : (
                   <>
                     Inventory is what exists on the server (size, scans, overlap). Suggestions come only
                     from <Link href={`/instances/${instanceId}/queries`} className="text-accent">Queries</Link>{' '}
@@ -283,9 +324,11 @@ export default async function IndexesPage({
             hint={
               summary.capturedAt
                 ? `total size ${formatBytes(summary.totalBytes)} · ${formatAgo(summary.capturedAt)}`
-                : engine === 'postgres' || engine === 'mariadb' || engine === 'oracle' || engine === 'mssql'
-                  ? 'inventory not collected yet'
-                  : 'inventory is PostgreSQL / MariaDB / Oracle / SQL Server'
+                : countsFromChecks
+                  ? 'flagged by the last 24h checks — the full inventory has not been stored yet'
+                  : engine === 'postgres' || engine === 'mariadb'
+                    ? 'inventory not collected yet'
+                    : 'inventory is PostgreSQL / MariaDB'
             }
           />
           <StatCard
@@ -293,12 +336,10 @@ export default async function IndexesPage({
             value={formatNumber(unusedCount)}
             tone={unusedCount > 0 ? 'warn' : 'ok'}
             hint={
-              engine === 'mariadb'
-                ? 'secondary indexes with zero P_S reads (needs performance_schema)'
-                : engine === 'mssql'
-                  ? 'non-PK indexes with zero usage in dm_db_index_usage_stats'
-                : engine === 'oracle'
-                  ? 'monitored indexes with USED=NO in v$object_usage'
+              summary.unused === 0 && unusedFindings.length > 0
+                ? 'from the last 24h check — inventory snapshot is still empty'
+                : engine === 'mariadb'
+                  ? 'secondary indexes with zero P_S reads (needs performance_schema)'
                   : 'large secondary indexes with zero scans'
             }
           />
@@ -316,33 +357,25 @@ export default async function IndexesPage({
             label="Invalid"
             value={formatNumber(summary.invalid)}
             tone={summary.invalid > 0 ? 'error' : 'ok'}
-            hint={
-              engine === 'postgres'
-                ? 'failed CREATE INDEX CONCURRENTLY — rebuild or drop'
-                : engine === 'oracle'
-                  ? 'UNUSABLE / invalid index status — rebuild or drop'
-                  : engine === 'mssql'
-                    ? 'disabled or otherwise unusable index — rebuild or drop'
-                    : 'unusable / broken index — rebuild or drop'
-            }
+            hint="failed CREATE INDEX CONCURRENTLY — rebuild or drop"
           />
           <StatCard
             label="Suggestions"
             value={formatNumber(suggestions.suggestions.length)}
             tone={suggestions.suggestions.length > 0 ? 'warn' : 'ok'}
-            hint={`from ${formatNumber(suggestions.plansWithActuals)} plan(s) with actuals`}
+            hint={`from ${formatNumber(suggestions.plansWithActuals)} ANALYZE plan(s)`}
           />
         </div>
 
-        {engine !== 'postgres' && engine !== 'mariadb' && engine !== 'mssql' && engine !== 'oracle' ? (
+        {engine !== 'postgres' && engine !== 'mariadb' ? (
           <section className="panel">
             <div className="panel-header">
               <span className="panel-title">Index inventory</span>
             </div>
             <div className="panel-body text-[12px]">
-              Full index listing (size, usage, redundancy) is implemented for PostgreSQL, MariaDB, SQL
-              Server, and Oracle. Plan-based suggestions below still apply if you have requested ANALYZE
-              plans for this instance.
+              Full index listing (size, usage, redundancy) is implemented for PostgreSQL and MariaDB.
+              Plan-based suggestions below still apply if you have requested ANALYZE plans for this
+              instance.
             </div>
           </section>
         ) : summary.total === 0 ? (
@@ -351,10 +384,8 @@ export default async function IndexesPage({
               <span className="panel-title">Index inventory</span>
             </div>
             <div className="panel-body text-[12px]">
-              {engine === 'mariadb' || engine === 'mssql' || engine === 'oracle'
-                ? `No index snapshot yet. The collector refreshes ${
-                    engine === 'mssql' ? 'SQL Server' : engine === 'oracle' ? 'Oracle' : 'MariaDB'
-                  } indexes every ~15 minutes.`
+              {engine === 'mariadb'
+                ? 'No index snapshot yet. The collector refreshes MariaDB indexes every ~15 minutes.'
                 : 'No index snapshot yet. The collector refreshes inventory on the same cycle as vacuum (~5 minutes). If this stays empty, restart the collector after migrating the store.'}
             </div>
           </section>
@@ -367,92 +398,66 @@ export default async function IndexesPage({
                   {summary.capturedAt ? `as of ${formatAgo(summary.capturedAt)} · size desc` : ''}
                 </span>
               </div>
-              <div className="panel-body text-[12px]">
-                {engine === 'mariadb'
-                  ? 'This inventory comes from information_schema / InnoDB stats: size, usage signals, uniqueness, and overlapping keys on the same table.'
-                  : engine === 'mssql'
-                    ? 'This inventory comes from SQL Server catalog DMVs: size, seeks/scans, uniqueness, and overlapping keys on the same table.'
-                    : engine === 'oracle'
-                      ? 'This inventory comes from DBA_/ALL_INDEXES (and related views): size, uniqueness, status, and overlapping keys on the same table.'
-                      : 'This inventory comes from PostgreSQL itself: size, scan counters, flags, full definitions, and structural overlap with other indexes on the same table.'}
+              <div className="panel-body">
+                <IndexFilters
+                  action={`/instances/${instanceId}/indexes`}
+                  status={listFilter}
+                  schema={activeSchema}
+                  schemas={schemaGroups}
+                  q={q}
+                  sort={sort}
+                  dir={dir}
+                  footprintSchema={footprintSchema}
+                  footprintQuery={footprintQuery}
+                />
+                <div className="mb-4 flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-[11px] text-foreground-muted">Sort</span>
+                  <ToggleSortLink label="Size" keyName="size" />
+                  <ToggleSortLink label="Scans" keyName="scans" />
+                  <ToggleSortLink label="Index" keyName="name" />
+                  <ToggleSortLink label="Table" keyName="table" />
+                </div>
+
+                <p className="mb-4 text-[11px] text-foreground-muted">
+                  {fragmented
+                    ? 'PostgreSQL does not publish leaf fragmentation. These are secondary indexes at least twice the heap and over 64 MB, joined to the vacuum snapshot. SQL Server fragmentation is a check (LIMITED, connected database only).'
+                    : `Page ${currentPage} of ${pageCount} · ${formatNumber(inventory.total)} index${inventory.total === 1 ? '' : 'es'}${activeFilter !== 'all' ? ` · status ${STATUS_LABEL[activeFilter]}` : ''}${activeSchema ? ` · schema ${activeSchema}` : ''}. The list is paged so the browser does not render the whole inventory at once.`}
+                </p>
+                <IndexTable rows={inventory.rows} />
+                <div className="mt-3 flex gap-2">
+                  {currentPage > 1 ? (
+                    <Link
+                      href={buildIndexesHref(instanceId, listFilter, activeSchema, {
+                        q,
+                        sort,
+                        dir,
+                        page: currentPage - 1,
+                        fp: footprintSchema,
+                        ft: footprintQuery,
+                      })}
+                      className="btn-secondary"
+                    >
+                      Previous
+                    </Link>
+                  ) : null}
+                  {currentPage < pageCount ? (
+                    <Link
+                      href={buildIndexesHref(instanceId, listFilter, activeSchema, {
+                        q,
+                        sort,
+                        dir,
+                        page: currentPage + 1,
+                        fp: footprintSchema,
+                        ft: footprintQuery,
+                      })}
+                      className="btn-secondary"
+                    >
+                      Next
+                    </Link>
+                  ) : null}
+                </div>
               </div>
             </section>
-
-            {redundantIndexes.length > 0 && (
-              <section className="panel">
-                <div className="panel-header">
-                  <span className="panel-title">Redundant indexes</span>
-                  <span className="font-mono text-[10px] text-foreground-muted">
-                    {formatNumber(redundantIndexes.length)} flagged
-                  </span>
-                </div>
-                <div className="panel-body">
-                  <IndexInventoryTable rows={redundantIndexes} instanceId={instanceId} pageSize={25} />
-                  <p className="mt-3 text-[11px] text-foreground-muted">
-                    Each row includes the current definition and, when Búho can prove it, the larger
-                    index that already covers the same left prefix.
-                  </p>
-                </div>
-              </section>
-            )}
-
-            {unusedIndexes.length > 0 && (
-              <section className="panel">
-                <div className="panel-header">
-                  <span className="panel-title">Unused indexes</span>
-                  <span className="font-mono text-[10px] text-foreground-muted">
-                    {engine === 'postgres'
-                      ? `${formatNumber(unusedIndexes.length)} above the 10 MB unused threshold`
-                      : `${formatNumber(unusedIndexes.length)} with no recorded usage`}
-                  </span>
-                </div>
-                <div className="panel-body">
-                  <IndexInventoryTable rows={unusedIndexes} instanceId={instanceId} pageSize={25} />
-                  <p className="mt-3 text-[11px] text-foreground-muted">
-                    {engine === 'postgres'
-                      ? 'Unused means zero scans on a large non-PK index since the last stats reset.'
-                      : engine === 'mssql'
-                        ? 'Unused means zero seeks/scans/lookups on a non-PK index in dm_db_index_usage_stats.'
-                        : engine === 'oracle'
-                          ? 'Unused means monitored indexes reported USED=NO in v$object_usage.'
-                          : engine === 'mariadb'
-                            ? 'Unused means secondary indexes with zero performance_schema reads (when P_S is enabled).'
-                            : 'Unused means no recorded usage on a large non-PK index.'}{' '}
-                    Check infrequent reports, month-end jobs, and replica-only reads before dropping.
-                  </p>
-                </div>
-              </section>
-            )}
-
-            {invalidIndexes.length > 0 && (
-              <section className="panel">
-                <div className="panel-header">
-                  <span className="panel-title">Invalid indexes</span>
-                  <span className="font-mono text-[10px] text-foreground-muted">
-                    {formatNumber(invalidIndexes.length)} need attention
-                  </span>
-                </div>
-                <div className="panel-body">
-                  <IndexInventoryTable rows={invalidIndexes} instanceId={instanceId} pageSize={25} />
-                  <p className="mt-3 text-[11px] text-foreground-muted">
-                    {engine === 'postgres'
-                      ? 'PostgreSQL marks an index invalid when a concurrent build fails or is interrupted.'
-                      : engine === 'oracle'
-                        ? 'Oracle marks an index UNUSABLE after failed rebuilds or certain DDL.'
-                        : engine === 'mssql'
-                          ? 'SQL Server can leave an index disabled or otherwise unusable after failed rebuilds.'
-                          : 'These indexes are flagged unusable by the engine inventory.'}{' '}
-                    These objects can consume space without being safe to rely on.
-                  </p>
-                </div>
-              </section>
-            )}
-
-            {problemIndexes.length === 0 && (
-              <div className="empty">
-                No redundant, unused, or invalid indexes were found in the latest inventory.
-              </div>
-            )}
 
             <section className="panel">
               <div className="panel-header">
@@ -539,17 +544,26 @@ export default async function IndexesPage({
                       Previous
                     </Link>
                   ) : null}
-                </form>
-
-                <p className="mb-4 text-[11px] text-foreground-muted">
-                  Showing {formatNumber(inventoryRows.length)} of {formatNumber(allIndexes.length)} index row(s)
-                  {activeFilter !== 'all' ? ` · status ${STATUS_LABEL[activeFilter]}` : ''}
-                  {activeSchema ? ` · schema ${activeSchema}` : ''}.
-                </p>
-                <p className="mb-4 text-[11px] text-foreground-muted">
-                  Filtered to {formatNumber(sortedRows.length)} row(s) by search.
-                </p>
-                <IndexInventoryTable rows={sortedRows} instanceId={instanceId} pageSize={50} />
+                  {footprintCurrent < footprintPages ? (
+                    <Link
+                      href={buildIndexesHref(instanceId, listFilter, activeSchema, {
+                        q,
+                        sort,
+                        dir,
+                        page: currentPage,
+                        fp: footprintSchema,
+                        ft: footprintQuery,
+                        fpage: footprintCurrent + 1,
+                      })}
+                      className="btn-secondary"
+                    >
+                      Next
+                    </Link>
+                  ) : null}
+                  <span className="font-mono text-[11px] text-foreground-muted">
+                    Page {footprintCurrent} of {footprintPages}
+                  </span>
+                </div>
               </div>
             </section>
           </>
@@ -603,10 +617,9 @@ export default async function IndexesPage({
             {suggestions.plansWithActuals === 0 ? (
               <div className="text-[12px]">
                 <p>
-                  {engine === 'postgres'
-                    ? 'This section does not guess from pg_stat alone. It needs plans executed with ANALYZE so each filter reports how many rows it discarded.'
-                    : 'This section does not guess from catalog stats alone. It needs plans executed with real row counts (ANALYZE / actuals) so each filter reports how many rows it discarded.'}{' '}
-                  Estimated plans can be wrong by orders of magnitude.
+                  This section does not guess from pg_stat alone. It needs plans executed with
+                  ANALYZE so each filter reports how many rows it discarded. Estimated plans can be
+                  wrong by orders of magnitude.
                 </p>
                 <p className="mt-2">
                   To populate it: open{' '}
@@ -663,9 +676,7 @@ export default async function IndexesPage({
               <div className="panel-body">
                 <p className="text-[12px] text-foreground-muted">
                   Automated checks have not reported index issues in the last day. The inventory
-                  above is refreshed on the collector index cycle
-                  {engine === 'postgres' ? ' (~with vacuum)' : ' (~15 minutes)'} and may flag
-                  objects before checks run.
+                  above is refreshed every vacuum cycle and may flag objects before checks run.
                 </p>
               </div>
             )}

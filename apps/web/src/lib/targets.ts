@@ -11,8 +11,15 @@ import { hostMetricsFromForm } from './test-target';
  * store the same way they already live in config.json on-prem.
  */
 
-/** Databases Búho monitors. Mongo/Redis/ES/Cassandra are out of product scope. */
-export type TargetEngine = 'postgres' | 'mariadb' | 'mssql' | 'oracle';
+export type TargetEngine =
+  | 'postgres'
+  | 'mariadb'
+  | 'mssql'
+  | 'mongodb'
+  | 'redis'
+  | 'oracle'
+  | 'cassandra'
+  | 'elasticsearch';
 
 export interface MonitorTarget {
   targetId: number;
@@ -49,13 +56,26 @@ export interface MonitorTargetInput {
   expandAllDatabases?: boolean;
 }
 
-const ENGINES = new Set<TargetEngine>(['postgres', 'mariadb', 'mssql', 'oracle']);
+const ENGINES = new Set([
+  'postgres',
+  'mariadb',
+  'mssql',
+  'mongodb',
+  'redis',
+  'oracle',
+  'cassandra',
+  'elasticsearch',
+]);
 
 const DEFAULT_PORTS: Record<TargetEngine, number> = {
   postgres: 5432,
   mariadb: 3306,
   mssql: 1433,
+  mongodb: 27017,
+  redis: 6379,
   oracle: 1521,
+  cassandra: 9042,
+  elasticsearch: 9200,
 };
 
 export function defaultPort(engine: TargetEngine): number {
@@ -134,21 +154,49 @@ export function parseTargetForm(form: FormData): MonitorTargetInput {
   };
 }
 
-export async function saveMonitorTarget(input: MonitorTargetInput): Promise<number> {
-  const session = await requireAdmin();
+async function ensureRetirementSchema(): Promise<void> {
+  await query(
+    `alter table buho.instances add column if not exists retired boolean not null default false`,
+  );
+  await query(
+    `create table if not exists buho.suppressed_aliases (
+       alias text primary key,
+       suppressed_at timestamptz not null default now()
+     )`,
+  );
+}
+
+/** Keeps a blank password on an existing console target. */
+async function keepStoredPassword(input: MonitorTargetInput): Promise<void> {
+  if (input.password) return;
   const existing = await query<{ password: string }>(
     `select password from buho.monitor_targets where tenant = 'default' and alias = $1`,
     [input.alias],
   );
-  const keptPassword = existing[0]?.password ?? '';
-  if (!input.password && !keptPassword) {
+  const kept = existing[0]?.password ?? '';
+  if (!kept && input.engine !== 'cassandra' && input.engine !== 'elasticsearch') {
     throw new Error('Password is required for a new target.');
   }
-  const password = input.password || keptPassword;
+  input.password = kept;
+}
+
+export async function saveMonitorTarget(input: MonitorTargetInput): Promise<number> {
+  const session = await requireAdmin();
+  await keepStoredPassword(input);
 
   const seedDatabase =
     input.database ||
-    (input.engine === 'mssql' ? 'master' : input.engine === 'oracle' ? 'FREEPDB1' : 'postgres');
+    (input.engine === 'mongodb'
+      ? 'admin'
+      : input.engine === 'mssql'
+        ? 'master'
+        : input.engine === 'oracle'
+          ? 'FREEPDB1'
+          : input.engine === 'redis'
+            ? '0'
+            : input.engine === 'cassandra' || input.engine === 'elasticsearch'
+              ? ''
+              : 'postgres');
 
   let databases = [seedDatabase];
   if (input.engine === 'postgres' && input.expandAllDatabases) {
@@ -158,7 +206,7 @@ export async function saveMonitorTarget(input: MonitorTargetInput): Promise<numb
         port: input.port,
         database: seedDatabase,
         username: input.username,
-        password,
+        password: input.password,
         ssl: input.ssl,
       });
       if (databases.length === 0) databases = [seedDatabase];
@@ -178,7 +226,7 @@ export async function saveMonitorTarget(input: MonitorTargetInput): Promise<numb
         ? input.alias
         : `${input.alias}-${database}`.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 63);
     const targetId = await upsertOneTarget(
-      { ...input, alias, database, password },
+      { ...input, alias, database },
       session.username,
     );
     if (!firstTargetId) firstTargetId = targetId;
@@ -329,14 +377,40 @@ export async function removeMonitorTarget(targetId: number): Promise<void> {
     [targetId],
   );
   const alias = existing[0]?.alias;
-  if (alias) {
-    // Fleet lists buho.instances — drop the row so remove actually clears the UI.
-    await query(`delete from buho.instances where tenant = 'default' and alias = $1`, [alias]);
+  if (alias) await retireAlias(alias, session.username, 'monitor_target.delete');
+  else {
+    await query(`delete from buho.monitor_targets where target_id = $1`, [targetId]);
+    await logConsoleEvent(session.username, 'monitor_target.delete', `target_id=${targetId}`);
   }
-  await logConsoleEvent(
-    session.username,
-    'monitor_target.delete',
-    alias ? `alias=${alias}` : `target_id=${targetId}`,
+}
+
+export interface StoredInstance {
+  instanceId: number;
+  alias: string;
+  engine: string;
+  host: string;
+  port: number;
+  database: string;
+  environment: string;
+  fromConsole: boolean;
+}
+
+/** Instances the collector is showing that are not rows in the console target list. */
+export async function listOtherInstances(): Promise<StoredInstance[]> {
+  await ensureRetirementSchema();
+  const rows = await query<Record<string, unknown>>(
+    `select i.instance_id, i.alias, i.engine, i.host, i.port, i.database, i.environment,
+            exists (
+              select 1 from buho.monitor_targets t
+               where t.tenant = 'default' and t.alias = i.alias
+            ) as from_console
+       from buho.instances i
+      where coalesce(i.retired, false) = false
+        and not exists (
+          select 1 from buho.monitor_targets t
+           where t.tenant = 'default' and t.alias = i.alias
+        )
+      order by i.alias`,
   );
   return rows.map((row) => ({
     instanceId: Number(row['instance_id']),

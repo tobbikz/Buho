@@ -179,11 +179,11 @@ export function busiestHour(
  */
 export const HEAT_OPTIONS: HeatOption[] = [
   {
-    key: 'batch',
-    label: 'Query rate',
-    metrics: ['queries_total_per_sec'],
+    key: 'transactions',
+    label: 'Transactions',
+    metrics: ['db_xact_commit_per_sec'],
     unit: 'rate',
-    hint: 'Queries/sec · SQL Server Batch Requests, MariaDB QUESTIONS, Oracle user calls / equivalent',
+    hint: 'commits per second: the closest measure of how much work is coming in',
   },
   {
     key: 'escrituras',

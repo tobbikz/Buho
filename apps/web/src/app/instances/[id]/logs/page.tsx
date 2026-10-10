@@ -1,14 +1,14 @@
 import { notFound, redirect } from 'next/navigation';
 import { InstanceTabs } from '@/components/InstanceTabs';
-import { LogGroupsList } from '@/components/LogGroupsList';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { TimeseriesPanel } from '@/components/TimeseriesPanel';
 import { Topbar } from '@/components/Topbar';
-import { formatNumber } from '@/lib/format';
+import { formatAgo, formatClock, formatNumber } from '@/lib/format';
 import { getInstanceEngine } from '@/lib/estate';
 import {
   FAILURE_KINDS,
+  KIND_LABEL,
   getLogCoverage,
   getLogGroups,
   getLogRate,
@@ -19,30 +19,6 @@ import {
 import { getInstance } from '@/lib/queries';
 
 export const dynamic = 'force-dynamic';
-
-/** Map legacy Spanish collector tips so the UI stays English until the next probe. */
-function localizeLogWarning(warning: string): string {
-  if (warning.includes('log_destination es "')) {
-    const dest = warning.match(/log_destination es "([^"]+)"/)?.[1] ?? 'stderr';
-    return `log_destination is "${dest}": fields are inferred from free text. With jsonlog (PG 15+) or csvlog they arrive structured, including SQLSTATE and user.`;
-  }
-  if (warning.includes('log_lock_waits está apagado')) {
-    return 'log_lock_waits is off: lock waits leave no trail in the log.';
-  }
-  if (warning.includes('log_min_duration_statement es -1')) {
-    return 'log_min_duration_statement is -1: slow queries are not logged.';
-  }
-  if (warning.includes('logging_collector está apagado')) {
-    return 'logging_collector is off: logs go to stderr, usually captured by systemd on Linux. Set `logs.source = "journal"` in config.json to read them.';
-  }
-  if (warning.includes('necesita logging_collector')) {
-    return 'logs.source=sql needs logging_collector=on. With the collector off, logs go to stderr/journald — set logs.source=journal.';
-  }
-  if (warning.includes('no se configuró un origen')) {
-    return 'The server writes log files, but no source was configured (sql / file / journal).';
-  }
-  return warning;
-}
 
 const WINDOWS = [
   { hours: 6, label: '6 h' },
@@ -75,6 +51,74 @@ const FILTERS: { key: string; label: string; kinds: LogKind[] }[] = [
   },
 ];
 
+function kindTone(kind: LogKind): string {
+  if (kind === 'fatal' || kind === 'deadlock') return 'tag--error';
+  if (kind === 'error' || kind === 'cancelled' || kind === 'timeout' || kind === 'lock_wait') return 'tag--warn';
+  return 'tag--muted';
+}
+
+function GroupRow({ group }: { group: LogGroup }) {
+  // El detalle de un deadlock trae las dos consultas que se cruzaron: es la
+  // única fuente que lo dice, y por eso se muestra siempre abierto en vez de
+  // esconderlo detrás de un clic.
+  const alwaysOpen = group.kind === 'deadlock';
+
+  return (
+    <details className="log-group" open={alwaysOpen}>
+      <summary className="log-group__head">
+        <span className={`tag ${kindTone(group.kind)}`}>{KIND_LABEL[group.kind]}</span>
+        <span className="log-group__times font-mono">{formatNumber(group.times)}×</span>
+        <span className="log-group__message">{group.sample}</span>
+        <span className="log-group__when font-mono">{formatAgo(group.lastAt)}</span>
+      </summary>
+
+      <div className="log-group__body">
+        <div className="log-group__meta">
+          <span>
+            first <span className="font-mono">{formatClock(group.firstAt)}</span>
+          </span>
+          <span>
+            last <span className="font-mono">{formatClock(group.lastAt)}</span>
+          </span>
+          <span>
+            level <span className="font-mono">{group.level}</span>
+          </span>
+          {group.sqlstate && (
+            <span>
+              SQLSTATE <span className="font-mono">{group.sqlstate}</span>
+            </span>
+          )}
+          {group.databases.length > 0 && <span>database {group.databases.join(', ')}</span>}
+          {group.users.length > 0 && <span>role {group.users.join(', ')}</span>}
+        </div>
+
+        {group.detail && (
+          <div>
+            <div className="log-group__label">Detail</div>
+            <div className="query-block">{group.detail}</div>
+          </div>
+        )}
+
+        {group.sampleQuery && (
+          <div>
+            <div className="log-group__label">Statement from the last occurrence</div>
+            <div className="query-block">{group.sampleQuery}</div>
+          </div>
+        )}
+
+        {group.context && (
+          <div>
+            <div className="log-group__label">Context</div>
+            <div className="query-block">{group.context}</div>
+          </div>
+        )}
+
+        {group.hint && <p className="text-[11.5px] text-foreground-secondary">Server hint: {group.hint}</p>}
+      </div>
+    </details>
+  );
+}
+
 export default async function LogsPage({
   params,
   searchParams,
@@ -94,14 +138,7 @@ export default async function LogsPage({
   const engine = engineKind ?? 'postgres';
 
   const hours = WINDOWS.some((w) => String(w.hours) === window) ? Number(window) : 24;
-  // Default Fallas for Postgres; foreign engines often only have kind=other
-  // (alert/errorlog noise) until real failures appear — open Todo so Log is not empty.
-  const defaultTipo =
-    engine === 'postgres' ? 'fallas' : 'todo';
-  const filter =
-    FILTERS.find((entry) => entry.key === tipo) ??
-    FILTERS.find((entry) => entry.key === defaultTipo) ??
-    FILTERS[0]!;
+  const filter = FILTERS.find((entry) => entry.key === tipo) ?? FILTERS[0]!;
 
   let instance;
   try {
@@ -172,55 +209,12 @@ export default async function LogsPage({
 
         {!coverage && (
           <div className="notice notice--warn">
-            <strong>This instance has no log reading yet.</strong>{' '}
-            {engine === 'oracle' ? (
-              <>
-                Oracle reads the alert log via <span className="font-mono">V$DIAG_ALERT_EXT</span>. Grant the
-                monitor user <span className="font-mono">SELECT_CATALOG_ROLE</span> (or SELECT on diagnostic
-                views) and wait one collector cycle (~30s).
-              </>
-            ) : engine === 'mssql' ? (
-              <>
-                SQL Server reads <span className="font-mono">xp_readerrorlog</span> / system_health. The
-                monitor login needs VIEW SERVER STATE (and xp_readerrorlog access). Wait one collector cycle.
-              </>
-            ) : engine === 'mariadb' ? (
-              <>
-                MariaDB reads InnoDB status and <span className="font-mono">mysql.slow_log</span> when
-                enabled. Grant SELECT on those sources; enable <span className="font-mono">slow_query_log</span>{' '}
-                for slow-query lines.
-              </>
-            ) : (
-              <>
-                For PostgreSQL the collector defaults to{' '}
-                <span className="font-mono">logs.source = &quot;sql&quot;</span> (reads via{' '}
-                <span className="font-mono">pg_ls_logdir</span>
-                ). Install <span className="font-mono">buho_read_log</span> from{' '}
-                <span className="font-mono">sql/monitor-user.sql</span> so the monitor role can read files
-                without superuser. Alternatives: <span className="font-mono">journal</span> or{' '}
-                <span className="font-mono">file</span> in config.json.
-              </>
-            )}
+            <strong>This instance has no log reading configured.</strong> The collector does not read
+            journald or files unless <span className="font-mono">logs</span> is set in config.json.
+            PostgreSQL still tries <span className="font-mono">pg_read_file</span> on the current logfile,
+            and falls back to deadlock, conflict, and checksum counters when that read is denied.
           </div>
         )}
-
-        {coverage ? (
-          <div className="notice">
-            <strong>Log source (this instance only).</strong> Reading{' '}
-            <span className="font-mono">{coverage.source}</span>
-            {coverage.detail ? (
-              <>
-                {' '}
-                · <span className="font-mono text-[11px]">{coverage.detail}</span>
-              </>
-            ) : null}
-            {' '}
-            · last read {coverage.readAt ? new Date(coverage.readAt).toLocaleString('en') : '—'} ·{' '}
-            {formatNumber(coverage.entries)} cursor entries. Counts below are scoped to this instance&apos;s configured
-            stream — not the whole host journal unless <span className="font-mono">source=journal</span> was chosen
-            for this target.
-          </div>
-        ) : null}
 
         {coverage && coverage.warnings.length > 0 && (
           <div className="notice">
@@ -228,7 +222,7 @@ export default async function LogsPage({
             read; this says which of the two.
             <ul className="mt-1 list-disc pl-4">
               {coverage.warnings.map((warning) => (
-                <li key={warning}>{localizeLogWarning(warning)}</li>
+                <li key={warning}>{warning}</li>
               ))}
             </ul>
           </div>
@@ -263,15 +257,7 @@ export default async function LogsPage({
             label="Lock waits"
             value={formatNumber(totals.lockWait)}
             tone={totals.lockWait > 0 ? 'warn' : 'neutral'}
-            hint={
-              engine === 'postgres'
-                ? 'requires log_lock_waits'
-                : engine === 'oracle'
-                  ? 'from alert log / wait noise when present'
-                  : engine === 'mssql'
-                    ? 'from errorlog / system_health when present'
-                    : 'when the log source emits them'
-            }
+            hint="requires log_lock_waits"
           />
           <StatCard
             label="Entries read"
@@ -318,19 +304,28 @@ export default async function LogsPage({
           ]}
         />
 
-        <LogGroupsList
-          title={`${filter.label} · ${groups.length} group(s)`}
-          empty={
-            coverage
-              ? `No entries of this type in the ${hours} h window.`
-              : 'No log reading configured for this instance.'
-          }
-          groups={groups.map((group) => ({
-            ...group,
-            firstAt: group.firstAt.toISOString(),
-            lastAt: group.lastAt.toISOString(),
-          }))}
-        />
+        <section className="panel">
+          <div className="panel-header">
+            <span className="panel-title">
+              {filter.label} grouped · {groups.length}
+            </span>
+            <span className="font-mono text-[10px] text-foreground-muted">most repeated first</span>
+          </div>
+
+          {groups.length === 0 ? (
+            <div className="empty">
+              {coverage
+                ? `No entries of this type in the ${hours} h window.`
+                : 'No log reading configured for this instance.'}
+            </div>
+          ) : (
+            <div className="log-list">
+              {groups.map((group) => (
+                <GroupRow key={`${group.kind}:${group.fingerprint}`} group={group} />
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </>
   );

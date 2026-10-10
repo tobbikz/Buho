@@ -17,7 +17,6 @@ import {
   getWaitTimeline,
   WAIT_TYPE_HELP,
 } from '@/lib/sessions';
-import { waitHelp } from '@/lib/wait-help';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,47 +103,16 @@ export default async function SessionsPage({
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">
-              {instancia.engine === 'elasticsearch'
-                ? `Tasks · ${instancia.alias}`
-                : instancia.engine === 'mongodb'
-                  ? `Operations · ${instancia.alias}`
-                  : instancia.engine === 'redis'
-                    ? `Clients · ${instancia.alias}`
-                    : `Sessions and waits · ${instancia.alias}`}
-            </h1>
+            <h1 className="page-title">Sessions and waits · {instancia.alias}</h1>
             <p className="page-sub">
-              {instancia.engine === 'mongodb' ? (
-                <>
-                  Active ops from <span className="font-mono">currentOp</span> — op type, ns, secs_running,
-                  waitingForLock. Snapshots every ten seconds (sampling).
-                </>
-              ) : instancia.engine === 'redis' ? (
-                <>
-                  Connected clients and blocked waiters from <span className="font-mono">CLIENT LIST</span> /{' '}
-                  <span className="font-mono">INFO clients</span>. Snapshots every ten seconds (sampling).
-                </>
-              ) : instancia.engine === 'elasticsearch' ? (
-                <>
-                  Cluster tasks from <span className="font-mono">_tasks</span> / cat — long-running search,
-                  reindex, snapshot. Snapshots every ten seconds (sampling).
-                </>
-              ) : (
-                <>
-                  Where server time goes — CPU, disk, locks, network — and what was running at a point in time.
-                  Snapshots every ten seconds (
-                  {instancia.engine === 'mariadb' ? (
-                    <span className="font-mono">PROCESSLIST</span>
-                  ) : instancia.engine === 'mssql' ? (
-                    <span className="font-mono">dm_exec_requests</span>
-                  ) : instancia.engine === 'oracle' ? (
-                    <span className="font-mono">v$session</span>
-                  ) : (
-                    <span className="font-mono">pg_stat_activity</span>
-                  )}
-                  ), so it is <strong>sampling</strong>: it catches what lasts and can miss the instantaneous.
-                </>
-              )}
+              Where server time goes — CPU, disk, locks, network — and what was running at a given moment.
+              It comes from a snapshot every ten seconds (
+              {instancia.engine === 'mariadb'
+                ? <span className="font-mono">PROCESSLIST</span>
+                : instancia.engine === 'mssql'
+                  ? <span className="font-mono">dm_exec_requests</span>
+                  : <span className="font-mono">pg_stat_activity</span>}
+              ), so it is <strong>sampling</strong>: it measures what lasts and misses the instantaneous.
             </p>
           </div>
         </header>
@@ -213,9 +181,10 @@ export default async function SessionsPage({
               emptyMessage="No session samples in this window yet. Sampling writes every ten seconds; if the instance was just added, wait a minute."
             />
             <p className="mt-2 text-[11px] text-foreground-muted">
-              Height is <strong>sessions at once</strong>, not summed waits — compare against host cores.
-              If the CPU bar exceeds cores, CPU is the bottleneck; if the lock bar grows, sessions are
-              blocking each other and more hardware will not fix it.
+              Height is <strong>sessions at once</strong>, not summed waits, so you can compare it with the
+              server&apos;s core count. If the green bar passes the core count, the bottleneck is CPU. If the red
+              bar grows, transactions are blocking each other and more hardware will not fix it. Dates under the
+              chart are when that sample was taken.
             </p>
           </div>
         </section>
@@ -228,7 +197,7 @@ export default async function SessionsPage({
               label: espera.waitEvent ? `${espera.waitType} · ${espera.waitEvent}` : espera.waitType,
               sub: WAIT_TYPE_HELP[espera.waitType],
               value: espera.share,
-              display: `${formatPct(espera.share * 100, 1)} · ${espera.averageSessions.toFixed(2)} sess`,
+              display: `${formatPct(espera.share * 100, 1)} · ${espera.averageSessions.toFixed(2)} sess.`,
               tone:
                 espera.waitType === 'Lock'
                   ? 'error'
@@ -251,14 +220,15 @@ export default async function SessionsPage({
                   reconoce el momento cuando lo ve descrito. */}
               {momentos.length === 0 ? (
                 <div className="empty">
-                  Nothing notable in the window. Only sessions waiting on a lock, queries running longer than one
-                  second, and transactions older than one minute are kept; an empty list is good news.
+                  Nothing stood out in this window. Only sessions waiting on a lock, queries running longer than a
+                  second, and transactions open longer than a minute are kept. An empty list means none of those
+                  happened.
                 </div>
               ) : (
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Moment</th>
+                      <th>When</th>
                       <th className="text-right">Sessions</th>
                       <th className="text-right">Blocked</th>
                       <th className="text-right">Longest</th>
@@ -332,16 +302,12 @@ export default async function SessionsPage({
                           {sesion.waitType ? (
                             <span
                               className={`tag ${sesion.waitType === 'Lock' ? 'tag--error' : 'tag--muted'}`}
-                              title={waitHelp(sesion.waitType)}
-                              style={{ cursor: 'help' }}
                             >
                               {sesion.waitType}
                               {sesion.waitEvent ? ` · ${sesion.waitEvent}` : ''}
                             </span>
                           ) : (
-                            <span className="text-foreground-muted" title={waitHelp('CPU')} style={{ cursor: 'help' }}>
-                              CPU
-                            </span>
+                            <span className="text-foreground-muted">CPU</span>
                           )}
                           {sesion.blockedBy ? (
                             <span className="ml-1 font-mono text-[10px] text-foreground-muted">
@@ -363,9 +329,9 @@ export default async function SessionsPage({
               </div>
             )}
             <p className="mt-2 text-[11px] text-foreground-muted">
-              Each query text is truncated to 900 characters: storing full SQL every ten seconds would fill the store,
-              and the prefix is enough to recognize what was running. The &quot;by&quot; column is the blocking PID — where
-              every contention investigation starts.
+              Each query is stored up to 900 characters. Keeping the full text every ten seconds would fill the
+              store, and the start of the statement is enough to recognize it. The &quot;by&quot; value is the PID
+              that held the lock.
             </p>
           </div>
         </section>

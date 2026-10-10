@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
+import { GROUPS_PER_PAGE, Pager, ROWS_PER_PAGE, slicePage } from '@/components/Pager';
 import type { Severity } from '@/lib/queries';
 
 export interface FindingView {
@@ -34,27 +35,141 @@ const SEVERITY_STRIPE: Record<Severity, string> = {
 
 type Filter = Severity | 'all';
 
-const PAGE_SIZE = 10;
+interface CheckBucket {
+  checkId: string;
+  title: string;
+  severity: Severity;
+  remediation: string;
+  items: FindingView[];
+}
+
+function bucketFindings(findings: FindingView[]): CheckBucket[] {
+  const map = new Map<string, CheckBucket>();
+  for (const finding of findings) {
+    const key = `${finding.severity}:${finding.checkId}`;
+    const existing = map.get(key);
+    if (existing) {
+      existing.items.push(finding);
+      continue;
+    }
+    map.set(key, {
+      checkId: finding.checkId,
+      title: finding.title,
+      severity: finding.severity,
+      remediation: finding.remediation,
+      items: [finding],
+    });
+  }
+  return [...map.values()].sort(
+    (a, b) => b.items.length - a.items.length || a.title.localeCompare(b.title),
+  );
+}
+
+function FindingArticle({ finding }: { finding: FindingView }) {
+  return (
+    <article className={`finding finding--${finding.severity}`}>
+      <div>
+        <span className={`tag ${SEVERITY_TAG[finding.severity]}`}>{SEVERITY_LABEL[finding.severity]}</span>
+      </div>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className="finding__title">{finding.title}</span>
+          {finding.object ? <span className="finding__object">{finding.object}</span> : null}
+          <span className="font-mono text-[10px] text-foreground-muted">{finding.checkId}</span>
+        </div>
+        <p className="finding__message">{finding.message}</p>
+        <p className="finding__remediation">{finding.remediation}</p>
+      </div>
+    </article>
+  );
+}
+
+function FindingGroup({ bucket }: { bucket: CheckBucket }) {
+  const [page, setPage] = useState(1);
+  if (bucket.items.length === 1) {
+    return <FindingArticle finding={bucket.items[0]} />;
+  }
+
+  const rows = slicePage(bucket.items, page, ROWS_PER_PAGE);
+  return (
+    <details className={`check-card ${SEVERITY_STRIPE[bucket.severity]}`}>
+      <summary className="check-card__head">
+        <span className={`tag ${SEVERITY_TAG[bucket.severity]}`}>{SEVERITY_LABEL[bucket.severity]}</span>
+        <div className="check-card__main">
+          <span className="check-card__title">{bucket.title}</span>
+          <span className="check-card__id">{bucket.checkId}</span>
+        </div>
+        <div className="check-card__meta">
+          <span className="check-card__reach">
+            {bucket.items.length} finding{bucket.items.length === 1 ? '' : 's'}
+          </span>
+        </div>
+        <span className="check-card__chevron" aria-hidden />
+      </summary>
+      <div className="check-card__body">
+        {rows.map((finding, index) => (
+          <div key={`${finding.object ?? index}`} className="finding finding--line">
+            <span className="finding__object">{finding.object ?? '—'}</span>
+            <p className="finding__message">{finding.message}</p>
+          </div>
+        ))}
+        {bucket.remediation ? (
+          <div className="check-card__fix">
+            <span className="check-card__fix-label">How to fix</span>
+            <p>{bucket.remediation}</p>
+          </div>
+        ) : null}
+        <Pager
+          page={page}
+          total={bucket.items.length}
+          size={ROWS_PER_PAGE}
+          onPage={setPage}
+          label={`${bucket.title} findings`}
+        />
+      </div>
+    </details>
+  );
+}
+
+function SeveritySection({ severity, buckets }: { severity: Severity; buckets: CheckBucket[] }) {
+  const [page, setPage] = useState(1);
+  const visible = slicePage(buckets, page, GROUPS_PER_PAGE);
+  const findingCount = buckets.reduce((total, bucket) => total + bucket.items.length, 0);
+
+  return (
+    <section className="finding-section">
+      <div className="finding-section__head">
+        <span className="finding-section__title">{SEVERITY_LABEL[severity]}</span>
+        <span className={`tag ${SEVERITY_TAG[severity]}`}>
+          {findingCount} · {buckets.length} check{buckets.length === 1 ? '' : 's'}
+        </span>
+      </div>
+      {visible.map((bucket) => (
+        <FindingGroup key={bucket.checkId} bucket={bucket} />
+      ))}
+      <Pager
+        page={page}
+        total={buckets.length}
+        size={GROUPS_PER_PAGE}
+        onPage={setPage}
+        label={`${SEVERITY_LABEL[severity]} checks`}
+      />
+    </section>
+  );
+}
 
 export function FindingsPanel({ findings, checkedAt }: { findings: FindingView[]; checkedAt: string | null }) {
   const [filter, setFilter] = useState<Filter>('all');
-  const [page, setPage] = useState(0);
 
   const counts = { critical: 0, warning: 0, info: 0 };
   for (const finding of findings) counts[finding.severity] += 1;
 
-  const visible = useMemo(
-    () => (filter === 'all' ? findings : findings.filter((finding) => finding.severity === filter)),
-    [filter, findings],
-  );
-
-  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
-  const safePage = Math.min(page, pageCount - 1);
-  const pageRows = visible.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
-
-  useEffect(() => {
-    setPage(0);
-  }, [filter, findings]);
+  const visible = filter === 'all' ? findings : findings.filter((finding) => finding.severity === filter);
+  const buckets = bucketFindings(visible);
+  const sections = SEVERITY_ORDER.map((severity) => ({
+    severity,
+    buckets: buckets.filter((bucket) => bucket.severity === severity),
+  })).filter((section) => section.buckets.length > 0);
 
   const chip = (value: Filter, label: string) => (
     <button
@@ -88,65 +203,9 @@ export function FindingsPanel({ findings, checkedAt }: { findings: FindingView[]
           {findings.length === 0 ? 'No findings in the last check run.' : 'No findings at that severity.'}
         </div>
       ) : (
-        <>
-          <div>
-            {pageRows.map((finding, index) => (
-              <article
-                key={`${finding.checkId}-${finding.object ?? index}-${safePage}`}
-                className={`finding finding--${finding.severity}`}
-              >
-                <div>
-                  <span className={`tag ${SEVERITY_TAG[finding.severity]}`}>
-                    {SEVERITY_LABEL[finding.severity]}
-                  </span>
-                </div>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-baseline gap-x-2">
-                    <span className="finding__title">{finding.title}</span>
-                    {finding.object && <span className="finding__object">{finding.object}</span>}
-                    <span className="font-mono text-[10px] text-foreground-muted">{finding.checkId}</span>
-                  </div>
-                  <p className="finding__message">{finding.message}</p>
-                  <p className="finding__remediation">{finding.remediation}</p>
-                </div>
-              </article>
-            ))}
-          </div>
-          {visible.length > PAGE_SIZE ? (
-            <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2">
-              <span className="font-mono text-[11px] text-foreground-muted">
-                {safePage * PAGE_SIZE + 1}–{Math.min((safePage + 1) * PAGE_SIZE, visible.length)} of{' '}
-                {visible.length}
-              </span>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  className="tag tag--muted"
-                  style={{ cursor: safePage === 0 ? 'default' : 'pointer', opacity: safePage === 0 ? 0.5 : 1 }}
-                  disabled={safePage === 0}
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
-                >
-                  Prev
-                </button>
-                <span className="font-mono text-[11px] text-foreground-muted">
-                  {safePage + 1}/{pageCount}
-                </span>
-                <button
-                  type="button"
-                  className="tag tag--muted"
-                  style={{
-                    cursor: safePage >= pageCount - 1 ? 'default' : 'pointer',
-                    opacity: safePage >= pageCount - 1 ? 0.5 : 1,
-                  }}
-                  disabled={safePage >= pageCount - 1}
-                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </>
+        sections.map((section) => (
+          <SeveritySection key={`${filter}-${section.severity}`} severity={section.severity} buckets={section.buckets} />
+        ))
       )}
     </section>
   );
