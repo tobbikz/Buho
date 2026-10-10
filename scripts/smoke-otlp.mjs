@@ -23,20 +23,43 @@ function ok(msg) {
   console.log(`ok    ${msg}`);
 }
 
+function otlpHeaders(extra = {}) {
+  const headers = { ...extra };
+  const token = process.env.BUHO_OTLP_TOKEN?.trim();
+  if (token) headers['authorization'] = `Bearer ${token}`;
+  return headers;
+}
+
 // 1) Health
 {
-  const res = await fetch(otlp, { method: 'GET' });
+  const res = await fetch(otlp, { method: 'GET', headers: otlpHeaders() });
   const body = await res.json().catch(() => ({}));
   if (!res.ok || body.ok !== true) fail(`GET health ${res.status} ${JSON.stringify(body)}`);
   if (body.protocol !== 'otlp/http+json') fail(`unexpected protocol ${body.protocol}`);
-  ok(`health ${body.protocol}`);
+  ok(`health ${body.protocol} auth=${body.auth}`);
+}
+
+// 1b) Off-loopback without token must fail closed (unless token already set for this process)
+if (!process.env.BUHO_OTLP_TOKEN?.trim()) {
+  const res2 = await fetch(otlp, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-forwarded-for': '10.9.9.9',
+    },
+    body: JSON.stringify({ resourceSpans: [] }),
+  });
+  if (res2.status !== 503 && res2.status !== 401) {
+    fail(`expected fail-closed off-loopback POST, got ${res2.status}`);
+  }
+  ok(`fail-closed off-loopback POST → ${res2.status}`);
 }
 
 // 2) Reject protobuf-ish content-type
 {
   const res = await fetch(otlp, {
     method: 'POST',
-    headers: { 'content-type': 'application/x-protobuf' },
+    headers: otlpHeaders({ 'content-type': 'application/x-protobuf' }),
     body: Buffer.from([0]),
   });
   if (res.status !== 415) fail(`expected 415 for protobuf, got ${res.status}`);

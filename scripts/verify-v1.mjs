@@ -14,8 +14,13 @@
 import { chromium } from 'playwright';
 
 const BASE = (process.env['BUHO_URL'] ?? 'http://127.0.0.1:3100').replace(/\/$/, '');
-const USER = process.env['BUHO_USER'] ?? '';
-const PASSWORD = process.env['BUHO_PASSWORD'] ?? '';
+/**
+ * Lab default when Admin → Users exists: `smoke` / `smoke-test-pass`.
+ * Shared BUHO_AUTH_PASSWORD alone fails once users are seeded.
+ */
+const USER = process.env['BUHO_USER'] ?? 'smoke';
+const PASSWORD =
+  process.env['BUHO_PASSWORD'] ?? process.env['BUHO_SMOKE_PASSWORD'] ?? 'smoke-test-pass';
 const executablePath = process.env['PW_CHROME'] || undefined;
 
 const browser = await chromium.launch(executablePath ? { executablePath } : {});

@@ -38,7 +38,7 @@ export default async function SecurityExplorePage() {
   return (
     <div className="obs-page">
       <ObsPageHeader
-        section="Security"
+        section="Security · lab"
         title="Explore"
         sub={
           principals.length > 0 ? (
@@ -47,14 +47,15 @@ export default async function SecurityExplorePage() {
               {disabled.length > 0 ? ` · ${disabled.length} disabled` : ''}
             </>
           ) : (
-            'Principals · roles · grants across engines'
+            'Principals · roles · grants across engines (DB audit — not Kibana Discover)'
           )
         }
       />
 
       {principals.length === 0 ? (
         <ObsEmpty title="No principals yet" actions={[{ href: '/', label: 'Databases fleet' }]}>
-          Appears after the collector security audit.
+          Appears after the collector security audit. This is not Elastic Security Explore —
+          only engine principals the Buho collector can read.
         </ObsEmpty>
       ) : (
         <>

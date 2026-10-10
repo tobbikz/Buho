@@ -70,7 +70,7 @@ export default async function SecurityRulesPage() {
   return (
     <div className="obs-page">
       <ObsPageHeader
-        section="Security"
+        section="Security · lab"
         title="Rules"
         sub="Collector audit checks · severity from latest findings"
       />

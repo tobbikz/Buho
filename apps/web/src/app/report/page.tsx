@@ -108,7 +108,8 @@ export default async function ReportPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  const raw = Number(Array.isArray(params['semana']) ? params['semana'][0] : params['semana']);
+  const weekParam = params['week'] ?? params['semana'];
+  const raw = Number(Array.isArray(weekParam) ? weekParam[0] : weekParam);
   const weeksAgo = Number.isFinite(raw) ? Math.max(0, Math.min(12, raw)) : 0;
 
   let report: WeeklyReport;
@@ -146,7 +147,7 @@ export default async function ReportPage({
           <div className="page-header__actions">
             <a
               className="btn btn--primary"
-              href={weeksAgo === 0 ? '/report/export' : `/report/export?semana=${weeksAgo}`}
+              href={weeksAgo === 0 ? '/report/export' : `/report/export?week=${weeksAgo}`}
             >
               Download Markdown
             </a>
@@ -157,7 +158,7 @@ export default async function ReportPage({
           {WEEKS.map((option) => (
             <Link
               key={option.key}
-              href={option.key === 0 ? '/report' : `/report?semana=${option.key}`}
+              href={option.key === 0 ? '/report' : `/report?week=${option.key}`}
               className={`tag ${option.key === weeksAgo ? 'tag--info' : 'tag--muted'}`}
             >
               {option.label}
@@ -165,10 +166,15 @@ export default async function ReportPage({
           ))}
         </div>
 
+        <div className="notice">
+          Estate health includes <strong>config / recovery posture</strong> (backups, HA, RPO), not only live
+          incidents. For on-call triage use Alerts → Live · for hardening use Estate RPO / Blame.
+        </div>
+
         <section className="panel report-hero">
           <div className="report-hero__grid">
             <div className={`report-hero-score ${scoreHeroClass(totals.scoreAvg)}`}>
-              <span className="report-hero-score__label">Estate health</span>
+              <span className="report-hero-score__label">Estate health (incl. posture)</span>
               <span className="report-hero-score__value">
                 {totals.scoreAvg === null ? '—' : totals.scoreAvg.toFixed(0)}
               </span>
@@ -192,7 +198,7 @@ export default async function ReportPage({
               label="Critical"
               value={String(totals.critical)}
               tone={totals.critical > 0 ? 'error' : 'ok'}
-              hint="open at close"
+              hint="open at close · may include posture"
             />
             <StatCard
               label="Warnings"

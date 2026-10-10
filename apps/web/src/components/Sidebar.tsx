@@ -64,9 +64,17 @@ function ObservabilityNav({
             );
           }
           if (item.type === 'group') {
+            const groupBadge = item.children.find((c) => c.badge)?.badge;
             return (
               <div key={item.label} className="sidebar__obs-group">
-                <div className="sidebar__group">{item.label}</div>
+                <div className="sidebar__group">
+                  {item.label}
+                  {groupBadge ? (
+                    <span className="sidebar__badge" style={{ marginLeft: '0.35rem' }}>
+                      {groupBadge}
+                    </span>
+                  ) : null}
+                </div>
                 {item.children.map((child) => (
                   <ObsLink
                     key={child.href}

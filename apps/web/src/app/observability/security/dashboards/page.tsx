@@ -43,9 +43,9 @@ export default async function SecurityDashboardsPage() {
     return (
       <div className="obs-page">
         <ObsPageHeader
-          section="Security"
+          section="Security · lab"
           title="Dashboards"
-          sub="Security posture overview across the fleet"
+          sub="DB audit posture overview — not Elastic Security SIEM"
         />
         <ObsEmpty title="No posture samples yet" actions={[{ href: '/', label: 'Databases fleet' }]}>
           The collector runs a security audit every 6 hours. Dashboards populate after the first
@@ -66,7 +66,7 @@ export default async function SecurityDashboardsPage() {
   return (
     <div className="obs-page">
       <ObsPageHeader
-        section="Security"
+        section="Security · lab"
         title="Dashboards"
         sub={
           <>

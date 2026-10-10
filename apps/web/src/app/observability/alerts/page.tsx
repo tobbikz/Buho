@@ -71,6 +71,18 @@ export default async function ObservabilityAlertsPage() {
         }
       />
 
+      <div className="notice">
+        <strong>Where to silence?</strong> Three planes (not Kibana’s one Alerts app):{' '}
+        <Link href="/alerts" className="underline">
+          Databases → Alerts
+        </Link>{' '}
+        (engine checks / pack) · this page (probe / APM / SLO) ·{' '}
+        <Link href="/observability/security/alerts" className="underline">
+          Security → Alerts
+        </Link>{' '}
+        (findings). Silences for DB pack live under Admin → Alerts.
+      </div>
+
       <div className="stat-grid">
         <StatCard label="Critical" value={String(critical)} hint="monitor down / 5xx / errors" />
         <StatCard label="Warning" value={String(warning)} hint="latency / 4xx / elevated errors" />

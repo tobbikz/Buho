@@ -380,7 +380,27 @@ export function TraceDiscover({
         </div>
         <div className="panel-body p-0">
           {filtered.length === 0 ? (
-            <div className="empty">No hits.</div>
+            <div className="empty">
+              {traces.length === 0 ? (
+                <>
+                  No traces in this window —{' '}
+                  <Link href="/observability/apm/setup" className="underline">
+                    Add APM
+                  </Link>{' '}
+                  or widen the time range.
+                </>
+              ) : query.trim() ? (
+                <>
+                  No hits for <span className="font-mono">{query}</span>
+                  {' · '}
+                  <button type="button" className="underline" onClick={() => setQuery('')}>
+                    clear filter
+                  </button>
+                </>
+              ) : (
+                'No hits in this filter.'
+              )}
+            </div>
           ) : (
             <>
               <div className="discover__docs-list">

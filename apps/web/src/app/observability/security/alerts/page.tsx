@@ -27,7 +27,7 @@ export default async function SecurityAlertsPage() {
   return (
     <div className="obs-page">
       <ObsPageHeader
-        section="Security"
+        section="Security · lab"
         title="Alerts"
         sub={
           <>

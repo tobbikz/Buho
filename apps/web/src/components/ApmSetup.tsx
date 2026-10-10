@@ -399,6 +399,14 @@ export function ApmSetup({
 
   return (
     <div className="apm-setup">
+      <p className="mb-3 text-[12px] text-foreground-secondary">
+        Direct ingest is <span className="font-mono">http/json</span> only. Loopback stays open for lab
+        emit; <strong>off-loopback fail-closed</strong> — set <span className="font-mono">BUHO_OTLP_TOKEN</span>{' '}
+        and send <span className="font-mono">Authorization: Bearer …</span> (or{' '}
+        <span className="font-mono">X-Buho-Otlp-Token</span>). Protobuf needs{' '}
+        <span className="font-mono">deploy/otel-collector</span>.
+      </p>
+
       <div className="stat-grid obs-services-kpis">
         <div className="stat">
           <div className="stat__label">OTLP ingest</div>

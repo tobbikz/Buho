@@ -7,7 +7,7 @@ A true “install on someone else’s machine” needs that host. This file is t
 ```bash
 git clone https://github.com/tobbikz/buho-monitor.git
 cd buho-monitor
-git checkout v1.3.1
+git checkout v1.6.1
 ./install.sh --pull
 ```
 

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { ObsEmpty } from '@/components/ObsEmpty';
 import { ObsPageHeader } from '@/components/ObsPageHeader';
 import { StoreError } from '@/components/StoreError';
 import { TraceDiscover } from '@/components/TraceDiscover';
@@ -91,43 +92,63 @@ export default async function ObservabilityApmTracesPage({
           </>
         }
         actions={
-          <TraceTimeRange
-            activeKey={activeKey}
-            fromIso={fromIso}
-            toIso={toIso}
-            service={serviceFilter}
-            q={initialQuery || null}
-          />
+          <>
+            <Link className="btn btn--primary" href="/observability/apm/setup">
+              Add APM
+            </Link>
+            <TraceTimeRange
+              activeKey={activeKey}
+              fromIso={fromIso}
+              toIso={toIso}
+              service={serviceFilter}
+              q={initialQuery || null}
+            />
+          </>
         }
       />
 
-      <TraceServiceFilter
-        windowKey={range.kind === 'absolute' ? 'custom' : activeKey}
-        fromIso={fromIso}
-        toIso={toIso}
-        initialQuery={initialQuery}
-        serviceFilter={serviceFilter}
-        serviceOptions={serviceOptions}
-      />
+      {totalTraces === 0 ? (
+        <ObsEmpty
+          title="No OTLP traces yet"
+          actions={[
+            { href: '/observability/apm/setup', label: 'Add APM', primary: true },
+            { href: '/observability/services', label: 'Services' },
+          ]}
+        >
+          Point your SDK or collector at the OTLP endpoint from Add APM (token required off
+          loopback). Lab smoke: <span className="font-mono">npm run otel:emit</span>.
+        </ObsEmpty>
+      ) : (
+        <>
+          <TraceServiceFilter
+            windowKey={range.kind === 'absolute' ? 'custom' : activeKey}
+            fromIso={fromIso}
+            toIso={toIso}
+            initialQuery={initialQuery}
+            serviceFilter={serviceFilter}
+            serviceOptions={serviceOptions}
+          />
 
-      <TraceDiscover
-        initialQuery={initialQuery}
-        listContext={listContext}
-        traces={filtered.map((t) => ({
-          traceId: t.traceId,
-          rootService: t.rootService,
-          rootName: t.rootName,
-          startTs: t.startTs.toISOString(),
-          durationMs: t.durationMs,
-          spanCount: t.spanCount,
-          errorCount: t.errorCount,
-          hasSql: t.hasSql,
-          httpStatus: t.httpStatus,
-          httpMethod: t.httpMethod,
-          dbName: t.dbName,
-          sqlMs: t.sqlMs,
-        }))}
-      />
+          <TraceDiscover
+            initialQuery={initialQuery}
+            listContext={listContext}
+            traces={filtered.map((t) => ({
+              traceId: t.traceId,
+              rootService: t.rootService,
+              rootName: t.rootName,
+              startTs: t.startTs.toISOString(),
+              durationMs: t.durationMs,
+              spanCount: t.spanCount,
+              errorCount: t.errorCount,
+              hasSql: t.hasSql,
+              httpStatus: t.httpStatus,
+              httpMethod: t.httpMethod,
+              dbName: t.dbName,
+              sqlMs: t.sqlMs,
+            }))}
+          />
+        </>
+      )}
     </div>
   );
 }

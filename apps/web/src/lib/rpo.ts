@@ -249,19 +249,19 @@ function mariaRpo(rows: BackupRow[], targetSeconds: number): Omit<
   }
 
   const expireSec = Number(binlog.detail['expire_seconds'] ?? 0);
-  // Binlog on ⇒ continuous RPO ~ seconds (flush lag). We cannot see apply lag without a replica probe.
-  const exposure = 0;
   const retain =
     expireSec > 0
       ? `Retention ~${formatDuration(expireSec)} (expire_logs).`
       : 'Binlog retention not reported.';
 
+  // log_bin=on is necessary but not proof of exposure age (no dated flush/position sample).
+  // Do not paint Met/0s — that lied green next to honest PG/Oracle Broken rows.
   return {
     targetSeconds,
-    exposureSeconds: exposure,
-    status: 'met',
-    signal: 'Binlog on',
-    detail: `PITR possible via binary log. ${retain} Pair with external full backups for base restore.`,
+    exposureSeconds: null,
+    status: 'unknown',
+    signal: 'Binlog on · RPO unproven',
+    detail: `Binary logging is enabled so PITR is possible in principle, but Búho has no dated binlog age yet. ${retain} Pair with external full backups; treat as Unknown until inventory proves exposure.`,
     method,
   };
 }

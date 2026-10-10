@@ -36,7 +36,7 @@ export default async function SecurityCasesPage() {
   return (
     <div className="obs-page">
       <ObsPageHeader
-        section="Security"
+        section="Security · lab"
         title="Cases"
         sub={
           <>

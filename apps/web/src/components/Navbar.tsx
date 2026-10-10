@@ -30,13 +30,14 @@ const FLEET_LINKS_BASE = [
 ] as const;
 
 const ADD_DATABASE_LINK = {
-  href: '/admin/instances',
+  href: '/admin/targets',
   label: 'Add database',
-  match: (path: string) => path.startsWith('/admin/instances'),
+  match: (path: string) =>
+    path.startsWith('/admin/targets') || path.startsWith('/admin/instances'),
 } as const;
 
 const ADMIN_LINKS = [
-  { href: '/admin/instances', label: 'Databases', hint: 'Monitored targets' },
+  { href: '/admin/targets', label: 'Targets', hint: 'Monitored databases' },
   { href: '/admin/alerts', label: 'Alerts', hint: 'Webhooks and silences' },
   { href: '/admin/discovery', label: 'Discovery', hint: 'Network scan' },
   { href: '/admin/users', label: 'Users', hint: 'Console accounts' },
@@ -97,7 +98,14 @@ function NavDropdown({
         aria-haspopup="menu"
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="navbar__menu-value">{label}</span>
+        <span className="navbar__menu-value">
+          {label}
+          {items.some((i) => i.badge) ? (
+            <span className="tag tag--muted" style={{ marginLeft: '0.35rem', fontSize: '10px' }}>
+              {items.find((i) => i.badge)?.badge}
+            </span>
+          ) : null}
+        </span>
         <span className={`navbar__chevron ${open ? 'is-open' : ''}`} aria-hidden />
       </button>
       {open ? (
@@ -116,6 +124,9 @@ function NavDropdown({
                 }}
               >
                 <span className="navbar__dropdown-label">{link.label}</span>
+                {link.badge ? (
+                  <span className="navbar__dropdown-hint">{link.badge}</span>
+                ) : null}
               </Link>
             );
           })}
@@ -163,7 +174,7 @@ function ServicesMenu({
         aria-haspopup="menu"
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="navbar__menu-value">Fleet</span>
+        <span className="navbar__menu-value">Probes</span>
         <span className={`navbar__chevron ${open ? 'is-open' : ''}`} aria-hidden />
       </button>
       {open ? (
@@ -278,7 +289,7 @@ export function Navbar({
             </span>
             <span className="navbar__brand-text">
               <span className="navbar__logo">Búho</span>
-              <span className="navbar__version">v1.6.0</span>
+              <span className="navbar__version">v1.6.1</span>
             </span>
           </Link>
 
@@ -424,7 +435,7 @@ export function Navbar({
                 </span>
               </div>
             ) : (
-              <span className="navbar__engines">PG · MariaDB · MSSQL · Mongo</span>
+              <span className="navbar__engines">PG · MSSQL · MariaDB · Oracle</span>
             )}
 
             {authEnabled ? (

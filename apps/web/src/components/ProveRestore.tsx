@@ -85,7 +85,7 @@ export function fleetProveRestoreItems(): ProveRestoreItem[] {
       id: 'owner-tags',
       label: 'Set rpo_seconds (or rpo_hours) tags on critical instances',
       detail: 'Default target is 15m; override per instance so pack.rpo_exposure matches reality.',
-      href: '/admin/instances',
+      href: '/admin/targets',
       doneHint: 'Done when: tag present on prod instances',
     },
   ];

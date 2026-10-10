@@ -14,15 +14,29 @@ function isStale(instance: FleetInstance): boolean {
   return Date.now() - new Date(instance.lastSeenAt).getTime() > STALE_AFTER_MS;
 }
 
-function cardTone(instance: FleetInstance, stale: boolean): 'idle' | 'error' | 'warn' | 'ok' {
+function cardTone(
+  instance: FleetInstance,
+  stale: boolean,
+  postureHeavy: boolean,
+): 'idle' | 'error' | 'warn' | 'ok' {
   if (stale) return 'idle';
+  // Posture-heavy labs (archive off / RPO) must not look like a live SEV-1.
+  if (postureHeavy) {
+    if (instance.critical > 0 || (instance.score !== null && instance.score < 60)) return 'warn';
+    if (instance.warning > 0 || (instance.score !== null && instance.score < 85)) return 'warn';
+    return 'ok';
+  }
   if (instance.critical > 0 || (instance.score !== null && instance.score < 60)) return 'error';
   if (instance.warning > 0 || (instance.score !== null && instance.score < 85)) return 'warn';
   return 'ok';
 }
 
-function scoreClass(score: number | null): string {
+function scoreClass(score: number | null, postureHeavy: boolean): string {
   if (score === null) return '';
+  if (postureHeavy) {
+    if (score < 85) return 'score--warn';
+    return 'score--ok';
+  }
   if (score < 60) return 'score--error';
   if (score < 85) return 'score--warn';
   return 'score--ok';
@@ -92,14 +106,17 @@ const METRIC_SHORT = {
 export function FleetInstanceCard({
   instance,
   density = 'medium',
+  postureHeavy = false,
   onBadgeClick,
 }: {
   instance: FleetInstance;
   density?: FleetCardDensity;
+  /** True when this instance’s open findings are mostly config/recovery posture. */
+  postureHeavy?: boolean;
   onBadgeClick?: (severity: Severity, instance: FleetInstance) => void;
 }) {
   const stale = isStale(instance);
-  const tone = cardTone(instance, stale);
+  const tone = cardTone(instance, stale, postureHeavy);
   const href = `/instances/${instance.instanceId}`;
   const engine = ENGINE_LABEL[instance.engine] ?? instance.engine;
   const compact = density === 'compact' || density === 'medium';
@@ -115,7 +132,7 @@ export function FleetInstanceCard({
               <span className="fleet-card__alias">{instance.alias}</span>
               {compact ? (
                 <span className="fleet-card__score fleet-card__score--inline">
-                  <span className={`score ${scoreClass(instance.score)}`}>
+                  <span className={`score ${scoreClass(instance.score, postureHeavy)}`}>
                     {instance.score ?? '—'}
                     <span className="score__max">/100</span>
                   </span>
@@ -139,7 +156,7 @@ export function FleetInstanceCard({
 
           {!compact ? (
             <div className="fleet-card__score">
-              <span className={`score ${scoreClass(instance.score)}`}>
+              <span className={`score ${scoreClass(instance.score, postureHeavy)}`}>
                 {instance.score ?? '—'}
                 <span className="score__max">/100</span>
               </span>

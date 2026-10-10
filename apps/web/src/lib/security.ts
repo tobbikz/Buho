@@ -20,7 +20,7 @@ export const SEVERITY_LABEL: Record<Severity, string> = {
   media: 'Medium',
   baja: 'Low',
   ok: 'OK',
-  no_verificable: 'Not verifiable',
+  no_verificable: 'Needs grants',
 };
 
 export const CATEGORY_LABEL: Record<string, string> = {

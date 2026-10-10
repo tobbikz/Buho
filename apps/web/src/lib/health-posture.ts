@@ -1,6 +1,6 @@
 /**
  * Configuration / posture checks tank health in labs without backups or HA.
- * The score stays honest; the UI explains that the drag is posture, not a live outage.
+ * The score stays honest; the UI separates posture gaps from live on-call pain.
  */
 const POSTURE_CHECK_IDS = new Set([
   'wal_archive_failing',
@@ -31,6 +31,18 @@ const POSTURE_CHECK_IDS = new Set([
   'missing_timeouts',
   'mariadb_missing_timeouts',
   'mssql_missing_timeouts',
+  'oracle_archivelog_gap',
+  'oracle_weak_password_policy',
+  'pack.rpo_exposure',
+  'pack.replication_lag',
+  'pack.xid_age',
+  // Host packs are infra posture for on-call — page for load/locks/cache, not disk/swap in lab demos.
+  'pack.host_cpu',
+  'pack.host_memory',
+  'pack.host_swap',
+  'pack.host_disk',
+  'pack.host_load',
+  'pack.host_iowait',
 ]);
 
 const POSTURE_PREFIXES = [
@@ -38,10 +50,13 @@ const POSTURE_PREFIXES = [
   'mssql_log_backup',
   'mariadb_binlog',
   'wal_archive',
+  'oracle_archivelog',
+  'pack.host_',
 ];
 
 export function isPostureCheckId(checkId: string): boolean {
   if (POSTURE_CHECK_IDS.has(checkId)) return true;
+  if (checkId.startsWith('pack.rpo')) return true;
   return POSTURE_PREFIXES.some((prefix) => checkId.startsWith(prefix));
 }
 
@@ -49,6 +64,25 @@ export type FindingLike = {
   checkId: string;
   severity: 'critical' | 'warning' | 'info';
 };
+
+export type FindingLane = 'live' | 'posture';
+
+export function findingLane(checkId: string): FindingLane {
+  return isPostureCheckId(checkId) ? 'posture' : 'live';
+}
+
+export function partitionFindings<T extends FindingLike>(findings: T[]): {
+  live: T[];
+  posture: T[];
+} {
+  const live: T[] = [];
+  const posture: T[] = [];
+  for (const finding of findings) {
+    if (findingLane(finding.checkId) === 'posture') posture.push(finding);
+    else live.push(finding);
+  }
+  return { live, posture };
+}
 
 /** True when most critical/warning weight is configuration posture, not live load. */
 export function scoreIsMostlyPosture(findings: FindingLike[]): boolean {
@@ -60,5 +94,21 @@ export function scoreIsMostlyPosture(findings: FindingLike[]): boolean {
 
 export function postureHint(findings: FindingLike[]): string | null {
   if (!scoreIsMostlyPosture(findings)) return null;
-  return 'Most of this score is configuration posture (backups, HA, durability, observability) — not a live incident. Fix backups/HA when you intend production protection; a lab without backups will correctly sit near 0.';
+  return 'Score is mostly config / recovery posture (backups, HA, RPO) — not a live outage. Use Live critical for on-call; Posture gaps for production hardening.';
+}
+
+/** Soften score colour when the drag is posture, so labs do not look like a SEV-1. */
+export function toneForHealthScore(
+  score: number | null,
+  mostlyPosture: boolean,
+): 'neutral' | 'ok' | 'warn' | 'error' {
+  if (score === null) return 'neutral';
+  if (mostlyPosture) {
+    if (score < 60) return 'warn';
+    if (score < 85) return 'warn';
+    return 'ok';
+  }
+  if (score < 60) return 'error';
+  if (score < 85) return 'warn';
+  return 'ok';
 }

@@ -10,11 +10,13 @@ export function FleetGrid({
   groups,
   groupKey,
   density = 'medium',
+  postureHeavyIds,
   onBadgeClick,
 }: {
   groups: Group<FleetInstance>[];
   groupKey: string;
   density?: FleetCardDensity;
+  postureHeavyIds?: Set<number>;
   onBadgeClick?: (severity: Severity, instance: FleetInstance) => void;
 }) {
   return (
@@ -44,6 +46,7 @@ export function FleetGrid({
                   key={instance.instanceId}
                   instance={instance}
                   density={density}
+                  postureHeavy={postureHeavyIds?.has(instance.instanceId) ?? false}
                   onBadgeClick={onBadgeClick}
                 />
               ))}

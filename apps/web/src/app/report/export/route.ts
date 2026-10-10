@@ -19,7 +19,8 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
-  const weeksAgo = Math.max(0, Math.min(12, Number(url.searchParams.get('semana') ?? 0) || 0));
+  const weekRaw = url.searchParams.get('week') ?? url.searchParams.get('semana') ?? '0';
+  const weeksAgo = Math.max(0, Math.min(12, Number(weekRaw) || 0));
   const report = await getWeeklyReport(weeksAgo);
 
   return new NextResponse(reportToMarkdown(report), {

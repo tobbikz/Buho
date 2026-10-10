@@ -111,7 +111,7 @@ BUHO_AUTH_COOKIE_SECURE=true`}
     <div className="mx-auto flex min-h-[70vh] max-w-[22rem] flex-col justify-center p-6">
       <div className="mb-4 flex items-baseline gap-2">
         <span className="text-[17px] font-semibold">Búho</span>
-        <span className="tag tag--muted">v0.1</span>
+        <span className="tag tag--muted">v1.6.1</span>
       </div>
 
       <form action={enter} className="panel">

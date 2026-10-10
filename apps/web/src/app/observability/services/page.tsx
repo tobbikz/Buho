@@ -97,6 +97,19 @@ export default async function ObservabilityServicesPage({
         }
       />
 
+      <div className="notice">
+        <strong>Coming from Kibana?</strong> This fleet is APM services + HTTP Probes — not Infra
+        Hosts and not Discover. Host CPU/mem → Databases → instance → Host. Engine log lines →{' '}
+        <Link href="/observability/logs" className="underline">
+          DB logs
+        </Link>
+        . Probe series →{' '}
+        <Link href="/observability/metrics" className="underline">
+          Probe metrics
+        </Link>
+        .
+      </div>
+
       <div className="stat-grid obs-services-kpis">
         <StatCard label="Services" value={String(entities.length)} hint="unified fleet" />
         <StatCard label="With traces" value={String(withTracesRecent)} hint="OTLP · last 1h" />

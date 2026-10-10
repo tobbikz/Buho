@@ -13,7 +13,7 @@ import {
 } from '@/lib/logs';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Logs · Observability · Búho' };
+export const metadata = { title: 'DB logs · Observability · Búho' };
 
 function levelTag(level: string): string {
   const l = level.toLowerCase();
@@ -51,22 +51,36 @@ export default async function ObservabilityLogsPage() {
     <div className="obs-page">
       <ObsPageHeader
         section="Logs"
-        title="Logs"
+        title="DB logs"
         sub={
           <>
-            Database engine logs from monitored instances · last 24h · not app/APM logs ·{' '}
+            Engine logs (Postgres / Maria / MSSQL / Oracle) · last 24h —{' '}
+            <strong>not Kibana Discover / app logs</strong>. App traces →{' '}
+            <Link href="/observability/apm/traces" className="underline">
+              Traces
+            </Link>
+            · acks →{' '}
             <Link href="/events" className="underline">
               Databases → Events
-            </Link>{' '}
-            for acknowledgements
+            </Link>
           </>
         }
         actions={
-          <Link className="btn" href="/">
-            Databases fleet
-          </Link>
+          <>
+            <Link className="btn" href="/observability/apm/traces">
+              Traces
+            </Link>
+            <Link className="btn" href="/">
+              Databases fleet
+            </Link>
+          </>
         }
       />
+
+      <div className="notice">
+        Kibana <strong>Logs / Discover</strong> is out of scope here. This stream is what the DB
+        collector scraped into <span className="font-mono">buho.log_events</span>.
+      </div>
 
       <div className="stat-grid">
         <StatCard label="Lines" value={String(events.length)} hint="recent sample" />

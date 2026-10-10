@@ -10,7 +10,7 @@ import {
 } from '@/lib/obs-infra';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Metrics Explorer · Observability · Búho' };
+export const metadata = { title: 'Probe metrics · Observability · Búho' };
 
 const WINDOWS = [
   { key: '15m', minutes: 15 },
@@ -89,16 +89,25 @@ export default async function ObservabilityMetricsPage({
     return `/observability/metrics?${p.toString()}`;
   };
 
+  const freshestTs = rows.reduce<Date | null>((best, r) => {
+    if (!r.ts) return best;
+    if (!best || r.ts > best) return r.ts;
+    return best;
+  }, null);
+  const aliases = rows.map((r) => r.alias).sort((a, b) => a.localeCompare(b));
+  const shownAliases = aliases.slice(0, 8);
+  const hiddenAliasCount = Math.max(0, aliases.length - shownAliases.length);
+
   return (
     <div className="obs-page">
       <ObsPageHeader
-        section="Metrics Explorer"
-        title="Metrics Explorer"
+        section="Metrics"
+        title="Probe metrics"
         sub={
           <>
-            Probe metrics · last samples + 5m sparkline · DB series live in{' '}
+            HTTP / TLS probe series (not Kibana Infra Metrics) · DB host & engine series →{' '}
             <Link href="/" className="underline">
-              Databases → Analysis
+              Databases → Analysis / Host
             </Link>
           </>
         }
@@ -145,8 +154,28 @@ export default async function ObservabilityMetricsPage({
           <div className="panel-header">
             <span className="panel-title">{label}</span>
             <span className="font-mono text-[10px] text-foreground-muted">
-              {metric} · {window.key} · {rows.length} entities
+              {metric} · {window.key} · {rows.length} probes · freshest scrape{' '}
+              {freshestTs ? formatAgo(freshestTs) : '—'}
             </span>
+          </div>
+          <div className="panel-body" style={{ paddingBottom: 0 }}>
+            <p className="text-[12px] text-foreground-secondary mb-2">
+              Contributing probes ({aliases.length}):{' '}
+              {shownAliases.map((alias, i) => (
+                <span key={alias}>
+                  {i > 0 ? ', ' : null}
+                  <Link
+                    href={`/observability/services/${encodeURIComponent(alias)}?tab=uptime`}
+                    className="underline"
+                  >
+                    {alias}
+                  </Link>
+                </span>
+              ))}
+              {hiddenAliasCount > 0 ? (
+                <span className="text-foreground-muted"> +{hiddenAliasCount} more</span>
+              ) : null}
+            </p>
           </div>
           <div className="table-scroll" style={{ maxHeight: 'none' }}>
             <table className="data-table">

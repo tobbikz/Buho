@@ -111,7 +111,7 @@ export default async function EstateRpoPage() {
           {rows.length === 0 ? (
             <div className="p-4 text-[12px] text-foreground-muted">
               No SQL instances in the fleet yet.{' '}
-              <Link href="/admin/instances" className="underline">
+              <Link href="/admin/targets" className="underline">
                 Add a database
               </Link>
               .

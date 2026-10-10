@@ -254,9 +254,9 @@ function startSecurityLoop(instance: InstanceConfig, instanceId: number, pool?: 
           instanceId,
           'info',
           'security:coverage',
-          `${blind.length} check(s) could not run (insufficient privileges): ${blind
+          `Needs grants (not an outage): ${blind.length} security check(s) skipped — ${blind
             .map((finding) => finding.checkId)
-            .join(', ')}`,
+            .join(', ')}. Grant the monitor login the privileges in each finding’s remediation (Security → Findings → Needs grants).`,
         );
       }
     } finally {

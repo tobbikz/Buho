@@ -5,7 +5,7 @@ import { GeoMap } from '@/components/GeoMap';
 import { listGeoPins } from '@/lib/geo-map';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Maps · Observability · Búho' };
+export const metadata = { title: 'Geo map · Observability · Búho' };
 
 export default async function ObservabilityMapsPage() {
   let pins;
@@ -22,11 +22,11 @@ export default async function ObservabilityMapsPage() {
   return (
     <div className="obs-page">
       <ObsPageHeader
-        section="Maps"
-        title="Maps"
+        section="Views"
+        title="Geo map"
         sub={
           <>
-            Estate geography · separate from{' '}
+            Estate geography (not Kibana Maps / Elastic Maps) · separate from{' '}
             <Link href="/observability/map" className="underline">
               Service map
             </Link>

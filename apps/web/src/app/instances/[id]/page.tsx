@@ -13,7 +13,7 @@ import { CassandraSummary } from '@/components/CassandraSummary';
 import { ElasticsearchSummary } from '@/components/ElasticsearchSummary';
 import { EndpointSummary } from '@/components/EndpointSummary';
 import { LabeledBars, type BarRow } from '@/components/LabeledBars';
-import { StatCard, toneForMinimum, toneForPct, toneForScore } from '@/components/StatCard';
+import { StatCard, toneForMinimum, toneForPct } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { TimeseriesPanel } from '@/components/TimeseriesPanel';
 import { Topbar } from '@/components/Topbar';
@@ -30,7 +30,7 @@ import {
 import { getAnomalies, getBaselineCoverage } from '@/lib/baselines';
 import { ENGINE_LABEL, getInstanceEngine } from '@/lib/estate';
 import { explainIncident } from '@/lib/incident';
-import { postureHint } from '@/lib/health-posture';
+import { postureHint, scoreIsMostlyPosture, toneForHealthScore } from '@/lib/health-posture';
 import { getInstanceReplication } from '@/lib/replication';
 import {
   getEvents,
@@ -506,6 +506,7 @@ export default async function InstancePage({
 
   const { findings } = data;
   const healthPosture = postureHint(findings);
+  const mostlyPosture = scoreIsMostlyPosture(findings);
   const worstDeadPct = data.deadTuples.reduce((peak, row) => Math.max(peak, row.valueB ?? 0), 0);
 
   // Throughput como número, no sólo como chart: el último bucket con dato de
@@ -741,13 +742,13 @@ export default async function InstancePage({
 
         <div className="stat-grid stat-grid--5">
           <StatCard
-            label="Health score"
+            label={mostlyPosture ? 'Posture score' : 'Health score'}
             value={instance.score === null ? '—' : formatNumber(instance.score)}
             unit={instance.score === null ? undefined : '/100'}
-            tone={toneForScore(instance.score)}
+            tone={toneForHealthScore(instance.score, mostlyPosture)}
             hint={
               healthPosture
-                ? 'mostly backups/HA posture, not a live outage'
+                ? 'mostly backups/HA/RPO — not a live outage'
                 : instance.scoreTs
                   ? `${instance.critical} crit · ${instance.warning} warn · ${formatAgo(instance.scoreTs)}`
                   : 'no check runs'

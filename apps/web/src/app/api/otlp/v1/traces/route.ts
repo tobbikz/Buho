@@ -2,6 +2,12 @@ import { NextResponse } from 'next/server';
 import { parseOtlpTracesJson, spanDurationMs } from '@buho/core';
 import { Store } from '@buho/store';
 import { storeUrl } from '@/lib/db';
+import {
+  isLoopbackRequest,
+  otlpAuthRequired,
+  otlpRequestAuthorized,
+  otlpTokenConfigured,
+} from '@/lib/otlp-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +18,9 @@ export const dynamic = 'force-dynamic';
  *   OTEL_EXPORTER_OTLP_PROTOCOL=http/json
  *   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://host:3100/api/otlp/v1/traces
  *
+ * When BUHO_OTLP_TOKEN is set (recommended if OTLP is reachable beyond loopback):
+ *   Authorization: Bearer <token>  or  X-Buho-Otlp-Token: <token>
+ *
  * Protobuf binary is not accepted here — put an OTel Collector in front
  * (receive OTLP, export otlphttp/json → Buho). See deploy/otel-collector/.
  */
@@ -19,7 +28,7 @@ export const dynamic = 'force-dynamic';
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS, GET',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Buho-Otlp-Token',
 };
 
 function json(data: unknown, status = 200) {
@@ -31,16 +40,29 @@ export async function OPTIONS() {
 }
 
 /** Liveness for collectors / smoke tests. */
-export async function GET() {
+export async function GET(request: Request) {
+  const loopback = isLoopbackRequest(request);
+  const authMode = otlpAuthRequired(request) ? 'token' : 'open-loopback';
   return json({
     ok: true,
     protocol: 'otlp/http+json',
     path: '/api/otlp/v1/traces',
-    hint: 'POST ExportTraceServiceRequest JSON · use OTEL_EXPORTER_OTLP_PROTOCOL=http/json',
+    auth: authMode,
+    loopback,
+    hint: otlpTokenConfigured()
+      ? 'POST JSON with Authorization: Bearer <BUHO_OTLP_TOKEN>'
+      : loopback
+        ? 'Loopback open · set BUHO_OTLP_TOKEN before exposing OTLP off-loopback (fail closed)'
+        : 'Off-loopback: set BUHO_OTLP_TOKEN (POST without token is rejected)',
   });
 }
 
 export async function POST(request: Request) {
+  const auth = otlpRequestAuthorized(request);
+  if (!auth.ok) {
+    return json({ error: auth.error }, auth.status);
+  }
+
   let url: string;
   try {
     url = storeUrl();

@@ -51,7 +51,7 @@ export default async function SecurityFindingsPage({
   return (
     <div className="obs-page">
       <ObsPageHeader
-        section="Security"
+        section="Security · lab"
         title="Findings"
         sub="DB config & privilege posture · not CVE scanning"
         actions={
@@ -106,12 +106,20 @@ export default async function SecurityFindingsPage({
               tone={findings.some((f) => f.severity === 'alta') ? 'error' : 'ok'}
             />
             <StatCard
-              label="Blind spots"
+              label="Needs grants"
               value={String(findings.filter((f) => f.severity === 'no_verificable').length)}
-              hint="not verifiable"
+              hint="monitor login lacks privilege — not an outage"
               tone="warn"
             />
           </div>
+
+          {findings.some((f) => f.severity === 'no_verificable') ? (
+            <div className="notice">
+              <strong>Needs grants</strong> means the monitor login could not run that check (e.g.{' '}
+              <code>pg_hba_file_rules</code>, <code>pg_authid</code>). Expand the finding for the exact
+              GRANT — this is coverage, not a live security breach.
+            </div>
+          ) : null}
 
           {grouped.length === 0 ? (
             <ObsEmpty

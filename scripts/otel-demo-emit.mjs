@@ -11,6 +11,13 @@
 const endpoint =
   process.env.BUHO_OTLP_URL ?? 'http://127.0.0.1:3100/api/otlp/v1/traces';
 
+function otlpHeaders(extra = {}) {
+  const headers = { ...extra };
+  const token = process.env.BUHO_OTLP_TOKEN?.trim();
+  if (token) headers['authorization'] = `Bearer ${token}`;
+  return headers;
+}
+
 const args = process.argv.slice(2);
 function arg(name, fallback) {
   const i = args.indexOf(name);
@@ -138,7 +145,7 @@ function buildTrace(route, offsetMs) {
   };
 }
 
-const health = await fetch(endpoint, { method: 'GET' }).catch(() => null);
+const health = await fetch(endpoint, { method: 'GET', headers: otlpHeaders() }).catch(() => null);
 if (!health?.ok) {
   console.error(`OTLP endpoint not healthy: GET ${endpoint}`);
   if (health) console.error(health.status, await health.text());
@@ -151,7 +158,7 @@ for (let i = 0; i < count; i++) {
   const { traceId, body } = buildTrace(route, i * 45_000);
   const res = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: otlpHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify(body),
   });
   const text = await res.text();

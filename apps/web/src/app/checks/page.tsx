@@ -153,7 +153,8 @@ export default async function ChecksPage({
               reported checks.
             </strong>{' '}
             Absence from this list means unknown, not healthy. Usually a collector that is not running or
-            credentials without <span className="font-mono">pg_monitor</span>.
+            monitor credentials missing engine grants (PostgreSQL <span className="font-mono">pg_monitor</span>,
+            MSSQL VIEW SERVER STATE / msdb, Maria PROCESS, Oracle catalog views).
           </div>
         ) : null}
 

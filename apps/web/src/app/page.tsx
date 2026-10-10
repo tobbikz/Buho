@@ -93,12 +93,12 @@ export default async function FleetPage({
                 Get started
               </Link>
             ) : (
-              <Link href="/admin/instances" className="btn btn--primary">
+              <Link href="/admin/targets" className="btn btn--primary">
                 Add database
               </Link>
             )}
             {visible.length === 0 ? (
-              <Link href="/admin/instances" className="btn">
+              <Link href="/admin/targets" className="btn">
                 Add database
               </Link>
             ) : null}
@@ -122,7 +122,7 @@ export default async function FleetPage({
           <div className="panel">
             <div className="empty">
               No instances yet.{' '}
-              <Link href="/admin/instances" className="link">
+              <Link href="/admin/targets" className="link">
                 Add database
               </Link>{' '}
               from the console (targets persist in the store volume — do not use{' '}

@@ -7,7 +7,7 @@ import { formatDuration } from '@/lib/format';
 import { listObservabilityRpo, type ObsRpoRow } from '@/lib/obs-ops';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'RPO · Observability · Búho' };
+export const metadata = { title: 'Probe RPO · Observability · Búho' };
 
 function statusTag(status: ObsRpoRow['status']): string {
   if (status === 'met') return 'tag tag--ok';
@@ -40,18 +40,26 @@ export default async function ObservabilityRpoPage() {
   return (
     <div className="obs-page">
       <ObsPageHeader
-        section="RPO"
-        title="RPO"
+        section="Ops"
+        title="Probe RPO"
         sub={
           <>
-            Recovery Point Objective vs replication lag and last backup · default target 15m ·
-            override with instance tag <span className="font-mono">rpo_seconds</span>
+            Observability / probe-side RPO (lag + backup age samples) — not Databases Estate RPO (
+            <Link href="/estate/rpo" className="link">
+              /estate/rpo
+            </Link>
+            ). Default target 15m · override with tag <span className="font-mono">rpo_seconds</span>
           </>
         }
         actions={
-          <Link className="btn" href="/">
-            Databases fleet
-          </Link>
+          <>
+            <Link className="btn" href="/estate/rpo">
+              Estate RPO
+            </Link>
+            <Link className="btn" href="/">
+              Databases fleet
+            </Link>
+          </>
         }
       />
 
@@ -68,7 +76,7 @@ export default async function ObservabilityRpoPage() {
       ) : (
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Fleet RPO posture</span>
+            <span className="panel-title">Probe RPO posture</span>
             <span className="text-[11px] text-foreground-muted">{rows.length} databases</span>
           </div>
           <div className="table-scroll" style={{ maxHeight: 'none' }}>

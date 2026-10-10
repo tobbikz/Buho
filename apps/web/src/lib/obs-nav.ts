@@ -64,12 +64,12 @@ export const OBS_NAV_PRIMARY: ObsNavLeaf[] = [
   },
   {
     href: '/observability/metrics',
-    label: 'Metrics',
+    label: 'Probe metrics',
     match: (p) => p.startsWith('/observability/metrics'),
   },
   {
     href: '/observability/logs',
-    label: 'Logs',
+    label: 'DB logs',
     match: (p) => p.startsWith('/observability/logs'),
   },
 ];
@@ -78,31 +78,37 @@ export const OBS_NAV_SECURITY: ObsNavLeaf[] = [
   {
     href: '/observability/security/dashboards',
     label: 'Dashboards',
+    badge: 'lab',
     match: (p) => p.startsWith('/observability/security/dashboards'),
   },
   {
     href: '/observability/security/rules',
     label: 'Rules',
+    badge: 'lab',
     match: (p) => p.startsWith('/observability/security/rules'),
   },
   {
     href: '/observability/security/alerts',
     label: 'Alerts',
+    badge: 'lab',
     match: (p) => p.startsWith('/observability/security/alerts'),
   },
   {
     href: '/observability/security/findings',
     label: 'Findings',
+    badge: 'lab',
     match: (p) => p.startsWith('/observability/security/findings'),
   },
   {
     href: '/observability/security/cases',
     label: 'Cases',
+    badge: 'lab',
     match: (p) => p.startsWith('/observability/security/cases'),
   },
   {
     href: '/observability/security/explore',
     label: 'Explore',
+    badge: 'lab',
     match: (p) => p.startsWith('/observability/security/explore'),
   },
 ];
@@ -125,7 +131,7 @@ export const OBS_NAV_OPS: ObsNavLeaf[] = [
   },
   {
     href: '/observability/rpo',
-    label: 'RPO',
+    label: 'Probe RPO',
     match: (p) => p.startsWith('/observability/rpo'),
   },
 ];
@@ -138,7 +144,7 @@ export const OBS_NAV_VIEWS: ObsNavLeaf[] = [
   },
   {
     href: '/observability/maps',
-    label: 'Maps',
+    label: 'Geo map',
     match: (p) => p.startsWith('/observability/maps'),
   },
 ];

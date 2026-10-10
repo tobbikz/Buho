@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const TABS = [
-  { href: '/admin/instances', label: 'Databases' },
+  { href: '/admin/targets', label: 'Targets' },
   { href: '/admin/alerts', label: 'Alerts' },
   { href: '/admin/discovery', label: 'Discovery' },
   { href: '/admin/users', label: 'Users' },
@@ -18,7 +18,11 @@ export function AdminTabs() {
   return (
     <nav className="tabs">
       {TABS.map((tab) => (
-        <Link key={tab.href} href={tab.href} className={`tab ${pathname === tab.href ? 'is-active' : ''}`}>
+        <Link
+          key={tab.href}
+          href={tab.href}
+          className={`tab ${pathname === tab.href || pathname.startsWith(`${tab.href}/`) ? 'is-active' : ''}`}
+        >
           {tab.label}
         </Link>
       ))}

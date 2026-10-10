@@ -10,11 +10,13 @@
 import { chromium } from 'playwright';
 
 const BASE = process.env['BUHO_BASE'] ?? 'http://127.0.0.1:3100';
-const USER = process.env['BUHO_USER'] ?? 'tomy';
-const PASSWORD = process.env['BUHO_PASSWORD'] ?? 'contrasena-larga-1';
-const MARIA = process.env['BUHO_MARIADB'] ?? '31';
-const MSSQL = process.env['BUHO_MSSQL'] ?? '32';
-const PG = process.env['BUHO_POSTGRES'] ?? '102';
+const USER = process.env['BUHO_USER'] ?? 'smoke';
+const PASSWORD =
+  process.env['BUHO_PASSWORD'] ?? process.env['BUHO_SMOKE_PASSWORD'] ?? 'smoke-test-pass';
+/** Lab defaults (2026-10): maria-1 / mssql-lab / brain — override via env. */
+const MARIA = process.env['BUHO_MARIADB'] ?? '6323';
+const MSSQL = process.env['BUHO_MSSQL'] ?? '6324';
+const PG = process.env['BUHO_POSTGRES'] ?? '6311';
 
 const pantallas = [
   ['MariaDB: resumen', `/instances/${MARIA}`],
