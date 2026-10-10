@@ -143,6 +143,11 @@ export const OBS_NAV_OPS: ObsNavLeaf[] = [
 
 export const OBS_NAV_VIEWS: ObsNavLeaf[] = [
   {
+    href: '/observability/hosts',
+    label: 'Hosts',
+    match: (p) => p.startsWith('/observability/hosts'),
+  },
+  {
     href: '/observability/map',
     label: 'Service map',
     match: (p) => p === '/observability/map' || p.startsWith('/observability/map/'),

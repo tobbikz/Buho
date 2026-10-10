@@ -141,6 +141,7 @@ await ver('Estate RPO', '/estate/rpo', 'RPO');
 
 // Observability FEAT wave (excl. host inventory)
 await ver('Obs: Services', '/observability/services', 'Services');
+await ver('Obs: Hosts', '/observability/hosts', 'Host inventory|Derived fleet|No hosts derived');
 await ver('Obs: App logs', '/observability/app-logs', 'App logs');
 await ver('Obs: DB logs', '/observability/logs', 'DB logs');
 await ver('Obs: Probes', '/observability/synthetics', 'Probe');
