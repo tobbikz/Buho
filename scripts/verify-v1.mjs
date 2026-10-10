@@ -12,8 +12,10 @@
  */
 
 import { chromium } from 'playwright';
+import { Client as PgClient } from 'pg';
 
 const BASE = (process.env['BUHO_URL'] ?? 'http://127.0.0.1:3100').replace(/\/$/, '');
+const STORE_URL = process.env['BUHO_STORE_URL'] ?? process.env['DATABASE_URL'] ?? '';
 /**
  * Lab default when Admin → Users exists: `smoke` / `smoke-test-pass`.
  * Shared BUHO_AUTH_PASSWORD alone fails once users are seeded.
@@ -166,7 +168,46 @@ if (exportacion.status() !== 200 || !markdown.startsWith('# Weekly database repo
   console.log(`✓ ${'Report download'.padEnd(28)} ${markdown.length} bytes of Markdown`);
 }
 
-// Instance screens — pick the first instance link in the sidebar.
+/**
+ * Prefer a real SQL engine for DB tab walk. Sidebar order can put engine=infra
+ * first after Hosts PRTG lab seeds — those pages 200 but are not the DB surface.
+ */
+async function pickSqlInstanceId(sidebarIds) {
+  if (process.env['BUHO_INSTANCE']) return process.env['BUHO_INSTANCE'];
+  if (!STORE_URL) return sidebarIds[0] ?? null;
+
+  const client = new PgClient({ connectionString: STORE_URL });
+  try {
+    await client.connect();
+    const result = await client.query(
+      `select instance_id::text as id, engine
+         from buho.instances
+        where engine in ('postgres', 'mariadb', 'mssql', 'oracle')
+        order by case engine
+                   when 'postgres' then 0
+                   when 'mariadb' then 1
+                   when 'mssql' then 2
+                   else 3
+                 end,
+                 instance_id
+        limit 1`,
+    );
+    const row = result.rows[0];
+    if (row?.id) {
+      console.log(`· prefer SQL instance ${row.id} (engine=${row.engine}) over sidebar-first`);
+      return String(row.id);
+    }
+  } catch (err) {
+    console.log(
+      `· SQL instance pick skipped: ${err instanceof Error ? err.message : err} — using sidebar`,
+    );
+  } finally {
+    await client.end().catch(() => {});
+  }
+  return sidebarIds[0] ?? null;
+}
+
+// Instance screens — pick a SQL engine (not infra/endpoint) when possible.
 await page.goto(`${BASE}/`, { waitUntil: 'load', timeout: 60_000 });
 const enlaces = await page.locator('.sidebar a[href^="/instances/"]').all();
 const ids = [];
@@ -179,23 +220,26 @@ for (const enlace of enlaces) {
 if (ids.length === 0) {
   console.log('· no instances in the store: skipping instance screens');
 } else {
-  // Prefer an explicit id when engines are mixed; Postgres has the widest surface.
-  const id = process.env['BUHO_INSTANCE'] ?? ids[0];
-  console.log(`· using instance ${id} (of ${ids.length} in the sidebar)`);
-  await ver('Instance: overview', `/instances/${id}`);
-  await ver('Instance: analysis', `/instances/${id}/analysis?m=connections_total`);
-  await ver('Instance: queries', `/instances/${id}/queries`);
-  await ver('Instance: host', `/instances/${id}/host`);
-  await ver('Instance: locks', `/instances/${id}/locks`);
-  await ver('Instance: vacuum', `/instances/${id}/vacuum`);
-  await ver('Instance: replication', `/instances/${id}/replication`);
-  await ver('Instance: logs', `/instances/${id}/logs`);
-  await ver('Fleet: flow', '/flow');
-  await ver('Instance: sessions', `/instances/${id}/sessions`);
-  await ver('Instance: flow', `/instances/${id}/flow`);
-  await ver('Instance: capacity', `/instances/${id}/capacity`);
-  await ver('Instance: topology', `/instances/${id}/topology`);
-  await ver('Instance: analysis vs 24h', `/instances/${id}/analysis?m=connections_total&vs=24h`);
+  const id = await pickSqlInstanceId(ids);
+  if (!id) {
+    console.log('· no SQL instance available: skipping instance screens');
+  } else {
+    console.log(`· using instance ${id} (of ${ids.length} in the sidebar)`);
+    await ver('Instance: overview', `/instances/${id}`);
+    await ver('Instance: analysis', `/instances/${id}/analysis?m=connections_total`);
+    await ver('Instance: queries', `/instances/${id}/queries`);
+    await ver('Instance: host', `/instances/${id}/host`);
+    await ver('Instance: locks', `/instances/${id}/locks`);
+    await ver('Instance: vacuum', `/instances/${id}/vacuum`);
+    await ver('Instance: replication', `/instances/${id}/replication`);
+    await ver('Instance: logs', `/instances/${id}/logs`);
+    await ver('Fleet: flow', '/flow');
+    await ver('Instance: sessions', `/instances/${id}/sessions`);
+    await ver('Instance: flow', `/instances/${id}/flow`);
+    await ver('Instance: capacity', `/instances/${id}/capacity`);
+    await ver('Instance: topology', `/instances/${id}/topology`);
+    await ver('Instance: analysis vs 24h', `/instances/${id}/analysis?m=connections_total&vs=24h`);
+  }
 }
 
 await browser.close();
