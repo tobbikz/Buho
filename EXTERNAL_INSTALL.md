@@ -7,7 +7,7 @@ A true “install on someone else’s machine” needs that host. This file is t
 ```bash
 git clone https://github.com/tobbikz/buho-monitor.git
 cd buho-monitor
-git checkout v1.6.1
+git checkout v1.7.2
 ./install.sh --pull
 ```
 
@@ -39,8 +39,8 @@ npx tsx scripts/assert-check-parity.ts
 
 | Image | Tag |
 |-------|-----|
-| `ghcr.io/tobbikz/buho-monitor/collector` | `1.6.1` / `latest` |
-| `ghcr.io/tobbikz/buho-monitor/web` | `1.6.1` / `latest` |
+| `ghcr.io/tobbikz/buho-monitor/collector` | `1.7.2` / `latest` |
+| `ghcr.io/tobbikz/buho-monitor/web` | `1.7.2` / `latest` |
 
 Published by `.github/workflows/publish-images.yml` on push of tag `v*`.
 
@@ -50,18 +50,18 @@ Published by `.github/workflows/publish-images.yml` on push of tag `v*`.
 On a machine with GHCR access:
 
 ```bash
-docker pull ghcr.io/tobbikz/buho-monitor/collector:1.6.1
-docker pull ghcr.io/tobbikz/buho-monitor/web:1.6.1
-docker save ghcr.io/tobbikz/buho-monitor/collector:1.6.1 \
-            ghcr.io/tobbikz/buho-monitor/web:1.6.1 \
-  | gzip > buho-1.6.1-images.tgz
+docker pull ghcr.io/tobbikz/buho-monitor/collector:1.7.2
+docker pull ghcr.io/tobbikz/buho-monitor/web:1.7.2
+docker save ghcr.io/tobbikz/buho-monitor/collector:1.7.2 \
+            ghcr.io/tobbikz/buho-monitor/web:1.7.2 \
+  | gzip > buho-1.7.2-images.tgz
 ```
 
 On the foreign host (no registry pull):
 
 ```bash
-gunzip -c buho-1.6.1-images.tgz | docker load
-# then install.sh / compose with image tags pinned to 1.6.1 (no :latest drift)
+gunzip -c buho-1.7.2-images.tgz | docker load
+# then install.sh / compose with image tags pinned to 1.7.2 (no :latest drift)
 export BUHO_OTLP_TOKEN="$(openssl rand -hex 24)"   # required off-loopback
 ```
 
