@@ -149,7 +149,7 @@ export async function MongoSummary({
           tone={toneForPct(used, 70, 90)}
         />
         <StatCard
-          label="RAM residente"
+          label="Resident RAM"
           value={resident === null ? '—' : `${formatNumber(resident, 0)} MB`}
         />
         <StatCard
@@ -241,12 +241,12 @@ export async function MongoSummary({
           data={connections}
           unit="count"
           series={[
-            { metric: 'connections_total', label: 'Actuales', color: COLOR.accent },
-            { metric: 'mongo_cursors_open', label: 'Cursores', color: COLOR.warning },
+            { metric: 'connections_total', label: 'Current', color: COLOR.accent },
+            { metric: 'mongo_cursors_open', label: 'Cursors', color: COLOR.warning },
           ]}
         />
         <TimeseriesPanel
-          title="Operaciones per second"
+          title="Operations per second"
           hint={windowHint}
           data={ops}
           unit="rate"
@@ -301,7 +301,7 @@ export async function MongoSummary({
           ]}
         />
         <TimeseriesPanel
-          title="Memoria residente"
+          title="Resident memory"
           hint={windowHint}
           data={mem}
           unit="count"

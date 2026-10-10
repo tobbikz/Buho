@@ -636,26 +636,26 @@ export async function inspectLogging(pool: Pool, config: LogConfig): Promise<Log
   if (usable === 'sql' && !collector) {
     usable = 'none';
     limitations.push(
-      'logs.source=sql necesita logging_collector=on. Con el colector apagado el log va a stderr/journald: usa logs.source=journal.',
+      'logs.source=sql needs logging_collector=on. With the collector off, logs go to stderr/journald — set logs.source=journal.',
     );
   }
   if (usable === 'none') {
     limitations.push(
       collector
-        ? 'El servidor escribe archivos de log, pero no se configuró un origen (sql / file / journal).'
-        : 'logging_collector está apagado: el log va a la salida de error, que en Linux suele capturar systemd. Declarar `logs.source = "journal"` en config.json para leerlo.',
+        ? 'The server writes log files, but no source was configured (sql / file / journal).'
+        : 'logging_collector is off: logs go to stderr, usually captured by systemd on Linux. Set `logs.source = "journal"` in config.json to read them.',
     );
   }
   if (!destination.includes('jsonlog') && !destination.includes('csvlog')) {
     limitations.push(
-      `log_destination es "${destination}": los campos se deducen del texto. Con jsonlog (PG 15+) o csvlog vienen separados, incluido el SQLSTATE y el usuario de cada error.`,
+      `log_destination is "${destination}": fields are inferred from free text. With jsonlog (PG 15+) or csvlog they arrive structured, including SQLSTATE and user.`,
     );
   }
   if (setting('log_lock_waits') !== 'on') {
-    limitations.push('log_lock_waits está apagado: las esperas de bloqueo no dejan rastro en el log.');
+    limitations.push('log_lock_waits is off: lock waits leave no trail in the log.');
   }
   if (setting('log_min_duration_statement') === '-1') {
-    limitations.push('log_min_duration_statement es -1: las consultas lentas no se registran.');
+    limitations.push('log_min_duration_statement is -1: slow queries are not logged.');
   }
 
   return {

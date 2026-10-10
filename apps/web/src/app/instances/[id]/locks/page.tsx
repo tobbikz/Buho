@@ -22,7 +22,7 @@ function session(
     <div className={`lock-node lock-node--${role}`}>
       <div className="lock-node__head">
         <span className="lock-node__role" style={{ color: role === 'blocker' ? 'var(--error)' : 'var(--warning)' }}>
-          {role === 'blocker' ? 'Bloquea' : 'Espera'}
+          {role === 'blocker' ? 'Blocks' : 'Waits'}
         </span>
         <span className="font-mono text-[11px] font-semibold">pid {pid ?? '?'}</span>
         <span className="font-mono text-[10px] text-foreground-muted">
@@ -39,22 +39,22 @@ function session(
 function LockTree({ episode }: { episode: LockEpisode }) {
   const chain =
     episode.blockerPids.length > 1
-      ? `cadena de ${episode.blockerPids.length} bloqueadores: ${episode.blockerPids.join(', ')}`
+      ? `chain of ${episode.blockerPids.length} blockers: ${episode.blockerPids.join(', ')}`
       : null;
 
   return (
     <div className="lock-tree">
       <div className="flex flex-wrap items-center gap-2">
         <span className={`tag ${episode.active ? 'tag--error' : 'tag--muted'}`}>
-          {episode.active ? 'activo' : 'resuelto'}
+          {episode.active ? 'active' : 'resolved'}
         </span>
         <span className="font-mono text-[12px] font-semibold">{formatDuration(episode.waitSeconds)}</span>
         <span className="text-[11.5px] text-foreground-secondary">
-          esperando <span className="font-mono">{episode.lockMode ?? 'lock'}</span> sobre{' '}
+          waiting for <span className="font-mono">{episode.lockMode ?? 'lock'}</span> on{' '}
           <span className="font-mono">{episode.lockObject ?? 'unknown object'}</span>
         </span>
         <span className="font-mono text-[10px] text-foreground-muted">
-          desde {formatClock(episode.firstSeenAt)} · {episode.samples} muestra
+          since {formatClock(episode.firstSeenAt)} · {episode.samples} sample
           {episode.samples === 1 ? '' : 's'}
         </span>
       </div>
@@ -64,7 +64,7 @@ function LockTree({ episode }: { episode: LockEpisode }) {
         episode.blockerPid,
         episode.blockerUser,
         episode.blockerApplication,
-        `${episode.blockerState ?? 'estado desconocido'}${
+        `${episode.blockerState ?? 'unknown state'}${
           episode.blockerXactSeconds !== null
             ? ` · transaction open ${formatDuration(episode.blockerXactSeconds)}`
             : ''
@@ -72,7 +72,7 @@ function LockTree({ episode }: { episode: LockEpisode }) {
         episode.blockerQuery,
       )}
 
-      <div className="lock-arrow">└─ bloquea a</div>
+      <div className="lock-arrow">└─ blocks</div>
 
       {session(
         'waiter',
@@ -153,10 +153,36 @@ export default async function LocksPage({ params }: { params: Promise<{ id: stri
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Locks · {instance.alias}</h1>
+            <h1 className="page-title">
+              {engine === 'mongodb'
+                ? `Lock waiters · ${instance.alias}`
+                : engine === 'redis'
+                  ? `Blocked clients · ${instance.alias}`
+                  : engine === 'elasticsearch'
+                    ? `Allocation pressure · ${instance.alias}`
+                    : `Locks · ${instance.alias}`}
+            </h1>
             <p className="page-sub">
-              Episodios de las last 24 h. Un episodio es una sesión esperando un lock, no un sampling: mientras
-              el bloqueo vive se actualiza la misma fila.
+              {engine === 'mongodb' ? (
+                <>
+                  Global lock queue and ops with <span className="font-mono">waitingForLock</span> from{' '}
+                  <span className="font-mono">currentOp</span> / serverStatus. Episodes last 24 h.
+                </>
+              ) : engine === 'redis' ? (
+                <>
+                  Clients blocked on <span className="font-mono">BLPOP</span> / modules /{' '}
+                  <span className="font-mono">BUSY</span> — from INFO clients. Episodes last 24 h.
+                </>
+              ) : engine === 'elasticsearch' ? (
+                <>
+                  Cluster allocation / pending-task pressure (not SQL row locks). Episodes last 24 h.
+                </>
+              ) : (
+                <>
+                  Episodes from the last 24 h. An episode is a session waiting on a lock — not a sample: the same
+                  row updates while the wait is alive.
+                </>
+              )}
             </p>
           </div>
         </header>
@@ -222,7 +248,7 @@ export default async function LocksPage({ params }: { params: Promise<{ id: stri
             <span className="font-mono text-[10px] text-foreground-muted">last 24 h</span>
           </div>
           {history.length === 0 ? (
-            <div className="empty">Sin bloqueos registrados en las last 24 h.</div>
+            <div className="empty">No blocking episodes in the last 24 h.</div>
           ) : (
             <div className="table-scroll">
               <table className="data-table">
@@ -231,7 +257,7 @@ export default async function LocksPage({ params }: { params: Promise<{ id: stri
                     <th>Inicio</th>
                     <th className="text-right">Duration</th>
                     <th>Object</th>
-                    <th>Modo</th>
+                    <th>Mode</th>
                     <th>Esperaba</th>
                     <th>Bloqueaba</th>
                     <th>Blocked query</th>

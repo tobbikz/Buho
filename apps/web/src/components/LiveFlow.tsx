@@ -350,8 +350,8 @@ export function LiveFlow({
   unit,
   height = 420,
   intervalMs = 5000,
-  /** When false (default), same packed APP→table layout without moving particles. */
-  animated = false,
+  /** When false, packed APP→table map without moving particles. Default live (animated). */
+  animated = true,
   /** Window used for /api/flow-live rates — match the Flow page window. */
   windowMinutes = 5,
 }: {
@@ -368,6 +368,9 @@ export function LiveFlow({
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [pantallaCompleta, setPantallaCompleta] = useState(false);
   const [zoomEnabled, setZoomEnabled] = useState(false);
+  const [liveMotion, setLiveMotion] = useState(animated);
+  const liveMotionRef = useRef(liveMotion);
+  liveMotionRef.current = liveMotion;
   const viewportRef = useRef({ scale: 1, tx: 0, ty: 0 });
   const [viewportH, setViewportH] = useState(
     typeof window !== 'undefined' ? window.innerHeight : 900,
@@ -420,6 +423,10 @@ export function LiveFlow({
   unitRef.current = unit;
   const animatedRef = useRef(animated);
   animatedRef.current = animated;
+  // Prefer the Live/Static toggle; prop is only the initial default.
+  useEffect(() => {
+    setLiveMotion(animated);
+  }, [animated]);
   const posicionesRef = useRef<NodePos[]>([]);
   const [elegido, setElegido] = useState<{
     label: string;
@@ -876,7 +883,7 @@ export function LiveFlow({
       const actividad = Math.min(1, total / referencia);
 
       const corTotal = corridors.reduce((suma, c) => suma + c.value, 0) || 1;
-      const moving = animatedRef.current;
+      const moving = liveMotionRef.current;
 
       // Size cards before ribbons — prefer sizes stamped at layout (fitted to stage).
       for (const nodo of nodos) {
@@ -910,8 +917,8 @@ export function LiveFlow({
           .filter(({ cor }) => cor.kind === 'read' && cor.value > 0);
 
         const rawEmission = Math.min(
-          DEMO_TABLE_COUNT > 0 ? 90 : MAX_PARTICLES_PER_SECOND,
-          Math.log10(1 + total) * 3.2 * PARTICLES_PER_RATE + Math.min(total, 6) * 0.14,
+          DEMO_TABLE_COUNT > 0 ? 55 : MAX_PARTICLES_PER_SECOND * 0.55,
+          Math.log10(1 + total) * 1.8 * PARTICLES_PER_RATE + Math.min(total, 6) * 0.08,
         );
         const writeShare =
           writes.length && reads.length ? 0.62 : writes.length ? 1 : 0;
@@ -935,7 +942,8 @@ export function LiveFlow({
               particulas.push({
                 corridor: i,
                 t: 0,
-                speed: 0.18 + Math.min(0.28, Math.log10(1 + cor.value) * 0.07),
+                // Slower comets — readable on 60 Hz without looking glued together.
+                speed: 0.09 + Math.min(0.14, Math.log10(1 + cor.value) * 0.035),
                 size: 2 + Math.min(2.8, Math.pow(cuota, 0.35) * 2.2),
                 lane: (Math.random() - 0.5) * 1.1,
               });
@@ -1369,22 +1377,29 @@ export function LiveFlow({
                 Demo · {DEMO_TABLE_COUNT}
               </div>
             )}
-            {animated ? (
-              <button
-                type="button"
-                className={`tag ${zoomEnabled ? 'tag--info' : 'tag--muted'}`}
-                onClick={() => {
-                  setZoomEnabled((v) => {
-                    if (v) viewportRef.current = { scale: 1, tx: 0, ty: 0 };
-                    return !v;
-                  });
-                }}
-                aria-label={zoomEnabled ? 'Disable zoom' : 'Enable zoom'}
-                title={zoomEnabled ? 'Zoom on — scroll to zoom, drag to pan' : 'Enable zoom / pan'}
-              >
-                {zoomEnabled ? 'Zoom on' : 'Zoom'}
-              </button>
-            ) : null}
+            <button
+              type="button"
+              className={`tag ${liveMotion ? 'tag--info' : 'tag--muted'}`}
+              onClick={() => setLiveMotion((v) => !v)}
+              aria-label={liveMotion ? 'Switch to static map' : 'Switch to live motion'}
+              title={liveMotion ? 'Live motion on — click for static map' : 'Static map — click for live motion'}
+            >
+              {liveMotion ? 'Live' : 'Static'}
+            </button>
+            <button
+              type="button"
+              className={`tag ${zoomEnabled ? 'tag--info' : 'tag--muted'}`}
+              onClick={() => {
+                setZoomEnabled((v) => {
+                  if (v) viewportRef.current = { scale: 1, tx: 0, ty: 0 };
+                  return !v;
+                });
+              }}
+              aria-label={zoomEnabled ? 'Disable zoom' : 'Enable zoom'}
+              title={zoomEnabled ? 'Zoom on — scroll to zoom, drag to pan' : 'Enable zoom / pan'}
+            >
+              {zoomEnabled ? 'Zoom on' : 'Zoom'}
+            </button>
             <button
               type="button"
               className="tag tag--muted"

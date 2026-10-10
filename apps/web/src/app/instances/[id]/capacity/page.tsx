@@ -72,8 +72,9 @@ export default async function CapacityPage({ params }: { params: Promise<{ id: s
           <div>
             <h1 className="page-title">Capacity · {instance.alias}</h1>
             <p className="page-sub">
-              Early warning for when disk, XID age, CPU, or RAM would hit a limit if today&apos;s
-              trend continues.
+              {engine === 'postgres'
+                ? "Early warning for when disk, XID age, CPU, or RAM would hit a limit if today's trend continues."
+                : "Early warning for when disk, CPU, or RAM would hit a limit if today's trend continues."}
             </p>
           </div>
           <Link href={`/instances/${instanceId}/analysis`} className="tag tag--muted">

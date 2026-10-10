@@ -37,6 +37,7 @@ function firstLine(query: string): string {
 
 export function StatementsTable({
   explainable = true,
+  showWal = true,
   rows,
   totalExecMs,
   instanceId,
@@ -47,6 +48,8 @@ export function StatementsTable({
    * ofrecer el botón para después decir "no se pudo" es peor que no ofrecerlo.
    */
   explainable?: boolean;
+  /** PostgreSQL-only column (WAL bytes). Hide on other engines. */
+  showWal?: boolean;
   rows: StatementRow[];
   totalExecMs: number;
   instanceId: number;
@@ -63,15 +66,15 @@ export function StatementsTable({
         <thead>
           <tr>
             <th style={{ width: '34%' }}>Query</th>
-            <th>Tendencia</th>
+            <th>Trend</th>
             <th className="text-right">% of time</th>
-            <th className="text-right">Tiempo total</th>
+            <th className="text-right">Total time</th>
             <th className="text-right">Calls</th>
             <th className="text-right">Mean</th>
             <th className="text-right">Rows</th>
             <th className="text-right">Cache hit</th>
             <th className="text-right">Temp</th>
-            <th className="text-right">WAL</th>
+            {showWal ? <th className="text-right">WAL</th> : null}
             <th />
           </tr>
         </thead>
@@ -117,7 +120,9 @@ export function StatementsTable({
                   <td className="num">{formatNumber(row.rows)}</td>
                   <td className="num">{formatPct(row.hitPct, 1)}</td>
                   <td className="num">{row.tempWritten > 0 ? formatNumber(row.tempWritten) : '·'}</td>
-                  <td className="num">{row.walBytes > 0 ? formatBytes(row.walBytes) : '·'}</td>
+                  {showWal ? (
+                    <td className="num">{row.walBytes > 0 ? formatBytes(row.walBytes) : '·'}</td>
+                  ) : null}
                   {/* El enlace va en su propia columna y no dentro de la fila
                       expandible: llegar al plan cuesta un clic y no depende de
                       que la expansión funcione. stopPropagation evita que el
@@ -140,17 +145,17 @@ export function StatementsTable({
                 </tr>
                 {isOpen && (
                   <tr>
-                    <td colSpan={11} style={{ background: 'var(--surface-raised)' }}>
+                    <td colSpan={showWal ? 11 : 10} style={{ background: 'var(--surface-raised)' }}>
                       <div className="flex flex-wrap gap-4 pb-2">
                         <div>
                           <div className="text-[10px] uppercase tracking-wide text-foreground-muted">
-                            Execution time por intervalo
+                            Execution time per interval
                           </div>
                           <Sparkline values={row.trend} width={220} height={46} color="#005eb8" />
                         </div>
                         <div>
                           <div className="text-[10px] uppercase tracking-wide text-foreground-muted">
-                            Calls por intervalo
+                            Calls per interval
                           </div>
                           <Sparkline values={row.callsTrend} width={220} height={46} color="#0a6e42" />
                         </div>

@@ -27,6 +27,21 @@ export { instanceFromEnv, instanceFromUrl, loadConfig } from './config';
 export type { BuhoConfig, CollectorConfig, RetentionConfig } from './config';
 export { openEngine, engineOf, ENGINE_LABEL, DEFAULT_PORT } from './engine';
 export type { EngineKind, EngineClient, EngineOptions } from './engine';
+export { probeEndpoint, probeHttp, probeTcp, probeTlsCert } from './endpoints/probe';
+export type { EndpointProbeConfig, EndpointProbeResult } from './endpoints/probe';
+export { analyzeBaseUrl } from './endpoints/analyze';
+export type {
+  AnalyzeBaseUrlOptions,
+  AnalyzeBaseUrlResult,
+  AnalyzePathResult,
+} from './endpoints/analyze';
+export {
+  BUHO_CONSOLE_PATHS,
+  DEFAULT_ANALYZE_STATUSES,
+  joinBaseUrl,
+} from './endpoints/catalog';
+export { parseOtlpTracesJson, spanDurationMs } from './otel/parse';
+export type { ParsedSpan, ParsedTraceBatch } from './otel/parse';
 export * as inventory from './inventory';
 export { collectInventory } from './inventory';
 export type { InventorySnapshot, InventoryNote, InventoryDomain, EngineInfo, SettingRow, DiskObject, ReplicationRow, BackupRow, JobRow, LicensingRow } from './inventory';
@@ -82,11 +97,15 @@ export {
   MariadbSlowEventTracker,
   sampleMariadbSlowEvents,
   sampleMariadbIndexes,
+  sampleOracleIndexes,
+  sampleMssqlIndexes,
+  sampleMssqlMaintenance,
   runMariadbExplain,
   ForeignProcedureTracker,
   sampleForeignProcedures,
   sampleMssqlCatalog,
   sampleMariadbCatalog,
+  sampleOracleCatalog,
   sampleForeignBlocking,
   sampleForeignSessions,
   sampleRedisSlowlog,
@@ -95,4 +114,13 @@ export {
   inspectForeignLogging,
   digestToQueryid,
 } from './foreign';
-export type { ForeignCaps, ForeignCollector, ForeignRunResult, ProcedureDelta, StatementSlowEvent } from './foreign';
+export type {
+  ForeignCaps,
+  ForeignCollector,
+  ForeignRunResult,
+  ProcedureDelta,
+  StatementSlowEvent,
+  MssqlMaintenanceSnapshot,
+  MssqlHeapPressureRow,
+  MssqlIndexFragmentationRow,
+} from './foreign';

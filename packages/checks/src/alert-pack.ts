@@ -147,6 +147,18 @@ export const ALERT_PACK_CATALOG: PackItemMeta[] = [
     defaults: { enabled: true, warning: 30, critical: 120 },
   },
   {
+    id: 'rpo_exposure',
+    title: 'RPO exposure high',
+    description:
+      'Seconds of potential data loss from inventory (WAL/binlog/log backup age). Broken chains report as a huge sentinel.',
+    metric: 'rpo_exposure_seconds',
+    direction: 'high',
+    unit: 's',
+    remediation:
+      'Open Estate → RPO. Fix archive_mode / log backups / binlog. Override instance target with tag rpo_seconds.',
+    defaults: { enabled: true, warning: 900, critical: 3600 },
+  },
+  {
     id: 'cache_hit',
     title: 'Buffer cache hit low',
     description: 'Cache hit ratio (lower is worse)',

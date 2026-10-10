@@ -25,8 +25,13 @@ import {
   type VacuumProgressRow,
   type VacuumTableRow,
 } from '@/lib/vacuum';
+import type { MariaDbMaintenanceOrder } from '@/lib/mariadb-maintenance';
+import { MariaDbMaintenance } from './MariaDbMaintenance';
+import { MssqlMaintenance } from './MssqlMaintenance';
 
 export const dynamic = 'force-dynamic';
+
+const MARIADB_ORDERS: MariaDbMaintenanceOrder[] = ['size', 'free', 'bloat'];
 
 const ORDERS: { key: VacuumOrder; label: string }[] = [
   { key: 'muertas', label: 'Most dead tuples' },
@@ -178,7 +183,24 @@ export default async function VacuumPage({
   if (!Number.isInteger(instanceId) || instanceId <= 0) notFound();
 
   const engineKind = await getInstanceEngine(instanceId);
-  if (engineKind && engineKind !== 'postgres') redirect(`/instances/${instanceId}`);
+  if (
+    engineKind &&
+    engineKind !== 'postgres' &&
+    engineKind !== 'mariadb' &&
+    engineKind !== 'mssql'
+  ) {
+    redirect(`/instances/${instanceId}`);
+  }
+
+  if (engineKind === 'mariadb') {
+    const mariaOrder: MariaDbMaintenanceOrder =
+      MARIADB_ORDERS.find((key) => key === orden) ?? 'size';
+    return <MariaDbMaintenance instanceId={instanceId} order={mariaOrder} />;
+  }
+
+  if (engineKind === 'mssql') {
+    return <MssqlMaintenance instanceId={instanceId} />;
+  }
 
   const order = ORDERS.find((entry) => entry.key === orden)?.key ?? 'muertas';
 

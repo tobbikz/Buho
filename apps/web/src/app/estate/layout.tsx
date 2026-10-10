@@ -10,6 +10,8 @@ import { ENGINE_LABEL, getEngineCounts } from '@/lib/estate';
  * los catorce. Todas las pantallas de acá listan el parque completo y dejan el
  * clic a la instancia como profundización, no como punto de partida.
  */
+
+export const metadata = { title: 'Estate · Búho' };
 export default async function EstateLayout({ children }: { children: React.ReactNode }) {
   let counts: { engine: string; count: number }[] = [];
   try {
@@ -27,9 +29,8 @@ export default async function EstateLayout({ children }: { children: React.React
           <div>
             <h1 className="page-title">Estate</h1>
             <p className="page-sub">
-              Inventario de todo el parque: respaldos, disco, tareas, replicación, configuración, licencias y
-              versiones. Se lee una vez por hora, porque estas cosas cambian de mes en mes. HA lag y data
-              growth también viven en{' '}
+              Fleet inventory: backups, disk, jobs, replication, configuration, licenses, and versions.
+              Refreshed once an hour — these change month to month. HA lag and data growth also live under{' '}
               <Link href="/cluster" className="underline decoration-dotted">
                 Cluster
               </Link>

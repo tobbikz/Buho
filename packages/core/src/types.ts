@@ -1,6 +1,9 @@
 import type { LogConfig } from './logs';
 import type { HostConfig } from './host';
 import type { EngineKind } from './engine';
+import type { EndpointProbeConfig } from './endpoints/probe';
+
+export type { EndpointProbeConfig };
 
 export interface InstanceConfig {
   alias: string;
@@ -8,6 +11,7 @@ export interface InstanceConfig {
    * Ausente = postgres, para no romper las configuraciones existentes.
    * MariaDB y SQL Server entran por el inventario del parque; el pipeline de
    * métricas de 5 s y los 22 checks siguen siendo de PostgreSQL.
+   * `endpoint` = sonda sintética HTTP/TCP/TLS (app layer, no SNMP).
    */
   engine?: EngineKind;
   host: string;
@@ -31,6 +35,8 @@ export interface InstanceConfig {
   hostMetrics?: HostConfig;
   /** De dónde leer el log de PostgreSQL. Apagado si no se declara. */
   logs?: LogConfig;
+  /** Probe config when engine = endpoint. */
+  endpoint?: EndpointProbeConfig;
 }
 
 /**

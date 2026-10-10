@@ -7,7 +7,7 @@ import { Pool } from 'pg';
  * monitoreadas. Esa frontera es deliberada — un render de la web no puede
  * abrir connections contra la base de un cliente.
  */
-function storeUrl(): string {
+export function storeUrl(): string {
   const fromEnv = process.env['BUHO_STORE_URL'];
   if (fromEnv) return fromEnv;
 

@@ -300,6 +300,78 @@ async function leerMssql(client: EngineClient, cursor: string | null): Promise<L
   return vacia(entradas, 'errorlog y system_health', nuevoCursor, avisos);
 }
 
+// ------------------------------------------------------------------------ Oracle
+
+function clasificarOracle(mensaje: string): LogKind {
+  const bajo = mensaje.toLowerCase();
+  if (bajo.includes('deadlock')) return 'deadlock';
+  if (bajo.includes('ora-00060')) return 'deadlock';
+  if (bajo.includes('lock') && bajo.includes('wait')) return 'lock_wait';
+  if (bajo.includes('ora-00600') || bajo.includes('ora-07445')) return 'fatal';
+  if (bajo.includes('ora-') || bajo.includes('error')) return 'error';
+  if (bajo.includes('checkpoint') || bajo.includes('log switch')) return 'checkpoint';
+  if (bajo.includes('archiv')) return 'other';
+  return 'other';
+}
+
+async function leerOracle(client: EngineClient, cursor: string | null): Promise<LogReadResult> {
+  const avisos: string[] = [];
+  const entradas: LogEntry[] = [];
+  // First read: 24h. Cursor is always ISO-UTC from JS Date.toISOString().
+  const desde = cursor ?? new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+  let nuevoCursor = cursor;
+
+  // V$DIAG originating_timestamp is TIMESTAMP WITH TIME ZONE. to_timestamp() is
+  // session-local and silently shifts UTC cursors (e.g. UTC-6 → empty reads).
+  const desdeTz = (() => {
+    const d = new Date(desde);
+    if (Number.isNaN(d.getTime())) return new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+    return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  })();
+
+  try {
+    const filas = await client.query(`
+      select originating_timestamp as log_date,
+             message_type,
+             message_level,
+             message_text
+        from v$diag_alert_ext
+       where originating_timestamp > to_timestamp_tz('${desdeTz}', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+       order by originating_timestamp desc
+       fetch first 500 rows only`);
+
+    for (const fila of filas) {
+      const cuando = fecha(fila['log_date']);
+      const mensaje = str(fila['message_text'], '').trim();
+      if (!mensaje) continue;
+      const tipo = str(fila['message_type'], '');
+      const nivel = num(fila['message_level']);
+      entradas.push(
+        entrada({
+          at: cuando,
+          level: nivel <= 1 || /error|fatal|ora-/i.test(mensaje) ? 'ERROR' : 'LOG',
+          kind: clasificarOracle(mensaje),
+          message: mensaje.slice(0, 2000),
+          context: tipo || null,
+          raw: mensaje.slice(0, 4000),
+        }),
+      );
+      if (!nuevoCursor || cuando.toISOString() > nuevoCursor) nuevoCursor = cuando.toISOString();
+    }
+  } catch (error) {
+    avisos.push(
+      `no se pudo leer V$DIAG_ALERT_EXT (alert log): hace falta SELECT sobre las vistas de diagnóstico ` +
+        `(${error instanceof Error ? error.message : String(error)}).`,
+    );
+  }
+
+  avisos.push(
+    'Oracle alert log via V$DIAG_ALERT_EXT: deadlocks (ORA-00060) and errors appear here when privileges allow.',
+  );
+
+  return vacia(entradas, 'V$DIAG_ALERT_EXT (alert log)', nuevoCursor, avisos);
+}
+
 /**
  * Qué se puede leer del log de este motor, y qué no.
  *
@@ -324,5 +396,6 @@ export async function readForeignLog(
 ): Promise<LogReadResult> {
   if (caps.engine === 'mariadb') return leerMariadb(client, cursor);
   if (caps.engine === 'mssql') return leerMssql(client, cursor);
+  if (caps.engine === 'oracle') return leerOracle(client, cursor);
   return { entries: [], cursor, source: 'none', detail: 'motor sin lectura de log', warnings: [] };
 }

@@ -47,9 +47,9 @@ async function deleteTarget(formData: FormData) {
 export default async function AdminInstancesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; ok?: string }>;
+  searchParams: Promise<{ error?: string; ok?: string; edit?: string }>;
 }) {
-  const { error, ok } = await searchParams;
+  const { error, ok, edit } = await searchParams;
 
   let targets;
   try {
@@ -58,6 +58,8 @@ export default async function AdminInstancesPage({
   } catch (storeError) {
     return <StoreError message={storeError instanceof Error ? storeError.message : String(storeError)} />;
   }
+
+  const editing = edit ? targets.find((t) => t.alias === edit) : undefined;
 
   return (
     <div className="flex flex-col gap-[0.875rem]">
@@ -71,15 +73,43 @@ export default async function AdminInstancesPage({
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Add database to monitor</span>
+          <span className="panel-title">
+            {editing ? `Edit ${editing.alias}` : 'Add database to monitor'}
+          </span>
+          {editing ? (
+            <Link href="/admin/instances" className="tag tag--muted">
+              cancel edit
+            </Link>
+          ) : null}
         </div>
         <div className="panel-body">
           <p className="mb-3 text-[12px] text-foreground-secondary">
-            Saves the connection in the store. Targets here are merged with{' '}
-            <span className="font-mono">config.json</span> (the file wins if the same alias already exists
-            there). Credentials stay on-prem in the store, same trust model as the config file.
+            Saves the connection in the store (editable here). File-based{' '}
+            <span className="font-mono">config.json</span> still wins only if the same alias exists
+            there — keep DB targets in the store so you can change host/port from the console.
+            Same alias + Save updates the existing target.
           </p>
-          <AddDatabaseForm action={addTarget} />
+          <AddDatabaseForm
+            key={editing ? `edit-${editing.alias}` : 'add'}
+            action={addTarget}
+            submitLabel={editing ? 'Update target' : 'Save target'}
+            defaults={
+              editing
+                ? {
+                    alias: editing.alias,
+                    engine: editing.engine,
+                    host: editing.host,
+                    port: editing.port,
+                    database: editing.database,
+                    username: editing.username,
+                    environment: editing.environment,
+                    ssl: editing.ssl,
+                    hostMetricsSource: 'local',
+                    expandAllDatabases: false,
+                  }
+                : undefined
+            }
+          />
         </div>
       </section>
 
@@ -124,6 +154,12 @@ export default async function AdminInstancesPage({
                     </td>
                     <td className="py-1.5">
                       <div className="flex flex-wrap gap-1">
+                        <Link
+                          href={`/admin/instances?edit=${encodeURIComponent(t.alias)}`}
+                          className="tag tag--info"
+                        >
+                          edit
+                        </Link>
                         <form action={toggleTarget}>
                           <input type="hidden" name="targetId" value={t.targetId} />
                           <input type="hidden" name="enabled" value={t.enabled ? '0' : '1'} />

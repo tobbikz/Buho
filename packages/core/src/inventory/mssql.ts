@@ -143,7 +143,7 @@ export async function collectMssql(client: EngineClient): Promise<InventorySnaps
       (row): SettingRow => ({
         name: String(row['name']),
         value: String(row['value'] ?? ''),
-        category: row['is_advanced'] === true ? 'avanzado' : 'básico',
+        category: row['is_advanced'] === true ? 'advanced' : 'basic',
         // is_dynamic = false significa que el cambio necesita reinicio del
         // servicio; es el equivalente del context 'postmaster' de PostgreSQL.
         requiresRestart: row['is_dynamic'] === false,
@@ -162,10 +162,10 @@ export async function collectMssql(client: EngineClient): Promise<InventorySnaps
     notes.push({
       domain: 'settings',
       level: 'warn',
-      message: `${pending.length} parámetro(s) tienen un valor configurado distinto al que está en uso (${pending
+      message: `${pending.length} setting(s) have a configured value different from the one in use (${pending
         .map((row) => String(row['name']))
         .slice(0, 4)
-        .join(', ')}): falta RECONFIGURE o reiniciar el servicio.`,
+        .join(', ')}): run RECONFIGURE or restart the service.`,
     });
   }
 
@@ -243,7 +243,7 @@ export async function collectMssql(client: EngineClient): Promise<InventorySnaps
     notes.push({
       domain: 'disk',
       level: 'warn',
-      message: `${percentGrowth.length} archivo(s) de más de 1 GB crecen por porcentaje en vez de por tamaño fijo: cada crecimiento es mayor que el anterior y bloquea más tiempo.`,
+      message: `${percentGrowth.length} file(s) over 1 GB grow by percentage instead of a fixed size: each growth is larger than the last and blocks longer.`,
     });
   }
 
@@ -303,16 +303,16 @@ export async function collectMssql(client: EngineClient): Promise<InventorySnaps
     notes.push({
       domain: 'backups',
       level: 'error',
-      message: `Sin ningún respaldo completo registrado: ${neverBackedUp.join(', ')}. Si el servidor se pierde, estas bases se pierden con él.`,
+      message: `No full backup recorded for: ${neverBackedUp.join(', ')}. If the server is lost, those databases are gone with it.`,
     });
   }
   if (fullWithoutLog.length > 0) {
     notes.push({
       domain: 'backups',
       level: 'error',
-      message: `En modelo FULL pero sin respaldo de log: ${fullWithoutLog.join(
+      message: `FULL recovery model but no log backup for: ${fullWithoutLog.join(
         ', ',
-      )}. El log de transacciones no se puede truncar y va a crecer hasta llenar el disco.`,
+      )}. The transaction log cannot truncate and will grow until the disk fills.`,
     });
   }
 
@@ -338,11 +338,11 @@ export async function collectMssql(client: EngineClient): Promise<InventorySnaps
   );
 
   const STATUS: Record<string, string> = {
-    '0': 'falló',
-    '1': 'exitoso',
-    '2': 'reintento',
-    '3': 'cancelado',
-    '4': 'en progreso',
+    '0': 'failed',
+    '1': 'succeeded',
+    '2': 'retry',
+    '3': 'cancelled',
+    '4': 'in progress',
   };
 
   snapshot.jobs = jobs.map((row): JobRow => {
@@ -359,12 +359,14 @@ export async function collectMssql(client: EngineClient): Promise<InventorySnaps
     };
   });
 
-  const failed = snapshot.jobs.filter((job) => job.lastStatus === 'falló');
+  const failed = snapshot.jobs.filter(
+    (job) => job.lastStatus === 'failed' || job.lastStatus === 'falló',
+  );
   if (failed.length > 0) {
     notes.push({
       domain: 'jobs',
       level: 'error',
-      message: `${failed.length} job(s) terminaron con error en su última corrida: ${failed
+      message: `${failed.length} job(s) failed on their last run: ${failed
         .map((job) => job.name)
         .slice(0, 5)
         .join(', ')}.`,
@@ -375,10 +377,10 @@ export async function collectMssql(client: EngineClient): Promise<InventorySnaps
     notes.push({
       domain: 'jobs',
       level: 'warn',
-      message: `${disabled.length} job(s) están deshabilitados: ${disabled
+      message: `${disabled.length} job(s) are disabled: ${disabled
         .map((job) => job.name)
         .slice(0, 5)
-        .join(', ')}. Un job de respaldo deshabilitado no avisa que no corrió.`,
+        .join(', ')}. A disabled backup job will not warn that it did not run.`,
     });
   }
 
@@ -593,7 +595,10 @@ export async function collectMssql(client: EngineClient): Promise<InventorySnaps
 
   const licensing: LicensingRow = {
     edition,
-    licenseModel: key === 'developer' || key === 'evaluation' ? 'gratuita, sin derecho de producción' : 'por núcleo o por CAL',
+    licenseModel:
+      key === 'developer' || key === 'evaluation'
+        ? 'free, not licensed for production'
+        : 'per-core or CAL',
     cores,
     coresLimit: limits?.cores ?? null,
     memoryBytes: memoryBytes || null,

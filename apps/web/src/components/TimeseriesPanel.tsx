@@ -122,6 +122,10 @@ export function TimeseriesPanel({
                 tick={{ fontSize: 10, fill: '#7a828c', fontFamily: 'var(--font-jetbrains)' }}
                 stroke="#cdd3da"
                 width={58}
+                // Percent panels must not stretch to a single bad negative sample
+                // (e.g. cache-hit counter glitch at −600%).
+                domain={unit === 'pct' ? [0, (dataMax: number) => Math.max(100, dataMax)] : undefined}
+                allowDataOverflow={unit === 'pct'}
               />
               <Tooltip
                 labelFormatter={(value) => formatTime(Number(value))}

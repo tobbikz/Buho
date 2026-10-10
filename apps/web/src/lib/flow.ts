@@ -71,6 +71,13 @@ export interface FlowResult {
   weightWithActor: number;
   writeTotal: number;
   readTotal: number;
+  /**
+   * When the instance catalog (`vacuum_tables`) is known, lexical hits outside
+   * it are dropped so crowns never promote foreign-schema guesses.
+   */
+  catalogGated: boolean;
+  /** Relations dropped for not being in the inventoried catalog. */
+  droppedOutsideCatalog: number;
 }
 
 /**
@@ -217,6 +224,30 @@ export async function getFlow(
 
   const reparto = actor === 'aplicacion' ? await actorShares(instanceId, minutes) : null;
 
+  // Inventoried relations for this instance — lexical attribution is a guess and
+  // must not crown tables from other databases/schemas that happen to appear in SQL text.
+  const catalogRows = await query<{ relation: string }>(
+    `select schema_name || '.' || table_name as relation
+       from buho.vacuum_tables
+      where instance_id = $1
+        and schema_name not in ('pg_catalog', 'information_schema', 'pg_toast', 'sys', 'mysql', 'performance_schema')`,
+    [instanceId],
+  ).catch(() => [] as { relation: string }[]);
+  const catalog = new Set(catalogRows.map((r) => r.relation));
+  const catalogGated = catalog.size > 0;
+  let droppedOutsideCatalog = 0;
+
+  /** Map a lexical hit onto an inventoried relation, or null if outside catalog. */
+  const resolveCatalog = (relacion: string): string | null => {
+    if (!catalogGated) return relacion;
+    if (catalog.has(relacion)) return relacion;
+    const bare = relacion.includes('.') ? relacion.slice(relacion.indexOf('.') + 1) : relacion;
+    const matches = [...catalog].filter((known) => known === bare || known.endsWith(`.${bare}`));
+    // Ambiguous bare name across schemas → drop rather than guess wrong schema.
+    if (matches.length === 1) return matches[0]!;
+    return null;
+  };
+
   const pesoDe = (fila: { calls: number; exec_ms: number; rows: number }): number => {
     if (weight === 'calls') return Number(fila.calls);
     if (weight === 'time') return Number(fila.exec_ms);
@@ -249,10 +280,23 @@ export async function getFlow(
         ? objetos.sources
         : [];
 
-    const utiles = [...writeTargets, ...readTargets].filter(
-      (relacion) => !SYSTEM_SCHEMAS.has(relacion.split('.')[0] ?? ''),
-    );
-    if (utiles.length === 0) continue;
+    const resolveList = (rels: string[]): string[] => {
+      const out: string[] = [];
+      for (const relacion of rels) {
+        if (SYSTEM_SCHEMAS.has(relacion.split('.')[0] ?? '')) continue;
+        const resolved = resolveCatalog(relacion);
+        if (resolved === null) {
+          droppedOutsideCatalog += 1;
+          continue;
+        }
+        out.push(resolved);
+      }
+      return out;
+    };
+
+    const writeResolved = resolveList(writeTargets);
+    const readResolved = resolveList(readTargets);
+    if (writeResolved.length === 0 && readResolved.length === 0) continue;
 
     atribuidas += 1;
     if (actor === 'rol' || reparto?.has(fila.queryid)) pesoConActor += peso;
@@ -265,8 +309,8 @@ export async function getFlow(
           })) ?? [{ nombre: '(not observed)', peso: 1 }])
         : [{ nombre: fila.username ?? '(no role)', peso: 1 }];
 
-    const writeSet = new Set(writeTargets.filter((r) => !SYSTEM_SCHEMAS.has(r.split('.')[0] ?? '')));
-    const readSet = new Set(readTargets.filter((r) => !SYSTEM_SCHEMAS.has(r.split('.')[0] ?? '')));
+    const writeSet = new Set(writeResolved);
+    const readSet = new Set(readResolved);
     const writeCount = writeSet.size;
     const readCount = readSet.size;
     if (writeCount === 0 && readCount === 0) continue;
@@ -329,6 +373,8 @@ export async function getFlow(
     weightWithActor: pesoConActor,
     writeTotal,
     readTotal,
+    catalogGated,
+    droppedOutsideCatalog,
   };
 }
 
@@ -358,6 +404,18 @@ export async function getTableCounters(
   // diferencia entre el max y el min del acumulado sí es el total del
   // periodo. `greatest(..., 0)` cubre el caso del reset de estadísticas, donde
   // el contador vuelve a empezar y la resta saldría negativa.
+  //
+  // When vacuum_tables is known for this instance, only show those relations —
+  // metric_samples can retain cross-DB label noise from earlier collector bugs.
+  const catalogRows = await query<{ relation: string }>(
+    `select schema_name || '.' || table_name as relation
+       from buho.vacuum_tables
+      where instance_id = $1
+        and schema_name not in ('pg_catalog', 'information_schema', 'pg_toast', 'sys', 'mysql', 'performance_schema')`,
+    [instanceId],
+  ).catch(() => [] as { relation: string }[]);
+  const catalog = new Set(catalogRows.map((r) => r.relation));
+
   const rows = await query<{
     relation: string;
     metric: string;
@@ -379,6 +437,7 @@ export async function getTableCounters(
 
   const mapa = new Map<string, TableCounter>();
   for (const fila of rows) {
+    if (catalog.size > 0 && !catalog.has(fila.relation)) continue;
     const actual = mapa.get(fila.relation) ?? {
       relation: fila.relation,
       inserted: 0,

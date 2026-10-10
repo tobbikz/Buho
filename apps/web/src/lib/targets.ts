@@ -11,15 +11,8 @@ import { hostMetricsFromForm } from './test-target';
  * store the same way they already live in config.json on-prem.
  */
 
-export type TargetEngine =
-  | 'postgres'
-  | 'mariadb'
-  | 'mssql'
-  | 'mongodb'
-  | 'redis'
-  | 'oracle'
-  | 'cassandra'
-  | 'elasticsearch';
+/** Databases Búho monitors. Mongo/Redis/ES/Cassandra are out of product scope. */
+export type TargetEngine = 'postgres' | 'mariadb' | 'mssql' | 'oracle';
 
 export interface MonitorTarget {
   targetId: number;
@@ -56,26 +49,13 @@ export interface MonitorTargetInput {
   expandAllDatabases?: boolean;
 }
 
-const ENGINES = new Set([
-  'postgres',
-  'mariadb',
-  'mssql',
-  'mongodb',
-  'redis',
-  'oracle',
-  'cassandra',
-  'elasticsearch',
-]);
+const ENGINES = new Set<TargetEngine>(['postgres', 'mariadb', 'mssql', 'oracle']);
 
 const DEFAULT_PORTS: Record<TargetEngine, number> = {
   postgres: 5432,
   mariadb: 3306,
   mssql: 1433,
-  mongodb: 27017,
-  redis: 6379,
   oracle: 1521,
-  cassandra: 9042,
-  elasticsearch: 9200,
 };
 
 export function defaultPort(engine: TargetEngine): number {
@@ -156,27 +136,19 @@ export function parseTargetForm(form: FormData): MonitorTargetInput {
 
 export async function saveMonitorTarget(input: MonitorTargetInput): Promise<number> {
   const session = await requireAdmin();
-  if (
-    !input.password &&
-    input.engine !== 'cassandra' &&
-    input.engine !== 'elasticsearch'
-  ) {
+  const existing = await query<{ password: string }>(
+    `select password from buho.monitor_targets where tenant = 'default' and alias = $1`,
+    [input.alias],
+  );
+  const keptPassword = existing[0]?.password ?? '';
+  if (!input.password && !keptPassword) {
     throw new Error('Password is required for a new target.');
   }
+  const password = input.password || keptPassword;
 
   const seedDatabase =
     input.database ||
-    (input.engine === 'mongodb'
-      ? 'admin'
-      : input.engine === 'mssql'
-        ? 'master'
-        : input.engine === 'oracle'
-          ? 'FREEPDB1'
-          : input.engine === 'redis'
-            ? '0'
-            : input.engine === 'cassandra' || input.engine === 'elasticsearch'
-              ? ''
-              : 'postgres');
+    (input.engine === 'mssql' ? 'master' : input.engine === 'oracle' ? 'FREEPDB1' : 'postgres');
 
   let databases = [seedDatabase];
   if (input.engine === 'postgres' && input.expandAllDatabases) {
@@ -186,7 +158,7 @@ export async function saveMonitorTarget(input: MonitorTargetInput): Promise<numb
         port: input.port,
         database: seedDatabase,
         username: input.username,
-        password: input.password,
+        password,
         ssl: input.ssl,
       });
       if (databases.length === 0) databases = [seedDatabase];
@@ -206,7 +178,7 @@ export async function saveMonitorTarget(input: MonitorTargetInput): Promise<numb
         ? input.alias
         : `${input.alias}-${database}`.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 63);
     const targetId = await upsertOneTarget(
-      { ...input, alias, database },
+      { ...input, alias, database, password },
       session.username,
     );
     if (!firstTargetId) firstTargetId = targetId;
@@ -354,6 +326,10 @@ export async function removeMonitorTarget(targetId: number): Promise<void> {
     [targetId],
   );
   const alias = existing[0]?.alias;
+  if (alias) {
+    // Fleet lists buho.instances — drop the row so remove actually clears the UI.
+    await query(`delete from buho.instances where tenant = 'default' and alias = $1`, [alias]);
+  }
   await logConsoleEvent(
     session.username,
     'monitor_target.delete',

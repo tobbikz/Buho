@@ -1,11 +1,13 @@
 # Go-live checklist (first production customer / pilot)
 
-Use before the first paid or pilot install. Pin **`v1.3.1+`**. Pricing: `PRICING.md`. Contract template: `PILOT_AGREEMENT.md`.
+Use before the first paid or pilot install. Pin **`v1.6.0+`**. Pricing: `PRICING.md`. Contract template: `PILOT_AGREEMENT.md`.
+
+Lab console (dev): http://127.0.0.1:3100 · store `:55432`.
 
 ## 0. Ship the bits
 
-- [ ] `git push origin main` and `git push origin v1.3.1` (GHCR publish runs on the tag)
-- [ ] Confirm images: `ghcr.io/tobbikz/buho-monitor/collector:1.3.1` and `…/web:1.3.1`
+- [ ] `git push origin main` and `git push origin v1.6.0` (GHCR publish runs on the tag)
+- [ ] Confirm images: `ghcr.io/tobbikz/buho-monitor/collector:1.6.0` and `…/web:1.6.0`
 - [ ] Customer host can `docker pull` those tags (or use `./install.sh --pull`)
 
 ## 1. Access & secrets
@@ -21,7 +23,7 @@ Use before the first paid or pilot install. Pin **`v1.3.1+`**. Pricing: `PRICING
 On the console (admin session):
 
 1. Open **Get started** (`/get-started`)
-2. **Add database** → Test connections → save
+2. **Add database** → Test connections → save (PG / MSSQL / Maria / Oracle only)
 3. Wait until a **health score** appears (collector ~30s)
 4. Add a notification **channel** → press **Test**
 5. Confirm the message arrived
@@ -35,6 +37,7 @@ Optional: Admin → Databases / Admin → Alerts for advanced config.
 | PostgreSQL | `sql/monitor-user.sql` (`pg_monitor`) |
 | MariaDB / MySQL | `sql/monitor-user-mariadb.sql` |
 | SQL Server | `sql/monitor-user-mssql.sql` |
+| Oracle | grant SELECT on V$/DBA views used by inventory (see Oracle inventory notes) |
 
 - [ ] Credentials only in `config.json` or Admin → Databases (never in git)
 - [ ] Session visible as Búho on the target
@@ -42,9 +45,10 @@ Optional: Admin → Databases / Admin → Alerts for advanced config.
 
 ## 4. Alert channels (real destinations)
 
-- [ ] Global defaults + system pack thresholds reviewed
+- [ ] Global defaults + system pack thresholds reviewed (includes `pack.rpo_exposure`)
 - [ ] ≥1 channel enabled and **Test** succeeded
 - [ ] Silences procedure known for maintenance windows
+- [ ] Optional: instance tags `rpo_seconds` / `rpo_hours` for RPO targets
 
 ## 5. Store durability
 
@@ -55,7 +59,7 @@ Optional: Admin → Databases / Admin → Alerts for advanced config.
 
 ## 6. Update path
 
-- [ ] Pin tag (`v1.3.1+`) and `./install.sh --pull`
+- [ ] Pin tag (`v1.6.0+`) and `./install.sh --pull`
 - [ ] Document who may update / recreate containers
 - [ ] Optional: `npm run alerts:import` once for SQL catalog templates
 
@@ -63,11 +67,15 @@ Optional: Admin → Databases / Admin → Alerts for advanced config.
 
 ```bash
 npm run verify:v1          # UI routes (lab)
-# Console: Fleet → Get started done → Instance Overview → Estate backups → Alerts
+# Databases: Fleet → Instance Overview → Blame → Estate RPO → Alerts
+# Observability: Services → Probes → Add APM → Traces → TLS
 ```
 
 - [ ] Health score present; if near 0 from missing backups/HA, treat as **posture** (UI explains this) until backups exist
 - [ ] Host metrics on if promised
+- [ ] Blame dual-lane readable (Pain now ≠ DBA risk)
+- [ ] Estate RPO shows four engines; tags override target when set
+- [ ] Observability Services lenses All / APM / PROBES work
 - [ ] Customer knows: Búho is read-only monitor + alerts; not a backup product
 
 ## 8. Commercial
@@ -77,7 +85,7 @@ npm run verify:v1          # UI routes (lab)
 
 ## Out of scope (human / later)
 
-- DBA interviews (F3 agenda)
+- DBA interviews (F3 agenda) — see Obsidian [[Búho — Demo + entrevista prep 2026-10-09]]
 - Marketing posts
 - Mobile/tablet console polish
 - Multi-source suite (**Centinela**)

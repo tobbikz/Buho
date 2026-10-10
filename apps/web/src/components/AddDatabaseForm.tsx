@@ -6,15 +6,12 @@ type TargetProbeResult = {
   host: { ok?: boolean; message: string; detail?: string };
 };
 
+/** Product scope: relational engines only. PostgreSQL is the deepest surface. */
 const ENGINE_OPTIONS = [
   { value: 'postgres', label: 'PostgreSQL' },
-  { value: 'mariadb', label: 'MariaDB / MySQL' },
   { value: 'mssql', label: 'SQL Server' },
-  { value: 'mongodb', label: 'MongoDB' },
-  { value: 'redis', label: 'Redis' },
+  { value: 'mariadb', label: 'MariaDB / MySQL' },
   { value: 'oracle', label: 'Oracle' },
-  { value: 'cassandra', label: 'Cassandra' },
-  { value: 'elasticsearch', label: 'Elasticsearch' },
 ] as const;
 
 const HOST_SOURCE_OPTIONS = [
@@ -36,9 +33,31 @@ function forceUpper(event: React.FormEvent<HTMLInputElement>) {
   if (start !== null && end !== null) input.setSelectionRange(start, end);
 }
 
-export function AddDatabaseForm({ action }: { action: (formData: FormData) => Promise<void> }) {
-  const [engine, setEngine] = useState('postgres');
-  const [hostSource, setHostSource] = useState('local');
+export type AddDatabaseDefaults = {
+  alias?: string;
+  engine?: string;
+  host?: string;
+  port?: number | string;
+  database?: string;
+  username?: string;
+  environment?: string;
+  ssl?: boolean;
+  hostMetricsSource?: string;
+  dataDirectory?: string;
+  expandAllDatabases?: boolean;
+};
+
+export function AddDatabaseForm({
+  action,
+  defaults,
+  submitLabel = 'Save target',
+}: {
+  action: (formData: FormData) => Promise<void>;
+  defaults?: AddDatabaseDefaults;
+  submitLabel?: string;
+}) {
+  const [engine, setEngine] = useState(defaults?.engine ?? 'postgres');
+  const [hostSource, setHostSource] = useState(defaults?.hostMetricsSource ?? 'local');
   const [testing, setTesting] = useState(false);
   const [probe, setProbe] = useState<TargetProbeResult | null>(null);
   const [probeError, setProbeError] = useState<string | null>(null);
@@ -71,7 +90,13 @@ export function AddDatabaseForm({ action }: { action: (formData: FormData) => Pr
     <form action={action} className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Alias
-        <input name="alias" required className="input font-mono" placeholder="orders-prod" />
+        <input
+          name="alias"
+          required
+          className="input font-mono"
+          placeholder="orders-prod"
+          defaultValue={defaults?.alias}
+        />
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Engine
@@ -93,7 +118,7 @@ export function AddDatabaseForm({ action }: { action: (formData: FormData) => Pr
         <input
           name="environment"
           className="input font-mono uppercase"
-          defaultValue="PROD"
+          defaultValue={defaults?.environment ?? 'PROD'}
           placeholder="PROD"
           onInput={forceUpper}
           style={{ textTransform: 'uppercase' }}
@@ -101,25 +126,32 @@ export function AddDatabaseForm({ action }: { action: (formData: FormData) => Pr
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Host
-        <input name="host" required className="input font-mono" placeholder="10.0.0.10" />
+        <input
+          name="host"
+          required
+          className="input font-mono"
+          placeholder="10.0.0.10"
+          defaultValue={defaults?.host}
+        />
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Port
-        <input name="port" type="number" className="input font-mono" placeholder="5432" />
+        <input
+          name="port"
+          type="number"
+          className="input font-mono"
+          placeholder="5432"
+          defaultValue={defaults?.port ?? ''}
+        />
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Database
         <input
           name="database"
           className="input font-mono"
+          defaultValue={defaults?.database}
           placeholder={
-            engine === 'cassandra'
-              ? 'keyspace (optional)'
-              : engine === 'elasticsearch'
-                ? '(optional)'
-                : engine === 'redis'
-                  ? '0'
-                  : 'postgres / master / admin'
+            engine === 'mssql' ? 'master' : engine === 'oracle' ? 'FREEPDB1' : 'postgres'
           }
         />
       </label>
@@ -129,11 +161,8 @@ export function AddDatabaseForm({ action }: { action: (formData: FormData) => Pr
           name="username"
           required
           className="input font-mono"
-          placeholder={
-            engine === 'cassandra' || engine === 'elasticsearch'
-              ? 'monitor (ignored if no password)'
-              : 'buho_monitor'
-          }
+          defaultValue={defaults?.username}
+          placeholder="buho_monitor"
         />
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
@@ -141,14 +170,10 @@ export function AddDatabaseForm({ action }: { action: (formData: FormData) => Pr
         <input
           name="password"
           type="password"
-          required={engine !== 'cassandra' && engine !== 'elasticsearch'}
+          required={!defaults}
           className="input font-mono"
           autoComplete="new-password"
-          placeholder={
-            engine === 'cassandra' || engine === 'elasticsearch'
-              ? 'leave empty if auth disabled'
-              : undefined
-          }
+          placeholder={defaults ? 'leave blank to keep current password' : undefined}
         />
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
@@ -166,7 +191,12 @@ export function AddDatabaseForm({ action }: { action: (formData: FormData) => Pr
         <input name="tagValue" className="input font-mono" placeholder="data" />
       </label>
       <label className="flex items-center gap-2 text-[12px] text-foreground-secondary md:col-span-2">
-        <input type="checkbox" name="ssl" className="accent-[var(--accent)]" />
+        <input
+          type="checkbox"
+          name="ssl"
+          className="accent-[var(--accent)]"
+          defaultChecked={Boolean(defaults?.ssl)}
+        />
         Use TLS / SSL
       </label>
 
@@ -176,7 +206,7 @@ export function AddDatabaseForm({ action }: { action: (formData: FormData) => Pr
             type="checkbox"
             name="expandAllDatabases"
             className="mt-0.5 accent-[var(--accent)]"
-            defaultChecked
+            defaultChecked={defaults?.expandAllDatabases ?? !defaults}
           />
           <span>
             Monitor <strong>every connectable database</strong> on this PostgreSQL host (one Búho
@@ -218,7 +248,8 @@ export function AddDatabaseForm({ action }: { action: (formData: FormData) => Pr
                   engine === 'mariadb' ? '/var/lib/mysql' : '/var/lib/postgresql/data'
                 }
                 defaultValue={
-                  engine === 'mariadb' ? '/var/lib/mysql' : '/var/lib/postgresql/data'
+                  defaults?.dataDirectory ??
+                  (engine === 'mariadb' ? '/var/lib/mysql' : '/var/lib/postgresql/data')
                 }
               />
             </label>
@@ -273,7 +304,7 @@ export function AddDatabaseForm({ action }: { action: (formData: FormData) => Pr
           {testing ? 'Testing…' : 'Test connections'}
         </button>
         <button type="submit" className="btn btn--primary">
-          Add database
+          {submitLabel}
         </button>
       </div>
     </form>

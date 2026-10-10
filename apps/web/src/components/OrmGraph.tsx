@@ -389,8 +389,8 @@ export function OrmGraph({
       let movement = 0;
       for (const n of nodes) {
         if (n.pinned) continue;
-        n.vx *= nodes.length > 60 ? 0.72 : 0.84;
-        n.vy *= nodes.length > 60 ? 0.72 : 0.84;
+        n.vx *= nodes.length > 120 ? 0.55 : nodes.length > 60 ? 0.65 : 0.84;
+        n.vy *= nodes.length > 120 ? 0.55 : nodes.length > 60 ? 0.65 : 0.84;
         n.x += n.vx * alpha;
         n.y += n.vy * alpha;
         movement += Math.abs(n.vx) + Math.abs(n.vy);

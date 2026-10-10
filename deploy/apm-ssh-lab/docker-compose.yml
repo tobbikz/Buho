@@ -1,0 +1,16 @@
+# Lab: SSH jump (:2222) for Buho Add APM → Deploy via SSH.
+# HTTP app is started on the HOST by ./up.sh (port 18083) so Beyla sees python, not docker-proxy.
+#
+#   ./up.sh
+#   UI: Host orders.lab:18083 · SSH host 127.0.0.1 · port 2222 · user lab · key ./lab_id_ed25519
+
+services:
+  ssh-lab:
+    build: .
+    container_name: buho-ssh-lab
+    ports:
+      - '127.0.0.1:2222:22'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./authorized_keys:/keys/authorized_keys:ro
+    restart: unless-stopped

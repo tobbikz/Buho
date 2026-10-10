@@ -1,5 +1,7 @@
 'use client';
 
+import { waitHelp } from '@/lib/wait-help';
+
 /**
  * Barras apiladas de sessions por tipo de espera.
  *
@@ -80,8 +82,9 @@ export function WaitStack({
                     height={alto}
                     fill={COLOR[tipo] ?? '#7a869a'}
                     opacity={0.88}
+                    style={{ cursor: 'help' }}
                   >
-                    <title>{`${new Date(cubo.bucket).toLocaleString('en')}\n${tipo}: ${valor.toFixed(2)} session(s)`}</title>
+                    <title>{`${new Date(cubo.bucket).toLocaleString('en')}\n${tipo}: ${valor.toFixed(2)} session(s)\n\n${waitHelp(tipo)}`}</title>
                   </rect>
                 );
               })}
@@ -92,7 +95,12 @@ export function WaitStack({
 
       <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-foreground-muted">
         {columnas.map((tipo) => (
-          <span key={tipo} className="inline-flex items-center gap-1">
+          <span
+            key={tipo}
+            className="inline-flex items-center gap-1"
+            title={waitHelp(tipo)}
+            style={{ cursor: 'help' }}
+          >
             <span
               className="inline-block h-[7px] w-[7px] rounded-[1px]"
               style={{ background: COLOR[tipo] ?? '#7a869a' }}
@@ -100,7 +108,7 @@ export function WaitStack({
             <span className="font-mono">{tipo}</span>
           </span>
         ))}
-        <span className="ml-auto font-mono">peak {maximo.toFixed(1)} session(s) at once</span>
+        <span className="ml-auto font-mono">peak {maximo.toFixed(1)} session(s) at once · hover a color for meaning</span>
       </div>
     </div>
   );

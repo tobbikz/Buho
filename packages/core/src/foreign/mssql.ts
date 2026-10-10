@@ -139,19 +139,19 @@ const waits: ForeignCollector = {
   },
 };
 
-/** Familia de una espera de SQL Server a partir de su prefijo. */
+/** Wait-class family from a SQL Server wait_type prefix (English UI labels). */
 function waitFamily(evento: string): string {
   if (evento === 'CPU') return 'CPU';
   if (evento.startsWith('PAGEIOLATCH')) return 'IO';
   if (evento.startsWith('LCK_')) return 'Lock';
   if (evento.startsWith('LATCH_') || evento.startsWith('PAGELATCH')) return 'Latch';
-  if (evento === 'WRITELOG' || evento.startsWith('LOGBUFFER')) return 'WAL';
-  if (evento.startsWith('RESOURCE_SEMAPHORE')) return 'Memoria';
-  if (evento.startsWith('CXPACKET') || evento.startsWith('EXCHANGE')) return 'Paralelismo';
-  if (evento.startsWith('ASYNC_NETWORK')) return 'Cliente';
-  if (evento.startsWith('HADR') || evento.startsWith('DBMIRROR')) return 'Replicación';
-  if (evento.startsWith('BACKUP')) return 'Respaldo';
-  return 'Otro';
+  if (evento === 'WRITELOG' || evento.startsWith('LOGBUFFER')) return 'Log';
+  if (evento.startsWith('RESOURCE_SEMAPHORE')) return 'Memory';
+  if (evento.startsWith('CXPACKET') || evento.startsWith('EXCHANGE')) return 'Parallelism';
+  if (evento.startsWith('ASYNC_NETWORK')) return 'Client';
+  if (evento.startsWith('HADR') || evento.startsWith('DBMIRROR')) return 'HA';
+  if (evento.startsWith('BACKUP')) return 'Backup';
+  return 'Other';
 }
 
 /**

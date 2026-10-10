@@ -30,7 +30,7 @@ export interface LogGroup {
   lastAt: Date;
   sample: string;
   detail: string | null;
-  hint: string | null
+  hint: string | null;
   sampleQuery: string | null;
   context: string | null;
   sqlstate: string | null;
@@ -333,6 +333,54 @@ export async function getFleetLogPatterns(
     lastAt: row.last_at,
     sample: row.sample,
   }));
+}
+
+export type FleetLogEvent = {
+  id: string;
+  instanceId: number;
+  alias: string;
+  engine: string;
+  at: Date;
+  level: string;
+  kind: LogKind;
+  message: string;
+  database: string | null;
+  username: string | null;
+};
+
+/** Recent log lines across the fleet (Observability → Logs). */
+export async function listFleetLogEvents(
+  hours = 24,
+  limit = 200,
+): Promise<FleetLogEvent[]> {
+  const rows = await query<Record<string, unknown>>(
+    `select e.instance_id, i.alias, i.engine, e.at, e.level, e.kind,
+            e.message, e.database, e.username, e.fingerprint, e.pid
+       from buho.log_events e
+       join buho.instances i using (instance_id)
+      where e.at >= now() - ($1 || ' hours')::interval
+      order by e.at desc
+      limit $2`,
+    [hours, limit],
+  );
+  return rows.map((row) => {
+    const instanceId = Number(row['instance_id']);
+    const at = row['at'] as Date;
+    const fingerprint = String(row['fingerprint'] ?? '');
+    const pid = row['pid'] == null ? '' : String(row['pid']);
+    return {
+      id: `${instanceId}:${at.toISOString()}:${fingerprint}:${pid}`,
+      instanceId,
+      alias: String(row['alias']),
+      engine: String(row['engine']),
+      at,
+      level: String(row['level'] ?? ''),
+      kind: row['kind'] as LogKind,
+      message: String(row['message'] ?? ''),
+      database: (row['database'] as string | null) ?? null,
+      username: (row['username'] as string | null) ?? null,
+    };
+  });
 }
 
 /** Counts by instance × log level for the fleet heatmap strip. */

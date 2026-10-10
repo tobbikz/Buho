@@ -2,7 +2,11 @@ import Link from 'next/link';
 import { NotesPanel } from '@/components/NotesPanel';
 import { StatCard } from '@/components/StatCard';
 import { formatAgo, formatBytes, formatDuration } from '@/lib/format';
-import { ENGINE_LABEL, type InstanceInventory } from '@/lib/estate';
+import {
+  ENGINE_LABEL,
+  backupKindLabel,
+  type InstanceInventory,
+} from '@/lib/estate';
 
 const DAY_MS = 86_400_000;
 
@@ -46,7 +50,9 @@ export function InventoryInstance({
   const totalSize = inventory.disks
     .filter((row) => row.kind === 'database')
     .reduce((sum, row) => sum + (row.sizeBytes ?? 0), 0);
-  const failedJobs = inventory.jobs.filter((job) => job.lastStatus === 'falló');
+  const failedJobs = inventory.jobs.filter(
+    (job) => job.lastStatus === 'failed' || job.lastStatus === 'falló',
+  );
 
   return (
     <div className="flex flex-col gap-[0.875rem]">
@@ -69,23 +75,33 @@ export function InventoryInstance({
         <StatCard label="Version" value={shortVersion(info?.versionText)} hint={info?.versionText ?? 'not inventoried'} />
         <StatCard label="Edition" value={info?.edition ?? '—'} hint={info?.updateLevel ?? info?.productLevel ?? undefined} />
         <StatCard
-          label="Fin de soporte"
+          label="End of support"
           value={info?.eolDate ?? '—'}
           hint={eolDays === null ? undefined : eolDays < 0 ? `expired ${-eolDays} days ago` : `in ${eolDays} days`}
           tone={eolDays === null ? 'neutral' : eolDays < 0 ? 'error' : eolDays < 180 ? 'warn' : 'ok'}
         />
         <StatCard label="Cores" value={info?.cores ? String(info.cores) : '—'} hint={info?.memoryBytes ? formatBytes(info.memoryBytes) : undefined} />
-        <StatCard label="Datos" value={formatBytes(totalSize)} hint={`${inventory.disks.filter((d) => d.kind === 'database').length} bases`} />
-        <StatCard label="Arranque" value={info?.startedAt ? formatAgo(info.startedAt) : '—'} />
+        <StatCard
+          label="Data size"
+          value={formatBytes(totalSize)}
+          hint={`${inventory.disks.filter((d) => d.kind === 'database').length} databases`}
+        />
+        <StatCard label="Uptime since" value={info?.startedAt ? formatAgo(info.startedAt) : '—'} />
         <StatCard
           label="Jobs with errors"
           value={String(failedJobs.length)}
-          hint={`${inventory.jobs.length} tareas`}
+          hint={`${inventory.jobs.length} jobs`}
           tone={failedJobs.length > 0 ? 'error' : 'ok'}
         />
         <StatCard
-          label="Licencia"
-          value={licensing?.productionOk === false ? 'not eligible' : licensing?.productionOk === null ? 'libre' : 'apta'}
+          label="License"
+          value={
+            licensing?.productionOk === false
+              ? 'not eligible'
+              : licensing?.productionOk === null
+                ? 'unrestricted'
+                : 'production OK'
+          }
           hint={licensing?.edition ?? undefined}
           tone={licensing?.productionOk === false ? 'error' : 'ok'}
         />
@@ -108,7 +124,7 @@ export function InventoryInstance({
               <thead>
                 <tr>
                   <th>Database</th>
-                  <th>Tipo</th>
+                  <th>Kind</th>
                   <th>Last</th>
                   <th className="text-right">Size</th>
                 </tr>
@@ -117,7 +133,7 @@ export function InventoryInstance({
                 {inventory.backups.map((row, index) => (
                   <tr key={`${row.database}-${row.kind}-${index}`}>
                     <td className="font-mono text-[11px]">{row.database}</td>
-                    <td>{row.kind}</td>
+                    <td>{backupKindLabel(row)}</td>
                     <td>
                       {row.finishedAt ? (
                         formatAgo(row.finishedAt)
@@ -205,7 +221,7 @@ export function InventoryInstance({
                   <td>
                     {job.enabled === false ? (
                       <span className="tag tag--warn">disabled</span>
-                    ) : job.lastStatus === 'falló' ? (
+                    ) : job.lastStatus === 'failed' || job.lastStatus === 'falló' ? (
                       <span className="tag tag--error">failed</span>
                     ) : job.lastStatus ? (
                       <span className="tag tag--ok">{job.lastStatus}</span>

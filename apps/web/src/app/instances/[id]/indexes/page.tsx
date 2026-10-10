@@ -218,7 +218,11 @@ export default async function IndexesPage({
             <p className="page-sub">
               {engine === 'mariadb'
                 ? 'Inventory from information_schema.statistics (+ performance_schema index I/O when enabled). Unused needs P_S; suggestions still come from ANALYZE plans.'
-                : (
+                : engine === 'mssql'
+                  ? 'Inventory from sys.indexes, dm_db_index_usage_stats, and partitions. Unused when seeks+scans+lookups=0 (excluding PK / unique clustered).'
+                : engine === 'oracle'
+                  ? 'Inventory from ALL_INDEXES / ALL_IND_COLUMNS (+ V$OBJECT_USAGE when monitoring is enabled). Plan-based suggestions still apply when ANALYZE plans exist.'
+                  : (
                   <>
                     Inventory is what exists on the server (size, scans, overlap). Suggestions come only
                     from <Link href={`/instances/${instanceId}/queries`} className="text-accent">Queries</Link>{' '}
@@ -238,9 +242,9 @@ export default async function IndexesPage({
             hint={
               summary.capturedAt
                 ? `total size ${formatBytes(summary.totalBytes)} · ${formatAgo(summary.capturedAt)}`
-                : engine === 'postgres' || engine === 'mariadb'
+                : engine === 'postgres' || engine === 'mariadb' || engine === 'oracle' || engine === 'mssql'
                   ? 'inventory not collected yet'
-                  : 'inventory is PostgreSQL / MariaDB'
+                  : 'inventory is PostgreSQL / MariaDB / Oracle / SQL Server'
             }
           />
           <StatCard
@@ -250,7 +254,11 @@ export default async function IndexesPage({
             hint={
               engine === 'mariadb'
                 ? 'secondary indexes with zero P_S reads (needs performance_schema)'
-                : 'large secondary indexes with zero scans'
+                : engine === 'mssql'
+                  ? 'non-PK indexes with zero usage in dm_db_index_usage_stats'
+                : engine === 'oracle'
+                  ? 'monitored indexes with USED=NO in v$object_usage'
+                  : 'large secondary indexes with zero scans'
             }
           />
           <StatCard
@@ -263,25 +271,33 @@ export default async function IndexesPage({
             label="Invalid"
             value={formatNumber(summary.invalid)}
             tone={summary.invalid > 0 ? 'error' : 'ok'}
-            hint="failed CREATE INDEX CONCURRENTLY — rebuild or drop"
+            hint={
+              engine === 'postgres'
+                ? 'failed CREATE INDEX CONCURRENTLY — rebuild or drop'
+                : engine === 'oracle'
+                  ? 'UNUSABLE / invalid index status — rebuild or drop'
+                  : engine === 'mssql'
+                    ? 'disabled or otherwise unusable index — rebuild or drop'
+                    : 'unusable / broken index — rebuild or drop'
+            }
           />
           <StatCard
             label="Suggestions"
             value={formatNumber(suggestions.suggestions.length)}
             tone={suggestions.suggestions.length > 0 ? 'warn' : 'ok'}
-            hint={`from ${formatNumber(suggestions.plansWithActuals)} ANALYZE plan(s)`}
+            hint={`from ${formatNumber(suggestions.plansWithActuals)} plan(s) with actuals`}
           />
         </div>
 
-        {engine !== 'postgres' && engine !== 'mariadb' ? (
+        {engine !== 'postgres' && engine !== 'mariadb' && engine !== 'mssql' && engine !== 'oracle' ? (
           <section className="panel">
             <div className="panel-header">
               <span className="panel-title">Index inventory</span>
             </div>
             <div className="panel-body text-[12px]">
-              Full index listing (size, usage, redundancy) is implemented for PostgreSQL and MariaDB.
-              Plan-based suggestions below still apply if you have requested ANALYZE plans for this
-              instance.
+              Full index listing (size, usage, redundancy) is implemented for PostgreSQL, MariaDB, SQL
+              Server, and Oracle. Plan-based suggestions below still apply if you have requested ANALYZE
+              plans for this instance.
             </div>
           </section>
         ) : summary.total === 0 ? (
@@ -290,8 +306,10 @@ export default async function IndexesPage({
               <span className="panel-title">Index inventory</span>
             </div>
             <div className="panel-body text-[12px]">
-              {engine === 'mariadb'
-                ? 'No index snapshot yet. The collector refreshes MariaDB indexes every ~15 minutes.'
+              {engine === 'mariadb' || engine === 'mssql' || engine === 'oracle'
+                ? `No index snapshot yet. The collector refreshes ${
+                    engine === 'mssql' ? 'SQL Server' : engine === 'oracle' ? 'Oracle' : 'MariaDB'
+                  } indexes every ~15 minutes.`
                 : 'No index snapshot yet. The collector refreshes inventory on the same cycle as vacuum (~5 minutes). If this stays empty, restart the collector after migrating the store.'}
             </div>
           </section>
@@ -305,8 +323,13 @@ export default async function IndexesPage({
                 </span>
               </div>
               <div className="panel-body text-[12px]">
-                This inventory comes from PostgreSQL itself: size, scan counters, flags, full
-                definitions, and structural overlap with other indexes on the same table.
+                {engine === 'mariadb'
+                  ? 'This inventory comes from information_schema / InnoDB stats: size, usage signals, uniqueness, and overlapping keys on the same table.'
+                  : engine === 'mssql'
+                    ? 'This inventory comes from SQL Server catalog DMVs: size, seeks/scans, uniqueness, and overlapping keys on the same table.'
+                    : engine === 'oracle'
+                      ? 'This inventory comes from DBA_/ALL_INDEXES (and related views): size, uniqueness, status, and overlapping keys on the same table.'
+                      : 'This inventory comes from PostgreSQL itself: size, scan counters, flags, full definitions, and structural overlap with other indexes on the same table.'}
               </div>
             </section>
 
@@ -333,13 +356,23 @@ export default async function IndexesPage({
                 <div className="panel-header">
                   <span className="panel-title">Unused indexes</span>
                   <span className="font-mono text-[10px] text-foreground-muted">
-                    {formatNumber(unusedIndexes.length)} above the 10 MB threshold
+                    {engine === 'postgres'
+                      ? `${formatNumber(unusedIndexes.length)} above the 10 MB unused threshold`
+                      : `${formatNumber(unusedIndexes.length)} with no recorded usage`}
                   </span>
                 </div>
                 <div className="panel-body">
                   <IndexInventoryTable rows={unusedIndexes} instanceId={instanceId} pageSize={25} />
                   <p className="mt-3 text-[11px] text-foreground-muted">
-                    Unused means zero scans on a large non-PK index since the last stats reset.
+                    {engine === 'postgres'
+                      ? 'Unused means zero scans on a large non-PK index since the last stats reset.'
+                      : engine === 'mssql'
+                        ? 'Unused means zero seeks/scans/lookups on a non-PK index in dm_db_index_usage_stats.'
+                        : engine === 'oracle'
+                          ? 'Unused means monitored indexes reported USED=NO in v$object_usage.'
+                          : engine === 'mariadb'
+                            ? 'Unused means secondary indexes with zero performance_schema reads (when P_S is enabled).'
+                            : 'Unused means no recorded usage on a large non-PK index.'}{' '}
                     Check infrequent reports, month-end jobs, and replica-only reads before dropping.
                   </p>
                 </div>
@@ -357,8 +390,14 @@ export default async function IndexesPage({
                 <div className="panel-body">
                   <IndexInventoryTable rows={invalidIndexes} instanceId={instanceId} pageSize={25} />
                   <p className="mt-3 text-[11px] text-foreground-muted">
-                    PostgreSQL marks an index invalid when a concurrent build fails or is
-                    interrupted. These objects can consume space without being safe to rely on.
+                    {engine === 'postgres'
+                      ? 'PostgreSQL marks an index invalid when a concurrent build fails or is interrupted.'
+                      : engine === 'oracle'
+                        ? 'Oracle marks an index UNUSABLE after failed rebuilds or certain DDL.'
+                        : engine === 'mssql'
+                          ? 'SQL Server can leave an index disabled or otherwise unusable after failed rebuilds.'
+                          : 'These indexes are flagged unusable by the engine inventory.'}{' '}
+                    These objects can consume space without being safe to rely on.
                   </p>
                 </div>
               </section>
@@ -571,9 +610,10 @@ export default async function IndexesPage({
             {suggestions.plansWithActuals === 0 ? (
               <div className="text-[12px]">
                 <p>
-                  This section does not guess from pg_stat alone. It needs plans executed with
-                  ANALYZE so each filter reports how many rows it discarded. Estimated plans can be
-                  wrong by orders of magnitude.
+                  {engine === 'postgres'
+                    ? 'This section does not guess from pg_stat alone. It needs plans executed with ANALYZE so each filter reports how many rows it discarded.'
+                    : 'This section does not guess from catalog stats alone. It needs plans executed with real row counts (ANALYZE / actuals) so each filter reports how many rows it discarded.'}{' '}
+                  Estimated plans can be wrong by orders of magnitude.
                 </p>
                 <p className="mt-2">
                   To populate it: open{' '}
@@ -651,7 +691,9 @@ export default async function IndexesPage({
               <div className="panel-body">
                 <p className="text-[12px] text-foreground-muted">
                   Automated checks have not reported index issues in the last day. The inventory
-                  above is refreshed every vacuum cycle and may flag objects before checks run.
+                  above is refreshed on the collector index cycle
+                  {engine === 'postgres' ? ' (~with vacuum)' : ' (~15 minutes)'} and may flag
+                  objects before checks run.
                 </p>
               </div>
             )}

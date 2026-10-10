@@ -151,29 +151,29 @@ export function summarizeSessions(samples: SessionSample[], at = new Date()): Se
     // 'active' es PostgreSQL. MariaDB reporta el Command (Query/Execute) y SQL
     // Server el status de dm_exec_requests. Sin esto el perfil de espera de los
     // otros dos motores quedaba siempre vacío aunque hubiera sesiones.
-    const activa =
-      muestra.state === 'active' ||
-      muestra.state === 'Query' ||
-      muestra.state === 'Execute' ||
-      muestra.state === 'Prepare' ||
-      muestra.state === 'running' ||
-      muestra.state === 'runnable' ||
-      muestra.state === 'suspended' ||
-      muestra.state === 'rollback';
-    if (activa) activas += 1;
+    const state = (muestra.state ?? '').toLowerCase();
+    const idleInTx = state.startsWith('idle in transaction');
+    const running =
+      state === 'active' ||
+      state === 'query' ||
+      state === 'execute' ||
+      state === 'prepare' ||
+      state === 'running' ||
+      state === 'runnable' ||
+      state === 'suspended' ||
+      state === 'rollback';
+    if (running || idleInTx) activas += 1;
     if (muestra.waitEventType === 'Lock' || (muestra.blockedBy ?? 0) > 0) bloqueadas += 1;
 
-    if (activa && muestra.queryMs !== null) {
+    if (running && muestra.queryMs !== null) {
       consultaMasLarga = Math.max(consultaMasLarga ?? 0, muestra.queryMs);
     }
     if (muestra.xactMs !== null) {
       transaccionMasLarga = Math.max(transaccionMasLarga ?? 0, muestra.xactMs);
     }
 
-    // Sólo las activas cuentan para el desglose de esperas: una sesión con una
-    // transacción abierta y sin hacer nada no está esperando al servidor, está
-    // esperando a su aplicación, y sumarla inventaría carga que no existe.
-    if (!activa) continue;
+    // Sólo las que están ejecutando cuentan para el desglose de esperas.
+    if (!running) continue;
     const tipo = muestra.waitEventType ?? 'CPU';
     const evento = muestra.waitEventType ? muestra.waitEvent : null;
     const clave = `${tipo}\u0000${evento ?? ''}`;
@@ -182,18 +182,28 @@ export function summarizeSessions(samples: SessionSample[], at = new Date()): Se
     porEspera.set(clave, entrada);
   }
 
-  // El detalle se recorta a lo que de verdad sirve para reconstruir un incidente:
-  // lo que espera un bloqueo, lo que lleva mucho corriendo y las transacciones
-  // largas. El resto es ruido que se repetiría cada diez segundos.
+  // Live needs every running / idle-in-tx row each cycle — otherwise the UI keeps
+  // replaying the last "interesting" (>1s) sample for hours after the workload ends.
   const detalle = samples
-    .filter(
-      (muestra) =>
+    .filter((muestra) => {
+      const state = (muestra.state ?? '').toLowerCase();
+      return (
         muestra.waitEventType === 'Lock' ||
+        state === 'active' ||
+        state === 'query' ||
+        state === 'execute' ||
+        state === 'prepare' ||
+        state === 'running' ||
+        state === 'runnable' ||
+        state === 'suspended' ||
+        state === 'rollback' ||
+        state.startsWith('idle in transaction') ||
         (muestra.queryMs ?? 0) > 1000 ||
-        (muestra.xactMs ?? 0) > 60_000,
-    )
+        (muestra.xactMs ?? 0) > 60_000
+      );
+    })
     .sort((a, b) => (b.queryMs ?? 0) - (a.queryMs ?? 0))
-    .slice(0, 20);
+    .slice(0, 40);
 
   return {
     at,

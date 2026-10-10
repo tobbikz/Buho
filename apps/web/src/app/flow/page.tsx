@@ -150,13 +150,14 @@ export default async function FleetFlowPage({
                 weight={weight}
                 unit={unidad}
                 height={520}
-                animated={false}
+                animated
                 windowMinutes={window.minutes}
               />
             )}
             <p className="mt-2 text-[11px] text-foreground-muted">
-              Green = writes, blue = reads. Packed layout without motion. Schemas are per instance — two
-              servers can each have their own <span className="font-mono">public</span>.
+              Green = writes, blue = reads. Live by default (slower particles for 60 Hz); toolbar has Static and
+              Zoom. Schemas are per instance — two servers can each have their own{' '}
+              <span className="font-mono">public</span>.
             </p>
           </div>
         </section>

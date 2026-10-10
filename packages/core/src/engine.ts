@@ -18,7 +18,7 @@ import { tagged } from './tag';
  * ("¿esta versión tiene soporte?", "¿cuándo fue el último backup?") y no de
  * implementación.
  */
-export type EngineKind = 'postgres' | 'mariadb' | 'mssql' | 'mongodb' | 'redis' | 'oracle' | 'cassandra' | 'elasticsearch';
+export type EngineKind = 'postgres' | 'mariadb' | 'mssql' | 'mongodb' | 'redis' | 'oracle' | 'cassandra' | 'elasticsearch' | 'endpoint';
 
 export const ENGINE_LABEL: Record<EngineKind, string> = {
   postgres: 'PostgreSQL',
@@ -29,6 +29,7 @@ export const ENGINE_LABEL: Record<EngineKind, string> = {
   oracle: 'Oracle',
   cassandra: 'Cassandra',
   elasticsearch: 'Elasticsearch',
+  endpoint: 'Endpoint',
 };
 
 export const DEFAULT_PORT: Record<EngineKind, number> = {
@@ -40,6 +41,7 @@ export const DEFAULT_PORT: Record<EngineKind, number> = {
   oracle: 1521,
   cassandra: 9042,
   elasticsearch: 9200,
+  endpoint: 443,
 };
 
 /**
@@ -148,6 +150,11 @@ export async function openEngine(
   opts: EngineOptions = {},
 ): Promise<EngineClient> {
   const kind = engineOf(instance);
+  if (kind === 'endpoint') {
+    throw new Error(
+      `La instancia "${instance.alias}" es un endpoint sintético — no usa openEngine(); el colector llama probeEndpoint().`,
+    );
+  }
   const statementTimeout = opts.statementTimeoutMs ?? 10_000;
   const connectTimeout = opts.connectTimeoutMs ?? 5_000;
   const appName = opts.applicationName ?? APPLICATION_NAME;
@@ -238,9 +245,9 @@ export async function openEngine(
 
   if (kind === 'oracle') {
     // Thin mode (node-oracledb 6+): no Instant Client.
-    // @ts-expect-error oracledb ships JS without types in this monorepo install
+    // @ts-ignore — oracledb has no bundled types in this install
     const oracledbMod = await import('oracledb');
-    const oracledb = oracledbMod.default ?? oracledbMod;
+    const oracledb = (oracledbMod as { default?: unknown }).default ?? oracledbMod;
     const service = instance.database || 'FREEPDB1';
     const connectString = `${instance.host}:${instance.port}/${service}`;
     const pool = await oracledb.createPool({

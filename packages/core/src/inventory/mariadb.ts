@@ -147,7 +147,7 @@ export async function collectMariadb(client: EngineClient): Promise<InventorySna
     domain: 'disk',
     level: 'info',
     message:
-      'Los tamaños vienen de information_schema y son de datos e índices dentro de los archivos, no del espacio ocupado en disco. El espacio libre del volumen se ve en Host cuando la instancia tiene métricas de sistema configuradas.',
+      'Sizes come from information_schema (data + indexes inside files), not volume free space. Host volume free space appears on the Host tab when system metrics are configured.',
   });
 
   // ------------------------------------------------------------ replicación
@@ -306,7 +306,7 @@ export async function collectMariadb(client: EngineClient): Promise<InventorySna
     domain: 'backups',
     level: 'info',
     message:
-      'MariaDB tampoco lleva catálogo de backups: mariabackup y mysqldump no dejan registro dentro del servidor. Lo verificable desde dentro es el binlog, que permite recuperación a un punto en el tiempo si está activo y se conserva.',
+      'MariaDB has no in-server backup catalog: mariabackup and mysqldump leave no record inside the engine. What is verifiable from inside is the binlog, which enables point-in-time recovery when it is on and retained.',
   });
 
   if (!logBin) {
@@ -314,14 +314,14 @@ export async function collectMariadb(client: EngineClient): Promise<InventorySna
       domain: 'backups',
       level: 'error',
       message:
-        'log_bin está apagado: sin binlog no hay recuperación a un punto en el tiempo ni replicación posible. El respaldo queda limitado a la última copia completa.',
+        'log_bin is off: without the binary log there is no point-in-time recovery or replication. Recovery is limited to the last full copy.',
     });
   } else {
     const [expire] = await client.query(
       'select @@binlog_expire_logs_seconds as seconds, @@expire_logs_days as days',
     );
     snapshot.backups.push({
-      database: '(servidor)',
+      database: '(server)',
       kind: 'wal_archive',
       finishedAt: null,
       source: 'binlog',
@@ -366,8 +366,8 @@ export async function collectMariadb(client: EngineClient): Promise<InventorySna
         level: events.length > 0 ? 'warn' : 'info',
         message:
           events.length > 0
-            ? `event_scheduler está en OFF: los ${events.length} eventos definidos no se están ejecutando.`
-            : 'event_scheduler está en OFF y no hay eventos definidos. En MariaDB las tareas suelen vivir en el cron del sistema, que el motor no puede ver.',
+            ? `event_scheduler is OFF: the ${events.length} defined event(s) are not running.`
+            : 'event_scheduler is OFF and no events are defined. On MariaDB, scheduled work usually lives in system cron, which the engine cannot see.',
       });
     }
   } catch (error) {

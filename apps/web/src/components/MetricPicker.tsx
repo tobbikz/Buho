@@ -80,7 +80,7 @@ export function MetricPicker({
       <div className="panel-header">
         <span className="panel-title">Metrics</span>
         <span className="font-mono text-[10px] text-foreground-muted">
-          {selected.length} de {available.length}
+          {selected.length} of {available.length}
         </span>
       </div>
 
@@ -89,7 +89,7 @@ export function MetricPicker({
           type="search"
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
-          placeholder="Filtrar (ej. cpu, tup_updated, wal)"
+          placeholder="Filter (e.g. cpu, connections, cache)"
           className="w-full border border-border bg-surface px-2 py-1 font-mono text-[11px] outline-none focus:border-accent"
         />
         {selected.length > 0 && (
@@ -98,7 +98,7 @@ export function MetricPicker({
             onClick={() => navigate([])}
             className="mt-1.5 text-[11px] text-foreground-muted underline decoration-dotted hover:text-foreground"
           >
-            Quitar todas
+            Clear all
           </button>
         )}
       </div>

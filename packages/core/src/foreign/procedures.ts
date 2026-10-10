@@ -274,3 +274,69 @@ export async function sampleMssqlCatalog(client: EngineClient): Promise<{
       .filter((row) => row.fromTable && row.toTable),
   };
 }
+
+const ORACLE_CATALOG_OWNERS_EXCLUDE = `
+  ('SYS','SYSTEM','OUTLN','XDB','WMSYS','CTXSYS','MDSYS','ORDSYS','ORDDATA',
+   'LBACSYS','DVSYS','AUDSYS','GSMADMIN_INTERNAL','OJVMSYS','DVF','DBSNMP',
+   'APPQOSSYS','GSMCATUSER','GGSYS','ANONYMOUS','SYSBACKUP','SYSDG','SYSKM',
+   'SYSRAC','GSMUSER','REMOTE_SCHEDULER_AGENT','DBSFWUSER','SI_INFORMTN_SCHEMA',
+   'OLAPSYS','ORDPLUGINS','MDDATA','DIP','APEX_PUBLIC_USER','FLOWS_FILES')`;
+
+/** Catálogo de tablas + FKs para ORM en Oracle (ALL_TABLES + ALL_CONSTRAINTS). */
+export async function sampleOracleCatalog(client: EngineClient): Promise<{
+  tables: {
+    schema: string;
+    table: string;
+    liveTuples: number;
+    sizeBytes: number;
+  }[];
+  fks: { fromSchema: string; fromTable: string; toSchema: string; toTable: string }[];
+}> {
+  const [tables, fks] = await Promise.all([
+    client.query(`
+      select * from (
+        select owner as sch,
+               table_name as tbl,
+               nvl(num_rows, 0) as live_tuples,
+               nvl(blocks, 0) * (
+                 select to_number(value)
+                   from v$parameter
+                  where name = 'db_block_size'
+               ) as size_bytes
+          from all_tables
+         where owner not in ${ORACLE_CATALOG_OWNERS_EXCLUDE}
+           and nvl(iot_type, 'NONE') = 'NONE'
+           and temporary = 'N'
+         order by nvl(blocks, 0) desc nulls last
+      ) where rownum <= 200`),
+    client.query(`
+      select c.owner as from_schema,
+             c.table_name as from_table,
+             r.owner as to_schema,
+             r.table_name as to_table
+        from all_constraints c
+        join all_constraints r
+          on r.owner = c.r_owner
+         and r.constraint_name = c.r_constraint_name
+       where c.constraint_type = 'R'
+         and c.owner not in ${ORACLE_CATALOG_OWNERS_EXCLUDE}
+         and r.owner not in ${ORACLE_CATALOG_OWNERS_EXCLUDE}`),
+  ]);
+
+  return {
+    tables: tables.map((row) => ({
+      schema: str(row['sch']),
+      table: str(row['tbl']),
+      liveTuples: num(row['live_tuples']),
+      sizeBytes: num(row['size_bytes']),
+    })),
+    fks: fks
+      .map((row) => ({
+        fromSchema: str(row['from_schema']),
+        fromTable: str(row['from_table']),
+        toSchema: str(row['to_schema']),
+        toTable: str(row['to_table']),
+      }))
+      .filter((row) => row.fromTable && row.toTable),
+  };
+}

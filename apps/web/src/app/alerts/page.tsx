@@ -11,6 +11,8 @@ import {
   type FleetAlert,
 } from '@/lib/alerts';
 
+export const metadata = { title: 'Alerts · Búho' };
+
 export const dynamic = 'force-dynamic';
 
 function severityClass(severity: string): string {

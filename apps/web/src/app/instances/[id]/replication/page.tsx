@@ -140,6 +140,24 @@ function TopologyPanel({ topology }: { topology: ReplicationTopology }) {
                     </Link>
                   )}
                 </div>
+                {role !== 'primary' ? (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <Link
+                      href={`/instances/${primaryNode.instanceId}`}
+                      className="tag tag--muted"
+                      title="Open primary overview"
+                    >
+                      Overview
+                    </Link>
+                    <Link
+                      href={`/instances/${primaryNode.instanceId}/replication`}
+                      className="tag tag--muted"
+                      title="Open primary replication"
+                    >
+                      Replication
+                    </Link>
+                  </div>
+                ) : null}
                 <div className="font-mono text-[11px] text-foreground-secondary">
                   {primaryNode.host}:{primaryNode.port}
                 </div>
@@ -207,6 +225,24 @@ function TopologyPanel({ topology }: { topology: ReplicationTopology }) {
                       <span className="font-mono">{peer?.peer ?? 'unknown'}</span>
                     )}
                   </div>
+                  {node && role !== 'standby' ? (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      <Link
+                        href={`/instances/${node.instanceId}`}
+                        className="tag tag--muted"
+                        title="Open standby overview"
+                      >
+                        Overview
+                      </Link>
+                      <Link
+                        href={`/instances/${node.instanceId}/replication`}
+                        className="tag tag--muted"
+                        title="Open standby replication"
+                      >
+                        Replication
+                      </Link>
+                    </div>
+                  ) : null}
                   <div className="font-mono text-[11px] text-foreground-secondary">
                     {node
                       ? `${node.host}:${node.port}`
@@ -692,7 +728,15 @@ async function ForeignReplicationPage({
           <StatCard
             label="Live peers"
             value={String(peers.length)}
-            hint="replicas, AG members, log shipping, mirroring"
+            hint={
+              engine === 'mssql'
+                ? 'AG members, log shipping, mirroring'
+                : engine === 'mariadb'
+                  ? 'replicas / ring peers'
+                  : engine === 'oracle'
+                    ? 'Data Guard / standby'
+                    : 'replicas / standbys'
+            }
             tone={peers.length > 0 ? 'ok' : 'warn'}
           />
           <StatCard
@@ -702,9 +746,19 @@ async function ForeignReplicationPage({
                 ? String(hadr.detail?.['is_hadr_enabled'] ? 'Always On ON' : 'Always On OFF')
                 : haPosture
                   ? String(haPosture.detail?.['log_bin'] ? 'binlog ON' : 'binlog OFF')
-                  : '—'
+                  : engine === 'oracle'
+                    ? '—'
+                    : '—'
             }
-            hint={engine === 'mssql' ? 'SERVERPROPERTY(IsHadrEnabled)' : '@@log_bin'}
+            hint={
+              engine === 'mssql'
+                ? 'SERVERPROPERTY(IsHadrEnabled)'
+                : engine === 'mariadb'
+                  ? '@@log_bin'
+                  : engine === 'oracle'
+                    ? 'v$database / Data Guard'
+                    : 'replication slots'
+            }
           />
           <StatCard
             label="Worst lag"
@@ -738,9 +792,13 @@ async function ForeignReplicationPage({
           </div>
           {rows.length === 0 ? (
             <div className="empty">
-              No replication inventory yet — wait for the hourly collector pass. On MariaDB/SQL Server the
-              next pass always writes an HA posture row (e.g. binlog OFF / Always On disabled) so this
-              panel does not stay blank forever.
+              {engine === 'oracle'
+                ? 'No Data Guard / standby inventory yet. When a standby is configured, lag and apply status appear here after the collector pass.'
+                : engine === 'mssql'
+                  ? 'No replication inventory yet — wait for the hourly collector pass. The next pass writes an HA posture row (Always On on/off) so this panel does not stay blank forever.'
+                  : engine === 'mariadb'
+                    ? 'No replication inventory yet — wait for the hourly collector pass. The next pass writes an HA posture row (e.g. binlog OFF) so this panel does not stay blank forever.'
+                    : 'No replication inventory yet — wait for the hourly collector pass (slots / standbys).'}
             </div>
           ) : (
             <div className="table-scroll">

@@ -16,7 +16,9 @@ export default async function JobsPage() {
     return <StoreError message={error instanceof Error ? error.message : String(error)} />;
   }
 
-  const failed = rows.filter((row) => row.lastStatus === 'falló');
+  const failed = rows.filter(
+    (row) => row.lastStatus === 'failed' || row.lastStatus === 'falló',
+  );
   const disabled = rows.filter((row) => row.enabled === false);
   const neverRan = rows.filter((row) => row.lastRunAt === null);
 
@@ -29,7 +31,7 @@ export default async function JobsPage() {
           tone={failed.length > 0 ? 'error' : 'ok'}
         />
         <StatCard
-          label="Deshabilitados"
+          label="Disabled"
           value={String(disabled.length)}
           hint="a disabled backup job will not warn that it did not run"
           tone={disabled.length > 0 ? 'warn' : 'ok'}
@@ -40,31 +42,31 @@ export default async function JobsPage() {
           hint="defined but never run"
           tone={neverRan.length > 0 ? 'warn' : 'ok'}
         />
-        <StatCard label="Tareas inventariadas" value={String(rows.length)} />
+        <StatCard label="Inventoried jobs" value={String(rows.length)} />
       </div>
 
       <NotesPanel notes={notes} title="Where each engine keeps its jobs" />
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Tareas programadas</span>
+          <span className="panel-title">Scheduled jobs</span>
           <span className="font-mono text-[10px] text-foreground-muted">
-            SQL Agent · eventos de MariaDB · pg_cron
+            SQL Agent · MariaDB events · pg_cron
           </span>
         </div>
         {rows.length === 0 ? (
           <div className="empty">
-            Ninguna instancia reportó tareas. En PostgreSQL y MariaDB eso es lo normal: sus tareas suelen vivir en el
-            cron del sistema, que el motor no puede ver.
+            No instance reported jobs. On PostgreSQL and MariaDB that is normal: jobs often live in system cron,
+            which the engine cannot see.
           </div>
         ) : (
           <div className="table-scroll" style={{ maxHeight: 'none' }}>
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Instancia</th>
+                  <th>Instance</th>
                   <th>Engine</th>
-                  <th>Tarea</th>
+                  <th>Job</th>
                   <th>Category</th>
                   <th>State</th>
                   <th>Last run</th>
@@ -88,7 +90,7 @@ export default async function JobsPage() {
                     <td>
                       {row.enabled === false ? (
                         <span className="tag tag--warn">disabled</span>
-                      ) : row.lastStatus === 'falló' ? (
+                      ) : row.lastStatus === 'failed' || row.lastStatus === 'falló' ? (
                         <span className="tag tag--error">failed</span>
                       ) : row.lastStatus ? (
                         <span className="tag tag--ok">{row.lastStatus}</span>

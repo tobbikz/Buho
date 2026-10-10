@@ -17,6 +17,7 @@ import {
   getWaitTimeline,
   WAIT_TYPE_HELP,
 } from '@/lib/sessions';
+import { waitHelp } from '@/lib/wait-help';
 
 export const dynamic = 'force-dynamic';
 
@@ -103,16 +104,47 @@ export default async function SessionsPage({
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Sessions and waits · {instancia.alias}</h1>
+            <h1 className="page-title">
+              {instancia.engine === 'elasticsearch'
+                ? `Tasks · ${instancia.alias}`
+                : instancia.engine === 'mongodb'
+                  ? `Operations · ${instancia.alias}`
+                  : instancia.engine === 'redis'
+                    ? `Clients · ${instancia.alias}`
+                    : `Sessions and waits · ${instancia.alias}`}
+            </h1>
             <p className="page-sub">
-              En qué se va el tiempo del servidor —CPU, disco, bloqueos, red— y qué estaba corriendo en un momento
-              concreto. Sale de una foto cada diez segundos (
-              {instancia.engine === 'mariadb'
-                ? <span className="font-mono">PROCESSLIST</span>
-                : instancia.engine === 'mssql'
-                  ? <span className="font-mono">dm_exec_requests</span>
-                  : <span className="font-mono">pg_stat_activity</span>}
-              ), so it is <strong>sampling</strong>: it measures what lasts and misses the instantaneous.
+              {instancia.engine === 'mongodb' ? (
+                <>
+                  Active ops from <span className="font-mono">currentOp</span> — op type, ns, secs_running,
+                  waitingForLock. Snapshots every ten seconds (sampling).
+                </>
+              ) : instancia.engine === 'redis' ? (
+                <>
+                  Connected clients and blocked waiters from <span className="font-mono">CLIENT LIST</span> /{' '}
+                  <span className="font-mono">INFO clients</span>. Snapshots every ten seconds (sampling).
+                </>
+              ) : instancia.engine === 'elasticsearch' ? (
+                <>
+                  Cluster tasks from <span className="font-mono">_tasks</span> / cat — long-running search,
+                  reindex, snapshot. Snapshots every ten seconds (sampling).
+                </>
+              ) : (
+                <>
+                  Where server time goes — CPU, disk, locks, network — and what was running at a point in time.
+                  Snapshots every ten seconds (
+                  {instancia.engine === 'mariadb' ? (
+                    <span className="font-mono">PROCESSLIST</span>
+                  ) : instancia.engine === 'mssql' ? (
+                    <span className="font-mono">dm_exec_requests</span>
+                  ) : instancia.engine === 'oracle' ? (
+                    <span className="font-mono">v$session</span>
+                  ) : (
+                    <span className="font-mono">pg_stat_activity</span>
+                  )}
+                  ), so it is <strong>sampling</strong>: it catches what lasts and can miss the instantaneous.
+                </>
+              )}
             </p>
           </div>
         </header>
@@ -138,7 +170,7 @@ export default async function SessionsPage({
             tone="accent"
           />
           <StatCard
-            label="Trabajando (CPU)"
+            label="On CPU"
             value={cpu ? formatPct(cpu.share * 100, 0) : '·'}
             hint="of session time, not waiting"
           />
@@ -181,9 +213,9 @@ export default async function SessionsPage({
               emptyMessage="No session samples in this window yet. Sampling writes every ten seconds; if the instance was just added, wait a minute."
             />
             <p className="mt-2 text-[11px] text-foreground-muted">
-              Height is <strong>sessions at once</strong>, not summed waits: so you can compare against
-              número de cores del servidor. Si la barra verde supera los cores, el cuello es CPU; si crece la roja,
-              son transactions que se pisan y no hay hardware que lo arregle.
+              Height is <strong>sessions at once</strong>, not summed waits — compare against host cores.
+              If the CPU bar exceeds cores, CPU is the bottleneck; if the lock bar grows, sessions are
+              blocking each other and more hardware will not fix it.
             </p>
           </div>
         </section>
@@ -196,7 +228,7 @@ export default async function SessionsPage({
               label: espera.waitEvent ? `${espera.waitType} · ${espera.waitEvent}` : espera.waitType,
               sub: WAIT_TYPE_HELP[espera.waitType],
               value: espera.share,
-              display: `${formatPct(espera.share * 100, 1)} · ${espera.averageSessions.toFixed(2)} ses.`,
+              display: `${formatPct(espera.share * 100, 1)} · ${espera.averageSessions.toFixed(2)} sess`,
               tone:
                 espera.waitType === 'Lock'
                   ? 'error'
@@ -219,17 +251,16 @@ export default async function SessionsPage({
                   reconoce el momento cuando lo ve descrito. */}
               {momentos.length === 0 ? (
                 <div className="empty">
-                  Nada llamativo en la window. Sólo se guardan las sessions que esperan un bloqueo, las que llevan más
-                  de un segundo corriendo y las transactions de más de un minuto; si no hubo ninguna, esto queda vacío
-                  y es una buena noticia.
+                  Nothing notable in the window. Only sessions waiting on a lock, queries running longer than one
+                  second, and transactions older than one minute are kept; an empty list is good news.
                 </div>
               ) : (
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Momento</th>
+                      <th>Moment</th>
                       <th className="text-right">Sessions</th>
-                      <th className="text-right">Bloqueadas</th>
+                      <th className="text-right">Blocked</th>
                       <th className="text-right">Longest</th>
                     </tr>
                   </thead>
@@ -301,12 +332,16 @@ export default async function SessionsPage({
                           {sesion.waitType ? (
                             <span
                               className={`tag ${sesion.waitType === 'Lock' ? 'tag--error' : 'tag--muted'}`}
+                              title={waitHelp(sesion.waitType)}
+                              style={{ cursor: 'help' }}
                             >
                               {sesion.waitType}
                               {sesion.waitEvent ? ` · ${sesion.waitEvent}` : ''}
                             </span>
                           ) : (
-                            <span className="text-foreground-muted">CPU</span>
+                            <span className="text-foreground-muted" title={waitHelp('CPU')} style={{ cursor: 'help' }}>
+                              CPU
+                            </span>
                           )}
                           {sesion.blockedBy ? (
                             <span className="ml-1 font-mono text-[10px] text-foreground-muted">
@@ -328,9 +363,9 @@ export default async function SessionsPage({
               </div>
             )}
             <p className="mt-2 text-[11px] text-foreground-muted">
-              El texto de cada consulta está cortado a 900 caracteres: guardar consultas enteras cada diez segundos
-              llenaría el store, y para reconocer qué corría alcanza con el principio. La columna «por» dice qué PID
-              tenía el bloqueo, que es por dónde empieza cualquier investigación de contención.
+              Each query text is truncated to 900 characters: storing full SQL every ten seconds would fill the store,
+              and the prefix is enough to recognize what was running. The &quot;by&quot; column is the blocking PID — where
+              every contention investigation starts.
             </p>
           </div>
         </section>

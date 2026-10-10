@@ -8,6 +8,8 @@ import type { BackupState } from '@/lib/estate';
 import { formatBytes, formatNumber } from '@/lib/format';
 import { getWeeklyReport, type WeeklyReport } from '@/lib/report';
 
+export const metadata = { title: 'Weekly report · Búho' };
+
 export const dynamic = 'force-dynamic';
 
 const DATE = new Intl.DateTimeFormat('en-US', { dateStyle: 'long' });

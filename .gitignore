@@ -11,3 +11,11 @@ config.json
 .DS_Store
 respaldos/
 tmp/
+.wal-archive/
+*.png
+!apps/web/public/**
+
+# APM SSH lab keys
+deploy/apm-ssh-lab/lab_id_ed25519
+deploy/apm-ssh-lab/lab_id_ed25519.pub
+deploy/apm-ssh-lab/authorized_keys

@@ -78,6 +78,75 @@ export async function collectOracle(client: EngineClient): Promise<InventorySnap
       'Oracle: V$ views for sessions/waits/sysstat/SGA; tablespaces via DBA_*. Data Guard lag when configured.',
   });
 
+  const logMode = String(inst?.['log_mode'] ?? '').toUpperCase();
+  const backups: InventorySnapshot['backups'] = [];
+
+  // Continuous recovery signal: ARCHIVELOG + last archived redo (mirrors PG WAL archive).
+  let lastArchived: Date | null = null;
+  try {
+    const [arch] = await client.query(`
+      select max(completion_time) as last_archived
+        from v$archived_log
+       where standby_dest = 'NO'`);
+    const raw = arch?.['last_archived'];
+    if (raw) lastArchived = raw instanceof Date ? raw : new Date(String(raw));
+  } catch (error) {
+    notes.push({
+      domain: 'backups',
+      level: 'warn',
+      message: `v$archived_log: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
+
+  backups.push({
+    database: String(inst?.['db_name'] ?? '(database)'),
+    kind: 'wal_archive',
+    finishedAt: logMode === 'ARCHIVELOG' ? lastArchived : null,
+    source: 'v$archived_log',
+    detail: {
+      log_mode: logMode || 'UNKNOWN',
+      archive_mode: logMode === 'ARCHIVELOG' ? 'on' : 'off',
+      last_archived_time: lastArchived?.toISOString() ?? null,
+    },
+  });
+
+  // RMAN backup sets → full / log rows when accessible.
+  try {
+    const [rman] = await client.query(`
+      select max(case when backup_type = 'D' then completion_time end) as last_full,
+             max(case when backup_type = 'L' then completion_time end) as last_log,
+             max(case when backup_type = 'I' then completion_time end) as last_incr
+        from v$backup_set`);
+    const toDate = (v: unknown): Date | null => {
+      if (!v) return null;
+      return v instanceof Date ? v : new Date(String(v));
+    };
+    const lastFull = toDate(rman?.['last_full'] ?? rman?.['last_incr']);
+    const lastLog = toDate(rman?.['last_log']);
+    backups.push({
+      database: String(inst?.['db_name'] ?? '(database)'),
+      kind: 'full',
+      finishedAt: lastFull,
+      source: 'v$backup_set',
+      detail: { backup_type: 'D/I' },
+    });
+    backups.push({
+      database: String(inst?.['db_name'] ?? '(database)'),
+      kind: 'log',
+      finishedAt: lastLog,
+      source: 'v$backup_set',
+      detail: { backup_type: 'L' },
+    });
+  } catch (error) {
+    notes.push({
+      domain: 'backups',
+      level: 'info',
+      message: `v$backup_set not readable (grant SELECT on V_$BACKUP_SET): ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    });
+  }
+
   const startedAt = inst?.['startup_time'];
   return {
     engine: {
@@ -111,7 +180,7 @@ export async function collectOracle(client: EngineClient): Promise<InventorySnap
     ],
     disks,
     replication,
-    backups: [],
+    backups,
     jobs: [],
     licensing: {
       edition: 'Oracle Database',

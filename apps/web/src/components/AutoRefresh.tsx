@@ -45,7 +45,7 @@ function IconRefresh({ spinning }: { spinning?: boolean }) {
  * Client-side polling refresh. Lives in the topbar only so fleet tabs do not
  * each carry their own pause/refresh controls.
  */
-export function AutoRefresh({ intervalMs = 30_000 }: { intervalMs?: number }) {
+export function AutoRefresh({ intervalMs = 15_000 }: { intervalMs?: number }) {
   const router = useRouter();
   const [paused, setPaused] = useState(false);
   const [pending, startTransition] = useTransition();

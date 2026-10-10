@@ -3,12 +3,14 @@ import { ExtensionsList } from '@/components/ExtensionsList';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StoreError } from '@/components/StoreError';
 import { Topbar } from '@/components/Topbar';
-import { formatAgo } from '@/lib/format';
+import { RelativeTime } from '@/components/RelativeTime';
 import { getInstanceEngine } from '@/lib/estate';
 import { getInstance } from '@/lib/queries';
 import { query } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
+
+const STALE_MS = 60 * 60 * 1000;
 
 interface ExtensionRow {
   name: string;
@@ -74,13 +76,28 @@ export default async function ExtensionsPage({ params }: { params: Promise<{ id:
             <h1 className="page-title">Extensions · {instance.alias}</h1>
             <p className="page-sub">
               Installed PostgreSQL extensions from <code>pg_extension</code>
-              {probedAt ? ` · probed ${formatAgo(probedAt)}` : ''}. Click a row for what it does.
+              {probedAt ? (
+                <>
+                  {' '}
+                  · probed <RelativeTime at={probedAt} />
+                </>
+              ) : null}
+              . Click a row for what it does.
             </p>
           </div>
           <span className="tag tag--info">{extensions.length} installed</span>
         </header>
 
         <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
+
+        {probedAt && Date.now() - probedAt.getTime() > STALE_MS ? (
+          <div className="panel" style={{ borderLeft: '3px solid var(--warning)' }}>
+            <div className="panel-body text-[12px]">
+              Capability probe is stale (<RelativeTime at={probedAt} />). The list may lag installs or drops
+              until the next collector capability scan.
+            </div>
+          </div>
+        ) : null}
 
         {extensions.length === 0 ? (
           <section className="panel">

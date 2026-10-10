@@ -47,7 +47,8 @@ async function sampleCount(instanceId: number, minutes: number): Promise<number>
   const filas = await query<{ fotos: number }>(
     `select count(distinct ts) as fotos
        from buho.wait_samples
-      where instance_id = $1 and ts > now() - ($2 || ' minutes')::interval`,
+      where instance_id = $1 and ts > now() - ($2 || ' minutes')::interval
+        and not (wait_type = 'Idle' and sessions = 0)`,
     [instanceId, minutes],
   );
   return Number(filas[0]?.fotos ?? 0);
@@ -68,6 +69,7 @@ export async function getWaitShares(
     `select wait_type, wait_event, sum(sessions) as sessions
        from buho.wait_samples
       where instance_id = $1 and ts > now() - ($2 || ' minutes')::interval
+        and not (wait_type = 'Idle' and sessions = 0)
       group by 1, 2
       order by 3 desc
       limit $3`,
@@ -77,7 +79,8 @@ export async function getWaitShares(
   const totalRows = await query<{ total: number }>(
     `select coalesce(sum(sessions), 0) as total
        from buho.wait_samples
-      where instance_id = $1 and ts > now() - ($2 || ' minutes')::interval`,
+      where instance_id = $1 and ts > now() - ($2 || ' minutes')::interval
+        and not (wait_type = 'Idle' and sessions = 0)`,
     [instanceId, minutes],
   );
   const total = Number(totalRows[0]?.total ?? 0);
@@ -114,6 +117,7 @@ export async function getWaitTimeline(instanceId: number, minutes: number): Prom
             count(distinct ts)     as fotos
        from buho.wait_samples
       where instance_id = $1 and ts > now() - ($2 || ' minutes')::interval
+        and not (wait_type = 'Idle' and sessions = 0)
       group by 1, 2
       order by 1`,
     [instanceId, minutes, segundos],
@@ -141,6 +145,34 @@ export async function getWaitTimeline(instanceId: number, minutes: number): Prom
  * pantalla existe para poder decir «a las 3:04 estas siete sessions estaban
  * esperando a esta otra».
  */
+/**
+ * Latest Live snapshot. Never returns a sample older than `maxAgeSeconds`
+ * (default 30s ≈ 3 collector cycles) — otherwise the UI freezes on a finished
+ * pg_restore / long query forever.
+ */
+export async function getLatestLiveSessions(
+  instanceId: number,
+  maxAgeSeconds = 30,
+): Promise<{ at: Date | null; sessions: SessionRow[]; stale: boolean }> {
+  // Prefer the newest wait tick (includes Idle heartbeats) so an empty cycle
+  // clears Live instead of replaying the last busy session_samples row.
+  const cercana = await query<{ ts: Date }>(
+    `select ts
+       from buho.wait_samples
+      where instance_id = $1
+        and ts > now() - ($2::text || ' seconds')::interval
+      order by ts desc
+      limit 1`,
+    [instanceId, String(maxAgeSeconds)],
+  );
+  const momento = cercana[0]?.ts ?? null;
+  if (!momento) {
+    return { at: null, sessions: [], stale: true };
+  }
+  const foto = await loadSessionsAtTs(instanceId, momento);
+  return { at: new Date(momento), sessions: foto.sessions, stale: false };
+}
+
 export async function getSessionsAt(
   instanceId: number,
   at: Date,
@@ -156,6 +188,13 @@ export async function getSessionsAt(
   const momento = cercana[0]?.ts ?? null;
   if (!momento) return { at: null, sessions: [] };
 
+  return loadSessionsAtTs(instanceId, momento);
+}
+
+async function loadSessionsAtTs(
+  instanceId: number,
+  momento: Date,
+): Promise<{ at: Date | null; sessions: SessionRow[] }> {
   const filas = await query<{
     ts: Date;
     pid: number;
@@ -288,17 +327,4 @@ export async function getWaitsByApplication(
   }));
 }
 
-/** Descripciones cortas: el nombre del evento no le dice nada a nadie sin esto. */
-export const WAIT_TYPE_HELP: Record<string, string> = {
-  CPU: 'not waiting: actively computing. If it dominates, the bottleneck is CPU or a missing index.',
-  Lock: 'waiting on a lock from another transaction. Fix by shortening transactions, not with hardware.',
-  LWLock: 'internal server contention, usually buffers or WAL under high concurrency.',
-  IO: 'waiting on disk. If it dominates, either cache memory is short or storage cannot keep up.',
-  Client: 'waiting on the application, not the server. Often a slow-fetching client.',
-  IPC: 'waiting on another server process, typically parallel queries or replication.',
-  Timeout: 'scheduled wait, such as a sleep or retry interval.',
-  BufferPin: 'waiting to access a buffer page another backend is using.',
-  Extension: 'waiting inside an extension.',
-  Activity: 'idle background processes. Normal and not a problem.',
-  Other: 'wait that does not fit known families. In MariaDB State is free text; in SQL Server, an uncommon wait_type. Check the concrete name.',
-};
+export { WAIT_TYPE_HELP, waitHelp } from '@/lib/wait-help';

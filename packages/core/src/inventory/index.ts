@@ -33,5 +33,9 @@ export async function collectInventory(client: EngineClient): Promise<InventoryS
       return collectCassandra(client);
     case 'elasticsearch':
       return collectElasticsearch(client);
+    case 'endpoint':
+      throw new Error(
+        'collectInventory() no aplica a engine=endpoint — las sondas sintéticas no tienen inventario de BD.',
+      );
   }
 }

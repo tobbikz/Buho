@@ -230,7 +230,9 @@ const throughput: ForeignCollector = {
     const lecturas = estado.get('INNODB_BUFFER_POOL_READ_REQUESTS') ?? 0;
     const discos = estado.get('INNODB_BUFFER_POOL_READS') ?? 0;
     if (lecturas > 0) {
-      samples.push({ metric: 'db_cache_hit_pct', value: ((lecturas - discos) / lecturas) * 100 });
+      // Counter resets / FLUSH STATUS can briefly make reads > requests — clamp.
+      const hit = Math.max(0, Math.min(100, ((lecturas - discos) / lecturas) * 100));
+      samples.push({ metric: 'db_cache_hit_pct', value: hit });
     }
 
     const paginas = estado.get('INNODB_BUFFER_POOL_PAGES_TOTAL') ?? 0;

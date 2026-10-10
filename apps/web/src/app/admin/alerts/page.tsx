@@ -668,9 +668,9 @@ export default async function AdminAlertsPage({
               <select className="mt-1 block w-full" name="matchEngine" defaultValue="">
                 <option value="">Any engine</option>
                 <option value="postgres">postgres</option>
-                <option value="mariadb">mariadb</option>
                 <option value="mssql">mssql</option>
-                <option value="mongodb">mongodb</option>
+                <option value="mariadb">mariadb</option>
+                <option value="oracle">oracle</option>
               </select>
             </label>
             <label className="text-[12px] text-foreground-muted">

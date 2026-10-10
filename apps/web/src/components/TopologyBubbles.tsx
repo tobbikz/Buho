@@ -172,9 +172,9 @@ export function TopologyBubbles({
           const dx = b.x - a.x;
           const dy = b.y - a.y;
           const dist = Math.hypot(dx, dy) || 0.01;
-          const minDist = a.r + b.r + 28;
+          const minDist = a.r + b.r + 36;
           if (dist < minDist) {
-            const push = ((minDist - dist) / dist) * 1.6 * alpha;
+            const push = ((minDist - dist) / dist) * 1.35 * alpha;
             if (!a.pinned) {
               a.vx -= dx * push;
               a.vy -= dy * push;
@@ -213,16 +213,16 @@ export function TopologyBubbles({
           n.vy = 0;
           continue;
         }
-        n.vx *= 0.78;
-        n.vy *= 0.78;
+        n.vx *= 0.72;
+        n.vy *= 0.72;
         n.x += n.vx;
         n.y += n.vy;
         n.x = Math.min(w - 20, Math.max(20, n.x));
         n.y = Math.min(h - 20, Math.max(20, n.y));
         movement += Math.abs(n.vx) + Math.abs(n.vy);
       }
-      settledFrames = movement < 0.35 ? settledFrames + 1 : 0;
-      if (settledFrames >= 40) {
+      settledFrames = movement < 0.28 ? settledFrames + 1 : 0;
+      if (settledFrames >= 28) {
         for (const n of nodes) {
           n.pinned = true;
           n.vx = 0;
@@ -234,7 +234,7 @@ export function TopologyBubbles({
     const draw = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      if (settledFrames < 40) simulate(dt);
+      if (settledFrames < 28) simulate(dt);
 
       const width = canvas.clientWidth || w;
       const tall = canvas.clientHeight || h;

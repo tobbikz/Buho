@@ -117,9 +117,18 @@ export { MARIADB_CHECKS } from './mariadb';
 export { MSSQL_CHECKS, MSSQL_PARITY_CHECKS, MSSQL_PARITY_MAP, assertMssqlParity } from './mssql';
 export { MONGODB_CHECKS } from './mongodb';
 export { REDIS_CHECKS } from './redis';
-export { ORACLE_CHECKS } from './oracle';
+export {
+  ORACLE_CHECKS,
+  ORACLE_PARITY_CHECKS,
+  ORACLE_PARITY_MAP,
+  assertOracleParity,
+} from './oracle';
 export { CASSANDRA_CHECKS } from './cassandra';
 export { ELASTICSEARCH_CHECKS } from './elasticsearch';
+export {
+  evaluateEndpointSamples,
+  endpointHealthScore,
+} from './endpoint';
 export {
   MARIADB_PARITY_CHECKS,
   MARIADB_PARITY_MAP,

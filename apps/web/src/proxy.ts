@@ -24,6 +24,12 @@ function withPath(request: NextRequest) {
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
+  // OTLP ingest is machine-to-machine (exporters / demo scripts). Keep it off
+  // the console login redirect so collectors can POST without a browser session.
+  if (pathname.startsWith('/api/otlp/')) {
+    return withPath(request);
+  }
+
   if (!authConfigured()) {
     // Sin secreto definido: en producción sólo se puede ver la pantalla que
     // explica cómo configurarlo; en desarrollo se pasa de largo.

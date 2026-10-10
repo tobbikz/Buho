@@ -4,12 +4,14 @@ import { AnomalyPanel } from '@/components/AnomalyPanel';
 import { FindingsPanel } from '@/components/FindingsPanel';
 import { IncidentPanel } from '@/components/IncidentPanel';
 import { InstanceTabs } from '@/components/InstanceTabs';
+import { OpsPulse } from '@/components/OpsPulse';
 import { ForeignSummary } from '@/components/ForeignSummary';
 import { MongoSummary } from '@/components/MongoSummary';
 import { RedisSummary } from '@/components/RedisSummary';
 import { OracleSummary } from '@/components/OracleSummary';
 import { CassandraSummary } from '@/components/CassandraSummary';
 import { ElasticsearchSummary } from '@/components/ElasticsearchSummary';
+import { EndpointSummary } from '@/components/EndpointSummary';
 import { LabeledBars, type BarRow } from '@/components/LabeledBars';
 import { StatCard, toneForMinimum, toneForPct, toneForScore } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
@@ -111,6 +113,10 @@ export default async function InstancePage({
   // los indicadores que cada motor sí puede contestar. El inventario, que antes
   // era toda su pantalla, ahora es una pestaña más.
   const engine = await getInstanceEngine(instanceId);
+  if (engine === 'endpoint') {
+    const { redirect } = await import('next/navigation');
+    redirect(`/observability/monitors/${instanceId}`);
+  }
   if (
     engine === 'mariadb' ||
     engine === 'mssql' ||
@@ -118,8 +124,41 @@ export default async function InstancePage({
     engine === 'redis' ||
     engine === 'oracle' ||
     engine === 'cassandra' ||
-    engine === 'elasticsearch'
+    engine === 'elasticsearch' ||
+    engine === 'endpoint'
   ) {
+    let mariaRing: { instanceId: number; alias: string; relation: string }[] = [];
+    let mariaHasDigests = false;
+    if (engine === 'mariadb') {
+      const { query: sql } = await import('@/lib/db');
+      const [replRows, digestRows, fleetRows] = await Promise.all([
+        getInstanceReplication(instanceId),
+        sql<{ n: string }>(
+          `select count(*)::text as n from buho.statement_stats
+            where instance_id = $1 and ts > now() - interval '1 hour'`,
+          [instanceId],
+        ).catch(() => [{ n: '0' }]),
+        sql<{ instance_id: number; alias: string }>(
+          `select instance_id, alias from buho.instances where engine = 'mariadb'`,
+        ).catch(() => []),
+      ]);
+      mariaHasDigests = Number(digestRows[0]?.n ?? 0) > 0;
+      const byAlias = new Map(fleetRows.map((r) => [r.alias, r.instance_id]));
+      const seen = new Set<number>();
+      for (const row of replRows) {
+        const hostPart = row.peer.split(':')[0] ?? '';
+        if (!hostPart || /^\d+\.\d+\.\d+\.\d+$/.test(hostPart)) continue;
+        const peerId = byAlias.get(hostPart);
+        if (!peerId || peerId === instanceId || seen.has(peerId)) continue;
+        seen.add(peerId);
+        mariaRing.push({
+          instanceId: peerId,
+          alias: hostPart,
+          relation: row.role === 'replica' ? 'upstream' : 'downstream',
+        });
+      }
+    }
+
     return (
       <>
         <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: instance.alias }]} />
@@ -134,10 +173,116 @@ export default async function InstancePage({
               <div className="mt-[0.375rem] flex flex-wrap items-center gap-1">
                 <span className="tag tag--muted">{instance.environment}</span>
                 <span className="tag tag--info">{ENGINE_LABEL[engine] ?? engine}</span>
+                {engine === 'mariadb' ? (
+                  <span className={`tag ${mariaHasDigests ? 'tag--ok' : 'tag--warn'}`}>
+                    {mariaHasDigests ? 'perf_schema digests' : 'no digests (PROCESSLIST)'}
+                  </span>
+                ) : null}
                 <span className="font-mono text-[10px] text-foreground-muted">
                   seen {formatAgo(instance.lastSeenAt)}
                 </span>
               </div>
+              {engine === 'mariadb' ? (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10.5px] font-semibold uppercase tracking-wide text-foreground-muted">
+                    {mariaRing.length > 0 ? 'Ring lens' : 'On-call'}
+                  </span>
+                  <Link
+                    href={`/instances/${instanceId}/queries`}
+                    className="tag tag--info"
+                    title="Statement digests or PROCESSLIST sampling"
+                  >
+                    Queries
+                  </Link>
+                  <Link
+                    href={`/instances/${instanceId}/slow-queries`}
+                    className="tag tag--muted"
+                    title="Digests and events ≥1s"
+                  >
+                    Slow
+                  </Link>
+                  <Link href={`/instances/${instanceId}/replication`} className="tag tag--muted">
+                    Replication
+                  </Link>
+                  <Link href={`/instances/${instanceId}/host`} className="tag tag--muted">
+                    Host
+                  </Link>
+                  {mariaRing.map((peer) => (
+                    <Link
+                      key={peer.instanceId}
+                      href={`/instances/${peer.instanceId}`}
+                      className="tag tag--muted"
+                      title={`${peer.relation} · open overview`}
+                    >
+                      {peer.alias}
+                      <span className="ml-1 opacity-70">{peer.relation === 'upstream' ? '↑' : '↓'}</span>
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
+              {engine === 'mongodb' ? (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10.5px] font-semibold uppercase tracking-wide text-foreground-muted">
+                    On-call
+                  </span>
+                  <Link href={`/instances/${instanceId}/sessions`} className="tag tag--info" title="currentOp">
+                    Ops
+                  </Link>
+                  <Link href={`/instances/${instanceId}/locks`} className="tag tag--muted" title="Global lock / waiters">
+                    Locks
+                  </Link>
+                  <Link href={`/instances/${instanceId}/replication`} className="tag tag--muted">
+                    Replica set
+                  </Link>
+                  <Link href={`/instances/${instanceId}/capacity`} className="tag tag--muted">
+                    Capacity
+                  </Link>
+                  <Link href={`/instances/${instanceId}/host`} className="tag tag--muted">
+                    Host
+                  </Link>
+                </div>
+              ) : null}
+              {engine === 'redis' ? (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10.5px] font-semibold uppercase tracking-wide text-foreground-muted">
+                    On-call
+                  </span>
+                  <Link href={`/instances/${instanceId}/slow-queries`} className="tag tag--info" title="SLOWLOG">
+                    Slowlog
+                  </Link>
+                  <Link href={`/instances/${instanceId}/queries`} className="tag tag--muted" title="Commandstats">
+                    Commands
+                  </Link>
+                  <Link href={`/instances/${instanceId}/sessions`} className="tag tag--muted" title="CLIENT LIST">
+                    Clients
+                  </Link>
+                  <Link href={`/instances/${instanceId}/capacity`} className="tag tag--muted">
+                    Memory
+                  </Link>
+                  <Link href={`/instances/${instanceId}/host`} className="tag tag--muted">
+                    Host
+                  </Link>
+                </div>
+              ) : null}
+              {engine === 'elasticsearch' ? (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10.5px] font-semibold uppercase tracking-wide text-foreground-muted">
+                    On-call
+                  </span>
+                  <Link href={`/instances/${instanceId}/replication`} className="tag tag--info" title="Shard allocation">
+                    Shards
+                  </Link>
+                  <Link href={`/instances/${instanceId}/sessions`} className="tag tag--muted" title="_tasks">
+                    Tasks
+                  </Link>
+                  <Link href={`/instances/${instanceId}/capacity`} className="tag tag--muted" title="Heap / store">
+                    Capacity
+                  </Link>
+                  <Link href={`/instances/${instanceId}/host`} className="tag tag--muted">
+                    Host
+                  </Link>
+                </div>
+              ) : null}
             </div>
             <div className="flex items-center gap-1">
               {WINDOWS.map((candidate) => (
@@ -156,7 +301,22 @@ export default async function InstancePage({
             engine={engine}
             blockedCount={instance.blockedSessions ?? 0}
           />
-          {engine === 'mongodb' ? (
+          <OpsPulse
+            instanceId={instanceId}
+            lastSeenAt={instance.lastSeenAt}
+            blockedSessions={instance.blockedSessions}
+            connectionsUsedPct={instance.connectionsUsedPct}
+            replicationLagSeconds={instance.replicationLagSeconds}
+          />
+          {engine === 'endpoint' ? (
+            <EndpointSummary
+              instanceId={instanceId}
+              alias={instance.alias}
+              windowMinutes={window.minutes}
+              bucketSeconds={window.bucketSeconds}
+              windowHint={windowHint}
+            />
+          ) : engine === 'mongodb' ? (
             <MongoSummary
               instanceId={instanceId}
               windowMinutes={window.minutes}
@@ -444,6 +604,82 @@ export default async function InstancePage({
                 seen {formatAgo(instance.lastSeenAt)}
               </span>
             </div>
+            {instance.inRecovery ? (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span className="text-[10.5px] font-semibold uppercase tracking-wide text-foreground-muted">
+                  Standby lens
+                </span>
+                <Link
+                  href={`/instances/${instance.instanceId}/replication`}
+                  className="tag tag--info"
+                  title="Lag, WAL receiver, upstream peer"
+                >
+                  Replication
+                </Link>
+                <Link
+                  href={`/instances/${instance.instanceId}/analysis`}
+                  className="tag tag--muted"
+                  title="Recovery conflicts, lag, connections"
+                >
+                  Analysis
+                </Link>
+                <Link
+                  href={`/instances/${instance.instanceId}/sessions`}
+                  className="tag tag--muted"
+                  title="Queries and waits on this replica"
+                >
+                  Sessions
+                </Link>
+                <Link
+                  href={`/instances/${instance.instanceId}/host`}
+                  className="tag tag--muted"
+                  title="Container CPU / RAM / data disk"
+                >
+                  Host
+                </Link>
+              </div>
+            ) : (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span className="text-[10.5px] font-semibold uppercase tracking-wide text-foreground-muted">
+                  Primary lens
+                </span>
+                <Link
+                  href={`/instances/${instance.instanceId}/queries`}
+                  className="tag tag--info"
+                  title="Top statements in this window"
+                >
+                  Queries
+                </Link>
+                <Link
+                  href={`/instances/${instance.instanceId}/sessions`}
+                  className="tag tag--muted"
+                  title="Waits and active sessions"
+                >
+                  Sessions
+                </Link>
+                <Link
+                  href={`/instances/${instance.instanceId}/locks`}
+                  className="tag tag--muted"
+                  title="Blocking episodes"
+                >
+                  Locks
+                </Link>
+                <Link
+                  href={`/instances/${instance.instanceId}/replication`}
+                  className="tag tag--muted"
+                  title="Standbys and slots"
+                >
+                  Replication
+                </Link>
+                <Link
+                  href={`/instances/${instance.instanceId}/vacuum`}
+                  className="tag tag--muted"
+                  title="Dead tuples and freeze age"
+                >
+                  Vacuum
+                </Link>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-1">
             {WINDOWS.map((candidate) => (
@@ -459,6 +695,14 @@ export default async function InstancePage({
         </header>
 
         <InstanceTabs instanceId={instance.instanceId} blockedCount={instance.blockedSessions ?? 0} />
+
+        <OpsPulse
+          instanceId={instance.instanceId}
+          lastSeenAt={instance.lastSeenAt}
+          blockedSessions={instance.blockedSessions}
+          connectionsUsedPct={instance.connectionsUsedPct}
+          replicationLagSeconds={instance.replicationLagSeconds}
+        />
 
         {instance.statStatements !== 'active' && (
           <div className="panel" style={{ borderLeft: '3px solid var(--warning)' }}>
@@ -701,7 +945,7 @@ export default async function InstancePage({
             unit="count"
             series={data.waitClasses.keys.map((key, index) => ({
               metric: key,
-              label: key,
+              label: key === 'Otro' ? 'Other' : key,
               color: WAIT_COLORS[index % WAIT_COLORS.length] as string,
             }))}
           />

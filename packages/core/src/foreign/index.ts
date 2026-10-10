@@ -48,12 +48,20 @@ export {
   sampleMariadbIndexes,
   runMariadbExplain,
 } from './mariadb-depth';
+export { sampleOracleIndexes } from './oracle-depth';
 export type { StatementSlowEvent } from './mariadb-depth';
+export { sampleMssqlIndexes, sampleMssqlMaintenance } from './mssql-depth';
+export type {
+  MssqlMaintenanceSnapshot,
+  MssqlHeapPressureRow,
+  MssqlIndexFragmentationRow,
+} from './mssql-depth';
 export {
   ForeignProcedureTracker,
   sampleForeignProcedures,
   sampleMssqlCatalog,
   sampleMariadbCatalog,
+  sampleOracleCatalog,
 } from './procedures';
 export type { ProcedureDelta, ProcedureSnapshotRow } from './procedures';
 export { sampleForeignBlocking } from './blocking';
@@ -71,7 +79,7 @@ import { ELASTICSEARCH_COLLECTORS } from './elasticsearch';
 import type { ForeignCaps, ForeignCollector } from './types';
 
 export function foreignCollectorsFor(caps: ForeignCaps, tier?: string): ForeignCollector[] {
-  const catalogo: Record<Exclude<EngineKind, 'postgres'>, ForeignCollector[]> = {
+  const catalogo: Record<Exclude<EngineKind, 'postgres' | 'endpoint'>, ForeignCollector[]> = {
     mariadb: MARIADB_COLLECTORS,
     mssql: MSSQL_COLLECTORS,
     mongodb: MONGODB_COLLECTORS,
@@ -80,7 +88,8 @@ export function foreignCollectorsFor(caps: ForeignCaps, tier?: string): ForeignC
     cassandra: CASSANDRA_COLLECTORS,
     elasticsearch: ELASTICSEARCH_COLLECTORS,
   };
-  const lista = caps.engine === 'postgres' ? [] : catalogo[caps.engine];
+  const lista =
+    caps.engine === 'postgres' || caps.engine === 'endpoint' ? [] : catalogo[caps.engine];
   return lista.filter(
     (collector) => (!tier || collector.tier === tier) && (!collector.appliesTo || collector.appliesTo(caps)),
   );

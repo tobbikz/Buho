@@ -1,6 +1,10 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { InstanceTabs } from '@/components/InstanceTabs';
+import {
+  instanceProveRestoreItems,
+  ProveRestore,
+} from '@/components/ProveRestore';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { Topbar } from '@/components/Topbar';
@@ -8,6 +12,7 @@ import { formatAgo, formatBytes } from '@/lib/format';
 import {
   ENGINE_LABEL,
   backupAgeHours,
+  backupKindLabel,
   backupState,
   backupStateHint,
   backupStateLabel,
@@ -37,6 +42,14 @@ function CheckCell({ row }: { row: BackupRow | undefined }) {
     );
   }
   const state = backupState(row);
+  const label = backupStateLabel(row);
+  if (state === 'no_verificable' && label.startsWith('N/A')) {
+    return (
+      <span className="tag tag--muted" title={label}>
+        —
+      </span>
+    );
+  }
   const ok = state === 'ok';
   const age = backupAgeHours(row);
   return (
@@ -44,7 +57,7 @@ function CheckCell({ row }: { row: BackupRow | undefined }) {
       className={`inline-flex items-center gap-1.5 font-mono text-[11px] ${
         ok ? 'text-[var(--success)]' : 'text-[var(--error)]'
       }`}
-      title={backupStateHint(row) ?? backupStateLabel(row)}
+      title={backupStateHint(row) ?? label}
     >
       <span aria-hidden className="text-[14px] leading-none">
         {ok ? '✓' : '✗'}
@@ -131,10 +144,14 @@ export default async function InstanceBackupsPage({ params }: { params: Promise<
         <div className="stat-grid">
           <StatCard label="Databases tracked" value={String(new Set(rows.map((r) => r.database)).size)} />
           <StatCard
-            label="No recovery"
+            label={esMssql ? 'Missing backups' : 'No recovery'}
             value={String(broken.length)}
             tone={broken.length > 0 ? 'error' : 'ok'}
-            hint="never backed up or PITR broken"
+            hint={
+              esMssql
+                ? 'full/diff/log never taken (SIMPLE diff/log excluded)'
+                : 'never backed up or PITR broken'
+            }
           />
           <StatCard
             label="Overdue"
@@ -150,12 +167,57 @@ export default async function InstanceBackupsPage({ params }: { params: Promise<
           </div>
           {rows.length === 0 ? (
             <div className="panel-body empty">
-              No backup inventory yet. For SQL Server, grant access to msdb and wait for the hourly
-              inventory cycle — or open{' '}
-              <Link href={`/instances/${instanceId}/inventory`} className="underline decoration-dotted">
-                Inventory
-              </Link>
-              .
+              {esMssql ? (
+                <>
+                  No backup inventory yet. Grant the monitor login access to{' '}
+                  <span className="font-mono">msdb.dbo.backupset</span> and wait for the hourly
+                  inventory cycle — or open{' '}
+                  <Link
+                    href={`/instances/${instanceId}/inventory`}
+                    className="underline decoration-dotted"
+                  >
+                    Inventory
+                  </Link>
+                  .
+                </>
+              ) : motor === 'oracle' ? (
+                <>
+                  No backup inventory yet. Oracle RMAN / Data Pump catalog rows appear here when the
+                  collector can read them; until then open{' '}
+                  <Link
+                    href={`/instances/${instanceId}/inventory`}
+                    className="underline decoration-dotted"
+                  >
+                    Inventory
+                  </Link>{' '}
+                  for settings and disk findings.
+                </>
+              ) : motor === 'mariadb' ? (
+                <>
+                  No backup inventory yet. MariaDB does not expose a built-in backup catalog like
+                  SQL Server msdb — configure your backup tool and check{' '}
+                  <Link
+                    href={`/instances/${instanceId}/inventory`}
+                    className="underline decoration-dotted"
+                  >
+                    Inventory
+                  </Link>
+                  .
+                </>
+              ) : (
+                <>
+                  No backup inventory yet. PostgreSQL uses{' '}
+                  <span className="font-mono">pg_stat_archiver</span> / base-backup signals when
+                  available. Wait for the hourly inventory cycle — or open{' '}
+                  <Link
+                    href={`/instances/${instanceId}/inventory`}
+                    className="underline decoration-dotted"
+                  >
+                    Inventory
+                  </Link>
+                  .
+                </>
+              )}
             </div>
           ) : esMssql ? (
             <table className="data-table">
@@ -210,7 +272,7 @@ export default async function InstanceBackupsPage({ params }: { params: Promise<
                   return (
                     <tr key={`${row.database}-${row.kind}-${index}`}>
                       <td className="font-mono text-[11px]">{row.database}</td>
-                      <td>{row.kind}</td>
+                      <td>{backupKindLabel(row)}</td>
                       <td>
                         <span
                           className={`tag ${STATE_TAG[state] ?? 'tag--muted'}`}
@@ -231,6 +293,8 @@ export default async function InstanceBackupsPage({ params }: { params: Promise<
             </table>
           )}
         </section>
+
+        <ProveRestore items={instanceProveRestoreItems(instanceId)} />
       </div>
     </>
   );

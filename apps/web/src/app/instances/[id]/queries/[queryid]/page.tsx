@@ -183,11 +183,11 @@ export default async function QueryPlanPage({
             <p className="page-sub">
               Query <span className="font-mono">{queryid}</span>
               {statement.database ? ` · database ${statement.database}` : ''}
-              {statement.username ? ` · rol ${statement.username}` : ''}
+              {statement.username ? ` · role ${statement.username}` : ''}
             </p>
           </div>
           <Link href={`/instances/${instanceId}/queries`} className="btn">
-            Volver a consultas
+            Back to queries
           </Link>
         </header>
 
@@ -197,9 +197,9 @@ export default async function QueryPlanPage({
           <div className="stat-grid">
             <StatCard label="Calls" value={formatNumber(summary.calls)} hint="in the retained window" />
             <StatCard
-              label="Tiempo total"
+              label="Total time"
               value={formatDuration(summary.execMs / 1000)}
-              hint="suma de todas las ejecuciones"
+              hint="sum of all executions"
             />
             <StatCard
               label="Mean per call"
@@ -211,7 +211,7 @@ export default async function QueryPlanPage({
               label="Temp written"
               value={formatBytes(summary.tempWritten)}
               tone={summary.tempWritten > 0 ? 'warn' : 'ok'}
-              hint={summary.tempWritten > 0 ? 'disk spills' : 'todo en memoria'}
+              hint={summary.tempWritten > 0 ? 'disk spills' : 'all in memory'}
             />
             <StatCard
               label="Blocks read from disk"
@@ -292,14 +292,12 @@ export default async function QueryPlanPage({
               </p>
             ) : parameterized && !generic ? (
               <p className="text-[12px] text-warning">
-                El texto viene normalizado con <span className="font-mono">$1</span> y esta instancia es anterior a
-                PostgreSQL 16, so it does not support <span className="font-mono">EXPLAIN (GENERIC_PLAN)</span>. You have to
-                explain it by hand replacing parameters with real values.
+                The text is normalized with <span className="font-mono">$1</span> and this instance is older than
+                PostgreSQL 16, so it does not support <span className="font-mono">EXPLAIN (GENERIC_PLAN)</span>.
+                Explain it by hand after replacing parameters with real values.
               </p>
             ) : (
               <div className="flex flex-col gap-1.5">
-                {/* Sólo se describe lo que se ofrece: juntar las explicaciones de
-                    los tres modos hacía un párrafo que se contradecía. */}
                 {modes.map((mode) => (
                   <p key={mode} className="text-[11.5px] text-foreground-muted">
                     <span className="font-semibold text-foreground-secondary">{MODE_LABEL[mode]}.</span>{' '}
@@ -308,21 +306,19 @@ export default async function QueryPlanPage({
                 ))}
                 {kind === 'escritura' ? (
                   <p className="text-[11.5px] text-warning">
-                    This statement writes, so running it with{' '} is not offered
-                    <span className="font-mono">ANALYZE</span>. El plan estimado muestra la misma estructura sin
-                    tocar los datos. Revertir la transacción alcanzaría para las filas, pero no para lo que un
-                    INSERT deja detrás: valores de secuencia consumidos, disparadores con efectos externos, WAL y
-                    bloqueos sobre una base de producción.
+                    This statement writes, so <span className="font-mono">ANALYZE</span> is not offered. The
+                    estimated plan shows the same shape without touching data. Rolling back a transaction would
+                    undo rows, but not what an INSERT leaves behind: consumed sequences, triggers with side
+                    effects, WAL, and locks on a production database.
                   </p>
                 ) : null}
               </div>
             )}
 
-            {/* Sólo tiene sentido explicar la espera cuando hay algo que pedir. */}
             {modes.length > 0 ? (
               <p className="text-[11.5px] text-foreground-muted">
-                El EXPLAIN lo corre el colector, no esta consola: es el único proceso con credenciales de las
-                instancias monitoreadas. Por eso el plan tarda un segundo en aparecer.
+                EXPLAIN runs in the collector, not this console — that process holds the credentials to monitored
+                instances. The plan usually appears within about a second.
               </p>
             ) : null}
           </div>
@@ -465,7 +461,7 @@ export default async function QueryPlanPage({
                     href={`/instances/${instanceId}/queries/${queryid}?plan=${request.requestId}&texto=${texto ? '' : '1'}`}
                     className="btn"
                   >
-                    {texto ? 'View tree' : 'Ver texto'}
+                    {texto ? 'View tree' : 'View text'}
                   </Link>
                 </div>
               </div>
@@ -483,7 +479,7 @@ export default async function QueryPlanPage({
         {history.length > 1 ? (
           <section className="panel">
             <div className="panel-header">
-              <span className="panel-title">Planes anteriores</span>
+              <span className="panel-title">Previous plans</span>
               <span className="text-[11px] text-foreground-muted">
                 shows whether the query plan changed
               </span>
@@ -492,10 +488,10 @@ export default async function QueryPlanPage({
               <thead>
                 <tr>
                   <th>When</th>
-                  <th>Modo</th>
-                  <th>Pedido por</th>
+                  <th>Mode</th>
+                  <th>Requested by</th>
                   <th>State</th>
-                  <th className="text-right">Costo</th>
+                  <th className="text-right">Cost</th>
                   <th className="text-right">Execution</th>
                   <th className="text-right">Findings</th>
                   <th>Root node</th>

@@ -561,11 +561,9 @@ export async function ForeignSummary({
           hint={
             esMaria
               ? 'InnoDB row lock waits rate'
-              : workQueue !== null && workQueue > 0
-                ? `queue ${formatNumber(workQueue)}`
-                : sqlMemPct !== null
-                  ? `buffer ${formatPct(sqlMemPct, 0)} of target`
-                  : 'VISIBLE ONLINE schedulers'
+              : workQueue !== null
+                ? `runnable queue ${formatNumber(workQueue)}`
+                : 'VISIBLE ONLINE schedulers'
           }
           tone={
             (!esMaria && workQueue !== null && workQueue > 0) ||
@@ -632,7 +630,8 @@ export async function ForeignSummary({
               unit="count"
               series={esperas.keys.map((key, index) => ({
                 metric: key,
-                label: key,
+                // Legacy Spanish family label from older collectors.
+                label: key === 'Otro' ? 'Other' : key,
                 color: WAIT_COLORS[index % WAIT_COLORS.length] ?? COLOR.muted,
               }))}
             />
@@ -834,8 +833,8 @@ export async function ForeignSummary({
               hint={windowHint}
               data={connections}
               series={[
-                { metric: 'connections_total', label: 'total', color: COLOR.accent },
-                { metric: 'connections_active', label: 'activas', color: COLOR.success },
+                { metric: 'connections_total', label: 'Total', color: COLOR.accent },
+                { metric: 'connections_active', label: 'Active', color: COLOR.success },
               ]}
             />
             <TimeseriesPanel
@@ -868,15 +867,15 @@ export async function ForeignSummary({
               title="Blocked sessions"
               hint={windowHint}
               data={bloqueos}
-              series={[{ metric: 'blocked_sessions', label: 'bloqueadas', color: COLOR.error }]}
+              series={[{ metric: 'blocked_sessions', label: 'Blocked', color: COLOR.error }]}
             />
             <TimeseriesPanel
               title="Buffer pool"
               hint={windowHint}
               data={extra}
               series={[
-                { metric: 'buffer_pool_dirty_pct', label: 'sucias %', color: COLOR.warning, filled: true },
-                { metric: 'buffer_pool_free_pct', label: 'libres %', color: COLOR.muted },
+                { metric: 'buffer_pool_dirty_pct', label: 'Dirty %', color: COLOR.warning, filled: true },
+                { metric: 'buffer_pool_free_pct', label: 'Free %', color: COLOR.muted },
               ]}
               unit="pct"
             />
@@ -978,7 +977,7 @@ export async function ForeignSummary({
               {eventos.map((evento, index) => (
                 <tr key={`${evento.ts.getTime()}-${index}`}>
                   <td className="font-mono text-[11px] text-foreground-muted">
-                    {evento.ts.toLocaleTimeString('es')}
+                    {evento.ts.toLocaleTimeString('en')}
                   </td>
                   <td>
                     <span

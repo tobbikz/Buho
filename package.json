@@ -14,8 +14,11 @@
   "scripts": {
     "check": "tsx apps/cli/src/main.ts",
     "collector": "tsx apps/collector/src/main.ts",
-    "web": "npm run dev -w @buho/web",
-    "web:build": "npm run build -w @buho/web",
+    "web": "PORT=3100 node apps/web/.next/standalone/apps/web/server.js",
+    "web:dev": "npm run dev -w @buho/web",
+    "web:build": "npm run build -w @buho/web && npm run web:sync-standalone",
+    "web:sync-standalone": "mkdir -p apps/web/.next/standalone/apps/web/.next && rm -rf apps/web/.next/standalone/apps/web/.next/static apps/web/.next/standalone/apps/web/public && cp -a apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static && cp -a apps/web/public apps/web/.next/standalone/apps/web/public",
+    "web:start": "npm run start -w @buho/web",
     "migrate": "tsx packages/store/src/migrate.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
     "verify:console": "node scripts/verify-console.mjs",
@@ -28,7 +31,12 @@
     "carga:sintetica": "node scripts/carga-sintetica.mjs",
     "ensayo:alerts": "tsx scripts/ensayo-alerts.ts",
     "alerts:import": "tsx scripts/import-alert-catalog.ts",
-    "verify:responsive": "node scripts/responsive-smoke.mjs"
+    "verify:responsive": "node scripts/responsive-smoke.mjs",
+    "otel:emit": "node scripts/otel-demo-emit.mjs",
+    "smoke:otlp": "node scripts/smoke-otlp.mjs",
+    "apm:ebpf": "bash scripts/apm-ebpf.sh",
+    "apm:ebpf:status": "bash scripts/apm-ebpf.sh status",
+    "apm:ebpf:stop": "bash scripts/apm-ebpf.sh stop"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",

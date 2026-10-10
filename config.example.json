@@ -20,6 +20,6 @@
       "unreachableAfterMinutes": 5
     }
   },
-  "_comment_instances": "Leave instances empty in production. Add databases from the console (Admin → Databases); they persist in buho.monitor_targets inside the store volume. Optional file-based instances remain supported for labs.",
+  "_comment_instances": "Leave instances empty in production. Add databases from the console (Admin → Databases); they persist in buho.monitor_targets inside the store volume. Optional file-based instances remain supported for labs. For app probes use engine endpoint + endpoint.url / dependsOnAlias.",
   "instances": []
 }

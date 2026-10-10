@@ -13,6 +13,8 @@ import {
 } from '@/lib/grouping';
 import { getFleetFindings, listInstances, type FleetInstance } from '@/lib/queries';
 
+export const metadata = { title: 'Fleet · Búho' };
+
 export const dynamic = 'force-dynamic';
 
 const STALE_AFTER_MS = 120_000;
@@ -46,6 +48,9 @@ export default async function FleetPage({
       </>
     );
   }
+
+  // Endpoints live under Observability — keep Databases overview DB-only.
+  instances = instances.filter((i) => i.engine !== 'endpoint');
 
   const keys = availableKeys(instances);
   const groupKey = agrupar && keys.some((entry) => entry.key === agrupar)

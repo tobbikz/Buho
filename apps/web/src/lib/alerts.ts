@@ -335,7 +335,8 @@ export async function listKnownCheckIds(): Promise<string[]> {
         union
         select 'pack.' || unnest(array[
           'host_cpu','host_memory','host_swap','host_disk','host_load','host_iowait',
-          'connections','blocking','block_wait','replication_lag','cache_hit','xid_age'
+          'connections','blocking','block_wait','replication_lag','rpo_exposure',
+          'cache_hit','xid_age'
         ])
       ) q
       order by check_id`,

@@ -1,10 +1,17 @@
 import Link from 'next/link';
+import { EstateFleetBlame } from '@/components/EstateFleetBlame';
+import { EstateSloStrip } from '@/components/EstateSloStrip';
 import { NotesPanel } from '@/components/NotesPanel';
+import {
+  fleetProveRestoreItems,
+  ProveRestore,
+} from '@/components/ProveRestore';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { formatBytes, formatAgo } from '@/lib/format';
 import {
   backupAgeHours,
+  backupKindLabel,
   backupState,
   backupStateHint,
   backupStateLabel,
@@ -15,13 +22,16 @@ import {
   type BackupState,
 } from '@/lib/estate';
 
+export const metadata = { title: 'Backups · Estate · Búho' };
+
 export const dynamic = 'force-dynamic';
 
+/** Column headers for the instance×kind heat map (no per-row source). */
 const KIND_LABEL: Record<string, string> = {
-  full: 'Completo',
-  differential: 'Diferencial',
+  full: 'Full',
+  differential: 'Diff',
   log: 'Log',
-  wal_archive: 'Archivado de WAL',
+  wal_archive: 'Binlog / WAL',
 };
 
 const STATE_TAG: Record<BackupState, string> = {
@@ -87,6 +97,8 @@ export default async function BackupsPage() {
 
   return (
     <div className="flex flex-col gap-[0.875rem]">
+      <EstateSloStrip />
+      <EstateFleetBlame />
       <div className="stat-grid">
         <StatCard
           label="Backup at risk"
@@ -107,8 +119,8 @@ export default async function BackupsPage() {
           tone={stale.length > 0 ? 'warn' : 'ok'}
         />
         <StatCard
-          label="Bases cubiertas"
-          value={`${protectedDbs.size} de ${allDbs.size}`}
+          label="Covered databases"
+          value={`${protectedDbs.size} of ${allDbs.size}`}
           hint="with at least one backup inside the window"
           tone={protectedDbs.size === allDbs.size && allDbs.size > 0 ? 'ok' : 'warn'}
         />
@@ -240,16 +252,16 @@ export default async function BackupsPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Instancia</th>
+                  <th>Instance</th>
                   <th>Engine</th>
                   <th>Database</th>
-                  <th>Tipo</th>
+                  <th>Kind</th>
                   <th>Status</th>
                   <th>Last</th>
                   <th className="text-right">Age</th>
                   <th className="text-right">Size</th>
-                  <th>Origen</th>
-                  <th>Modelo</th>
+                  <th>Source</th>
+                  <th>Model</th>
                 </tr>
               </thead>
               <tbody>
@@ -268,7 +280,7 @@ export default async function BackupsPage() {
                         {ENGINE_LABEL[row.engine] ?? row.engine}
                       </td>
                       <td className="font-mono text-[11px]">{row.database}</td>
-                      <td>{KIND_LABEL[row.kind] ?? row.kind}</td>
+                      <td>{backupKindLabel(row)}</td>
                       <td>
                         <span
                           className={`tag ${backupStateLabel(row) === 'Archive off' ? 'tag--muted' : STATE_TAG[state]}`}
@@ -296,6 +308,8 @@ export default async function BackupsPage() {
           </div>
         )}
       </section>
+
+      <ProveRestore items={fleetProveRestoreItems()} />
     </div>
   );
 }

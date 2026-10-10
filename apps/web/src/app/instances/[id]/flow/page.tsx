@@ -187,6 +187,16 @@ export default async function FlowPage({
           />
         </div>
 
+        {flow.catalogGated ? (
+          <div className="notice">
+            <strong>Catalog-gated attribution.</strong> Crowns and heat only include tables inventoried on
+            this instance
+            {flow.droppedOutsideCatalog > 0
+              ? ` · ${formatNumber(flow.droppedOutsideCatalog)} lexical hit(s) outside the catalog were dropped (query-text guesses from other schemas/DBs).`
+              : ' · no foreign-schema guesses in this window.'}
+          </div>
+        ) : null}
+
         <section className="panel">
           <div className="panel-header">
             <span className="panel-title">Where traffic lands · writes &amp; reads</span>
@@ -219,11 +229,17 @@ export default async function FlowPage({
               <div className="empty">
                 {flow.statements === 0
                   ? escriturasContadas > 0
-                    ? 'Counters see writes but no query was recorded in pg_stat_statements. Often intentional exclusion: Búho tags monitor queries and does not attribute them.'
+                    ? engine === 'postgres'
+                      ? 'Counters see writes but no query was recorded in pg_stat_statements. Often intentional exclusion: Búho tags monitor queries and does not attribute them.'
+                      : engine === 'mariadb'
+                        ? 'Counters see activity but no digest was recorded in performance_schema. Often intentional exclusion: Búho tags monitor queries and does not attribute them.'
+                        : 'Counters see activity but no query text was recorded for attribution in this window.'
                     : "No application queries in the window. Búho's own queries do not count, so an instance that only receives monitoring looks empty here."
                   : weight === 'rows' && engine === 'mssql'
                     ? 'SQL Server does not count rows modified per query, so weighting writes by rows is zero. Try "Time" or "Calls".'
-                    : 'No traffic could be attributed to a table in this window.'}
+                    : weight === 'rows' && engine === 'mariadb'
+                      ? 'MariaDB digests often report zero rows affected, so weighting by rows is empty even when time and calls are not. Try "Time" or "Calls".'
+                      : 'No traffic could be attributed to a table in this window.'}
               </div>
             ) : (
               <LiveFlow
@@ -232,13 +248,14 @@ export default async function FlowPage({
                 weight={weight}
                 unit={unidad}
                 height={520}
-                animated={false}
+                animated
                 windowMinutes={window.minutes}
               />
             )}
             <p className="mt-2 text-[11px] text-foreground-muted">
-              Green = writes, blue = reads. Same packed layout as before, without moving particles.
-              Coverage {formatPct(cobertura, 0)} — the rest could not be pinned to a table from the statement text.
+              Green = writes, blue = reads. Live motion on by default (slower for 60 Hz); use Static / Zoom in the
+              map toolbar. Coverage {formatPct(cobertura, 0)} — the rest could not be pinned to a table from the
+              statement text.
             </p>
           </div>
         </section>
@@ -321,9 +338,13 @@ export default async function FlowPage({
           <div className="panel-body">
             {engine !== 'postgres' ? (
               <div className="empty">
-                {engine === 'mariadb' ? 'MariaDB' : 'SQL Server'} does not expose per-table row counters like{' '}
-                <span className="font-mono">pg_stat_user_tables</span>, so the diagram is the only source and its
-                attribution is approximate.
+                {engine === 'mariadb'
+                  ? 'MariaDB has no per-table insert/update/delete counters in this view, so the diagram is the only source and its attribution is approximate.'
+                  : engine === 'mssql'
+                    ? 'SQL Server has no per-table insert/update/delete counters in this view, so the diagram is the only source and its attribution is approximate.'
+                    : engine === 'oracle'
+                      ? 'Oracle has no per-table insert/update/delete counters in this view, so the diagram is the only source and its attribution is approximate.'
+                      : 'This engine has no per-table row counters for contrast, so the diagram is the only source and its attribution is approximate.'}
               </div>
             ) : counters.length === 0 ? (
               <div className="empty">

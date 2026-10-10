@@ -9,6 +9,8 @@ import { ENGINE_LABEL, getEngineCounts } from '@/lib/estate';
  * explícita que empareja el dashboard "Cluster Monitoring" + "Data Growth"
  * de Superset (sin clonar charts 1:1).
  */
+
+export const metadata = { title: 'Cluster · Búho' };
 export default async function ClusterLayout({ children }: { children: React.ReactNode }) {
   let counts: { engine: string; count: number }[] = [];
   try {

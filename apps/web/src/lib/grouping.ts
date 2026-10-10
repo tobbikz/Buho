@@ -20,13 +20,10 @@ export const BUILTIN_KEYS = {
 
 export const ENGINE_LABEL: Record<string, string> = {
   postgres: 'PostgreSQL',
-  mariadb: 'MariaDB',
   mssql: 'SQL Server',
-  mongodb: 'MongoDB',
-  redis: 'Redis',
+  mariadb: 'MariaDB',
   oracle: 'Oracle',
-  cassandra: 'Cassandra',
-  elasticsearch: 'Elasticsearch',
+  endpoint: 'Endpoint',
 };
 
 export const NO_GROUP = 'sin-agrupar';

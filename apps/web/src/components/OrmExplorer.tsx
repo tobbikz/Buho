@@ -1,21 +1,20 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
 import { OrmGraph } from '@/components/OrmGraph';
 import type { OrmLayer, OrmModel } from '@/lib/orm-types';
 import { formatUnit, type Unit } from '@/lib/units';
 import type { FlowWeight } from '@buho/core';
 
 const LAYERS: { key: OrmLayer; label: string; hint: string }[] = [
-  { key: 'ambos', label: 'Both', hint: 'structure + traffic on FK edges' },
   { key: 'estructura', label: 'Structure', hint: 'schemas, tables, foreign keys' },
   { key: 'trafico', label: 'Traffic', hint: 'attributed traffic between related tables' },
+  { key: 'ambos', label: 'Both', hint: 'structure + traffic on FK edges' },
 ];
 
 /**
- * Keeps the force layout mounted when switching layers so huge catalogs do not
- * explode again on every capa click (server navigation was remounting OrmGraph).
+ * Layer / weight / window are URL-driven so Structure can skip getFlow on cold load
+ * and Traffic/Both re-fetch attribution from the server.
  */
 export function OrmExplorer({
   model,
@@ -32,7 +31,7 @@ export function OrmExplorer({
   weight: FlowWeight;
   windowKey: string;
 }) {
-  const [layer, setLayer] = useState<OrmLayer>(initialLayer);
+  const layer = initialLayer;
 
   const enlace = (cambios: Record<string, string> = {}) => {
     const params = new URLSearchParams({
@@ -50,15 +49,14 @@ export function OrmExplorer({
         <span className="panel-title">Catalog graph</span>
         <div className="flex flex-wrap items-center gap-1">
           {LAYERS.map((opcion) => (
-            <button
+            <Link
               key={opcion.key}
-              type="button"
+              href={enlace({ capa: opcion.key })}
               className={`tag ${opcion.key === layer ? 'tag--info' : 'tag--muted'}`}
               title={opcion.hint}
-              onClick={() => setLayer(opcion.key)}
             >
               {opcion.label}
-            </button>
+            </Link>
           ))}
           <span className="mx-1 text-foreground-muted">·</span>
           {layer !== 'estructura'

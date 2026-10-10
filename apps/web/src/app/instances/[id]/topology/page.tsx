@@ -112,10 +112,18 @@ export default async function TopologyPage({
               <Link href={`/instances/${instanceId}/flow`} className="underline">
                 Flow
               </Link>
-              ; here you compare weeks.
+              ; here you compare weeks. Catalog graph is under{' '}
+              <Link href={`/instances/${instanceId}/orm`} className="underline">
+                ORM
+              </Link>
+              .
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-1">
+            <Link href={`/instances/${instanceId}/orm`} className="tag tag--muted">
+              Catalog
+            </Link>
+            <span className="tag tag--info">Topology</span>
             <Link
               href={href({ d: 'escritura' })}
               className={`tag ${direction === 'escritura' ? 'tag--info' : 'tag--muted'}`}

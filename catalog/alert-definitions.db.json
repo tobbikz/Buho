@@ -77,9 +77,9 @@
       "title": "MariaDB replica IO not running",
       "match_engine": "mariadb",
       "severity": "critical",
-      "threshold_type": "rows",
-      "threshold": { "min_rows": 1 },
-      "display_columns": ["Replica_IO_Running", "Last_IO_Error"],
+      "threshold_type": "text_match",
+      "threshold": { "column": "Slave_IO_Running", "equals": "No" },
+      "display_columns": ["Slave_IO_Running", "Replica_IO_Running", "Last_IO_Error"],
       "message_template": "MariaDB: replica IO thread is not running.\n\n{all_rows}",
       "remediation": "Check SHOW REPLICA STATUS and network/credentials to the primary.",
       "sql": "show replica status"

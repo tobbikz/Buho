@@ -6,6 +6,7 @@ import { authConfigured } from '@/lib/auth';
 import { defaultGroupKey, groupInstances } from '@/lib/grouping';
 import { listInstances } from '@/lib/queries';
 import { currentSession } from '@/lib/session';
+import { spaceFromPath } from '@/lib/space';
 import './globals.css';
 
 const plex = IBM_Plex_Sans({
@@ -53,19 +54,25 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   const instances = await listInstances().catch(() => []);
   const session = await currentSession();
-  const groupKey = defaultGroupKey(instances);
-  const grouped = groupInstances(instances, groupKey);
+  const space = spaceFromPath(path);
+
+  const dbInstances = instances.filter((i) => i.engine !== 'endpoint');
+  const endpointInstances = instances.filter((i) => i.engine === 'endpoint');
+
+  const groupKey = defaultGroupKey(dbInstances);
+  const grouped = groupInstances(dbInstances, groupKey);
 
   return (
     <html lang="en">
       <body className={`${plex.variable} ${jetbrains.variable} antialiased`}>
         {!authConfigured() ? (
           <div className="auth-warning">
-            Console without authentication · set <span className="font-mono">BUHO_AUTH_SECRET</span> before exposing
-            it
+            Console without authentication · set <span className="font-mono">BUHO_AUTH_SECRET</span>{' '}
+            before exposing it
           </div>
         ) : null}
         <ShellChrome
+          space={space}
           authEnabled={authConfigured()}
           isAdmin={session.role === 'admin'}
           username={authConfigured() ? session.username : undefined}
@@ -78,6 +85,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               group: group.value,
             })),
           )}
+          monitors={endpointInstances.map((instance) => ({
+            instanceId: instance.instanceId,
+            alias: instance.alias,
+            score: instance.score,
+            critical: instance.critical,
+            group: instance.tags['grupo'] ?? instance.environment ?? '',
+          }))}
         >
           {children}
         </ShellChrome>

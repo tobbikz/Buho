@@ -19,25 +19,14 @@ import { query } from './db';
  * `distinct on (host, port, ...)` que se repite en estas consultas.
  */
 
-export type EngineKind =
-  | 'postgres'
-  | 'mariadb'
-  | 'mssql'
-  | 'mongodb'
-  | 'redis'
-  | 'oracle'
-  | 'cassandra'
-  | 'elasticsearch';
+export type EngineKind = 'postgres' | 'mariadb' | 'mssql' | 'oracle' | 'endpoint';
 
 export const ENGINE_LABEL: Record<string, string> = {
   postgres: 'PostgreSQL',
-  mariadb: 'MariaDB',
   mssql: 'SQL Server',
-  mongodb: 'MongoDB',
-  redis: 'Redis',
+  mariadb: 'MariaDB',
   oracle: 'Oracle',
-  cassandra: 'Cassandra',
-  elasticsearch: 'Elasticsearch',
+  endpoint: 'Endpoint',
 };
 
 export interface EstateInstance {
@@ -209,9 +198,24 @@ export function backupState(row: BackupRow): BackupState {
   const archiveMode = row.detail['archive_mode'] as string | undefined;
   if (archiveMode === 'off') return 'sin_recuperacion';
 
+  // MariaDB/MySQL binlog posture: no finish timestamp — log_bin on means OK.
+  if (row.source === 'binlog') {
+    return row.detail['log_bin'] === true ? 'ok' : 'sin_recuperacion';
+  }
+
+  const recoveryModel = String(row.detail['recovery_model'] ?? '').toUpperCase();
+  // SIMPLE recovery: Diff/Log slots are N/A — do not count as "no recovery".
+  if (
+    row.source === 'msdb' &&
+    recoveryModel === 'SIMPLE' &&
+    (row.kind === 'differential' || row.kind === 'log')
+  ) {
+    return 'no_verificable';
+  }
+
   const age = backupAgeHours(row);
   if (age === null) {
-    // msdb es un catálogo real: sin fecha significa que never ocurrió.
+    // msdb is a real catalog: no finish date means it never ran.
     return row.source === 'msdb' ? 'sin_recuperacion' : 'no_verificable';
   }
 
@@ -221,18 +225,51 @@ export function backupState(row: BackupRow): BackupState {
   return 'ok';
 }
 
+/** Display name for backup kind — binlog must not read as PostgreSQL WAL. */
+export function backupKindLabel(row: BackupRow): string {
+  if (row.kind === 'wal_archive') {
+    return row.source === 'binlog' ? 'Binlog' : 'WAL archive';
+  }
+  if (row.kind === 'full') return 'Full';
+  if (row.kind === 'differential') return 'Diff';
+  if (row.kind === 'log') return 'Log';
+  return row.kind;
+}
+
 /** Human label — avoids confusing WAL archive with streaming replication. */
 export function backupStateLabel(row: BackupRow): string {
   const state = backupState(row);
   const archiveMode = row.detail['archive_mode'] as string | undefined;
+  if (row.source === 'binlog') {
+    return row.detail['log_bin'] === true ? 'Binlog on' : 'Binlog off';
+  }
   if (row.kind === 'wal_archive' && archiveMode === 'off') return 'Archive off';
-  if (state === 'sin_recuperacion') return row.finishedAt ? 'PITR broken' : 'No backup';
+  if (
+    row.source === 'msdb' &&
+    String(row.detail['recovery_model'] ?? '').toUpperCase() === 'SIMPLE' &&
+    (row.kind === 'differential' || row.kind === 'log')
+  ) {
+    return 'N/A (SIMPLE)';
+  }
+  if (state === 'sin_recuperacion') {
+    if (!row.finishedAt) return 'No backup';
+    return row.source === 'msdb'
+      ? row.kind === 'log'
+        ? 'Log chain broken'
+        : 'Backup too old'
+      : 'PITR broken';
+  }
   if (state === 'atrasado') return 'Overdue';
   if (state === 'no_verificable') return 'Unknown';
   return 'OK';
 }
 
 export function backupStateHint(row: BackupRow): string | null {
+  if (row.source === 'binlog') {
+    return row.detail['log_bin'] === true
+      ? 'Binary log is on (PITR/replication possible). MariaDB has no in-server full-backup catalog.'
+      : 'log_bin is off — no point-in-time recovery from the server.';
+  }
   const archiveMode = row.detail['archive_mode'] as string | undefined;
   if (row.kind === 'wal_archive' && archiveMode === 'off') {
     return 'archive_mode is off — point-in-time recovery unavailable. Separate from streaming replication.';
@@ -312,7 +349,7 @@ export async function getJobs(): Promise<JobRow[]> {
             j.last_duration_ms, j.next_run_at, j.detail
        from buho.instances i
        join buho.jobs j using (instance_id)
-      order by (j.last_status = 'falló') desc nulls last, i.alias, j.name`,
+      order by (j.last_status in ('failed', 'falló')) desc nulls last, i.alias, j.name`,
   );
 
   return rows.map((row) => ({

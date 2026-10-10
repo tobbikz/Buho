@@ -495,7 +495,7 @@ alter table buho.instances
 alter table buho.instances drop constraint if exists instances_engine_check;
 alter table buho.instances
   add constraint instances_engine_check
-  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch'));
+  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint'));
 
 create table if not exists buho.engine_info (
   instance_id      bigint      primary key references buho.instances (instance_id) on delete cascade,
@@ -795,6 +795,31 @@ create table if not exists buho.index_objects (
 create index if not exists index_objects_status on buho.index_objects (instance_id, status);
 create index if not exists index_objects_size on buho.index_objects (instance_id, size_bytes desc);
 
+-- SQL Server maintenance (heap forwarded records + index fragmentation samples).
+create table if not exists buho.mssql_heap_pressure (
+  instance_id             bigint      not null references buho.instances (instance_id) on delete cascade,
+  schema_name             text        not null,
+  table_name              text        not null,
+  forwarded_fetch_count   bigint      not null default 0,
+  write_count             bigint      not null default 0,
+  captured_at             timestamptz not null default now(),
+  primary key (instance_id, schema_name, table_name)
+);
+
+create table if not exists buho.mssql_index_fragmentation (
+  instance_id         bigint      not null references buho.instances (instance_id) on delete cascade,
+  schema_name         text        not null,
+  table_name          text        not null,
+  index_name          text        not null,
+  fragmentation_pct   double precision not null,
+  page_count          bigint      not null,
+  captured_at         timestamptz not null default now(),
+  primary key (instance_id, schema_name, table_name, index_name)
+);
+
+create index if not exists mssql_index_fragmentation_pct
+  on buho.mssql_index_fragmentation (instance_id, fragmentation_pct desc);
+
 -- Foreign keys for the ORM graph (refreshed with each vacuum scan).
 create table if not exists buho.table_fks (
   instance_id       bigint      not null references buho.instances (instance_id) on delete cascade,
@@ -1052,7 +1077,7 @@ create table if not exists buho.monitor_targets (
   tenant       text        not null default 'default',
   alias        text        not null,
   engine       text        not null
-               check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch')),
+               check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint')),
   host         text        not null,
   port         integer     not null,
   database     text        not null default '',
@@ -1078,7 +1103,7 @@ alter table buho.monitor_targets add column if not exists host_metrics jsonb not
 alter table buho.instances drop constraint if exists instances_engine_check;
 alter table buho.instances
   add constraint instances_engine_check
-  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch'));
+  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint'));
 
 -- --------------------------------------------------- registro de operaciones
 
@@ -1573,4 +1598,108 @@ on conflict (key) do update
        updated_by = excluded.updated_by
  where buho.settings.value->>'rollup5mDays' is null
     or (buho.settings.value->>'rollup5mDays')::int < 90;
+
+-- --------------------------------------------------------------- app + traces
+-- Endpoint synthetic monitoring + OpenTelemetry spans (Kibana-style APM lite).
+-- Short retention by design — correlation window, not a log warehouse.
+
+alter table buho.instances drop constraint if exists instances_engine_check;
+alter table buho.instances
+  add constraint instances_engine_check
+  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint'));
+
+alter table buho.monitor_targets drop constraint if exists monitor_targets_engine_check;
+alter table buho.monitor_targets
+  add constraint monitor_targets_engine_check
+  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint'));
+
+create table if not exists buho.otlp_spans (
+  span_pk          bigint generated always as identity primary key,
+  trace_id         text             not null,
+  span_id          text             not null,
+  parent_span_id   text,
+  name             text             not null,
+  kind             text             not null default 'INTERNAL',
+  service_name     text             not null,
+  start_ts         timestamptz      not null,
+  end_ts           timestamptz      not null,
+  duration_ms      double precision not null,
+  status_code      text             not null default 'UNSET',
+  status_message   text,
+  http_method      text,
+  http_url         text,
+  http_status      integer,
+  sql_text         text,
+  attributes       jsonb            not null default '{}',
+  ingested_at      timestamptz      not null default now(),
+  unique (trace_id, span_id)
+);
+
+create index if not exists otlp_spans_trace on buho.otlp_spans (trace_id);
+create index if not exists otlp_spans_start on buho.otlp_spans (start_ts desc);
+create index if not exists otlp_spans_service on buho.otlp_spans (service_name, start_ts desc);
+create index if not exists otlp_spans_sql on buho.otlp_spans (start_ts desc)
+  where sql_text is not null;
+
+create table if not exists buho.otlp_traces (
+  trace_id       text             primary key,
+  root_service   text,
+  root_name      text,
+  start_ts       timestamptz      not null,
+  end_ts         timestamptz      not null,
+  duration_ms    double precision not null,
+  span_count     integer          not null default 0,
+  error_count    integer          not null default 0,
+  has_sql        boolean          not null default false,
+  http_status    integer,
+  ingested_at    timestamptz      not null default now()
+);
+
+create index if not exists otlp_traces_start on buho.otlp_traces (start_ts desc);
+
+-- Declared dependency: endpoint (or service) → database instance.
+create table if not exists buho.service_deps (
+  dep_id              bigint generated always as identity primary key,
+  from_instance_id    bigint references buho.instances (instance_id) on delete cascade,
+  from_service_name   text,
+  to_instance_id      bigint not null references buho.instances (instance_id) on delete cascade,
+  relation            text not null default 'depends_on',
+  note                text,
+  created_at          timestamptz not null default now(),
+  unique (from_instance_id, to_instance_id),
+  check (from_instance_id is not null or from_service_name is not null)
+);
+
+
+create index if not exists service_deps_to on buho.service_deps (to_instance_id);
+
+-- Freeform tags for Observability inventory (APM service name or Synthetics instance).
+-- Console-editable (unlike instance_tags, which the collector owns from config.json).
+create table if not exists buho.obs_service_tags (
+  entity_kind text        not null check (entity_kind in ('apm', 'synthetics')),
+  entity_key  text        not null,
+  tag         text        not null,
+  created_at  timestamptz not null default now(),
+  primary key (entity_kind, entity_key, tag),
+  check (char_length(trim(tag)) > 0 and char_length(tag) <= 64)
+);
+
+create index if not exists obs_service_tags_tag on buho.obs_service_tags (tag);
+
+-- Probe config for engine=endpoint (paths, baseUrl, dependsOnAlias, …).
+-- Without this, console-saved synthetics could only store host/port — not the path inventory.
+alter table buho.monitor_targets add column if not exists endpoint jsonb not null default '{}'::jsonb;
+
+
+insert into buho.settings (key, value, updated_at, updated_by)
+values (
+  'retention',
+  '{"traceDays":3}'::jsonb,
+  now(),
+  'schema-migrate'
+)
+on conflict (key) do update
+   set value = buho.settings.value || excluded.value,
+       updated_at = now(),
+       updated_by = excluded.updated_by;
 

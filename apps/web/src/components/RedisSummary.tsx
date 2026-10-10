@@ -87,6 +87,13 @@ export async function RedisSummary({
 
   return (
     <div className="stack gap-4">
+      <section className="panel" style={{ borderLeft: '3px solid var(--accent)' }}>
+        <div className="panel-body text-[12px] text-foreground-secondary">
+          Redis: <span className="font-mono">INFO</span>, <span className="font-mono">COMMANDSTATS</span>,{' '}
+          <span className="font-mono">SLOWLOG</span>, <span className="font-mono">CLIENT LIST</span>. Commands /
+          Slowlog tabs are not SQL digests. Persistence tab = RDB/AOF status.
+        </div>
+      </section>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
         <StatCard
           label="Clients"

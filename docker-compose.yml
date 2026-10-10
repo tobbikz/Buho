@@ -24,6 +24,10 @@ services:
   collector:
     # Por omisión se baja de GHCR (install.sh --pull). Si se construye en local
     # (`docker compose build`), la imagen queda etiquetada con el mismo nombre.
+    # Lab tip: when config.json has engine=endpoint (probes), prefer host
+    # `npm run collector` and keep this service stopped — older GHCR images
+    # reject endpoint. Rebuild locally (`docker compose build collector`) before
+    # `docker compose up -d collector` if you need the container path.
     image: ${BUHO_COLLECTOR_IMAGE:-ghcr.io/tobbikz/buho-monitor/collector:latest}
     build: .
     depends_on:
@@ -73,6 +77,26 @@ services:
       # Sigue escuchando en loopback: la autenticación no reemplaza al proxy o
       # la VPN, sólo deja de ser el único control.
       - "127.0.0.1:${BUHO_WEB_PORT:-3100}:3000"
+    restart: unless-stopped
+
+  # Traces ingest (in-house stack): apps → OTLP → Buho web JSON.
+  # Separate from `collector` (DB metrics). Default URL hits host :3100 so
+  # `npm run web` and docker-published web both work; override for all-in-docker:
+  #   BUHO_OTLP_TRACES=http://web:3000/api/otlp/v1/traces
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.114.0
+    container_name: buho-otel-collector
+    command: ['--config=/etc/otelcol/config.yaml']
+    volumes:
+      - ./deploy/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      # Default loopback. For remote eBPF/SSH agents set BUHO_OTLP_BIND=0.0.0.0
+      - '${BUHO_OTLP_BIND:-127.0.0.1}:4317:4317' # OTLP gRPC
+      - '${BUHO_OTLP_BIND:-127.0.0.1}:4318:4318' # OTLP HTTP
+    environment:
+      BUHO_OTLP_TRACES: ${BUHO_OTLP_TRACES:-http://host.docker.internal:3100/api/otlp/v1/traces}
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     restart: unless-stopped
 
   # El único dato que no se reconstruye es la historia del store — incluidas las

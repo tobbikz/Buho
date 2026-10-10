@@ -413,7 +413,10 @@ export const FAMILY_ORDER = [
 export const DEFAULT_METRICS = ['host_cpu_pct', 'connections_active'];
 
 /** Defaults per engine so Analysis is useful without host metrics. */
-export function defaultMetricsForEngine(engine: string): string[] {
+export function defaultMetricsForEngine(
+  engine: string,
+  opts?: { standby?: boolean },
+): string[] {
   switch (engine) {
     case 'mssql':
       return [
@@ -428,13 +431,13 @@ export function defaultMetricsForEngine(engine: string): string[] {
       return ['db_cache_hit_pct', 'connections_active', 'buffer_pool_dirty_pct', 'queries_total_per_sec'];
     case 'mongodb':
       return [
-        'mongo_op_query',
+        'mongo_op_query_per_sec',
         'mongo_mem_resident_mb',
-        'connections_active',
+        'connections_total',
         'mongo_wt_cache_used_pct',
         'mongo_ops_active',
         'mongo_ops_slow',
-        'replication_lag_seconds',
+        'mongo_global_lock_queue',
       ];
     case 'redis':
       return [
@@ -444,6 +447,7 @@ export function defaultMetricsForEngine(engine: string): string[] {
         'db_cache_hit_pct',
         'redis_keys_total',
         'redis_blocked_clients',
+        'redis_slowlog_len',
       ];
     case 'oracle':
       return [
@@ -468,9 +472,28 @@ export function defaultMetricsForEngine(engine: string): string[] {
         'es_cluster_status',
         'es_jvm_heap_used_pct_avg',
         'es_unassigned_shards',
-        'es_store_bytes',
+        'es_active_shards_pct',
         'es_search_query_total_per_sec',
-        'connections_total',
+        'es_fs_used_pct',
+      ];
+    case 'postgres':
+      if (opts?.standby) {
+        return [
+          'replication_lag_seconds',
+          'db_conflicts',
+          'connections_active',
+          'wal_bytes_per_sec',
+          'longest_active_query_seconds',
+          'db_cache_hit_pct',
+        ];
+      }
+      return [
+        'connections_active',
+        'db_cache_hit_pct',
+        'db_xact_commit_per_sec',
+        'blocked_sessions',
+        'wal_bytes_per_sec',
+        'longest_active_query_seconds',
       ];
     default:
       return DEFAULT_METRICS;

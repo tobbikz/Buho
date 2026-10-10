@@ -2,11 +2,12 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { LabeledBars, type BarRow } from '@/components/LabeledBars';
+import { SlowEventsTable } from '@/components/SlowEventsTable';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { TimeseriesPanel } from '@/components/TimeseriesPanel';
 import { Topbar } from '@/components/Topbar';
-import { formatAgo, formatDuration, formatNumber } from '@/lib/format';
+import { formatDuration, formatNumber } from '@/lib/format';
 import { ENGINE_LABEL, getInstanceEngine } from '@/lib/estate';
 import { getInstance, getSeries } from '@/lib/queries';
 import { getSlowStatementAggs, getSlowStatementEvents } from '@/lib/slow-queries';
@@ -101,11 +102,11 @@ export default async function SlowQueriesPage({
       <div className="page">
         <header className="page-header">
           <div>
-            <h1 className="page-title">Slow queries</h1>
+            <h1 className="page-title">{engine === 'redis' ? 'Slowlog' : 'Slow queries'}</h1>
             <p className="page-sub">
               {ENGINE_LABEL[engine]} ·{' '}
               {engine === 'redis'
-                ? 'SLOWLOG'
+                ? 'SLOWLOG (microseconds, not SQL digests)'
                 : engine === 'oracle'
                   ? 'v$sql avg ≥1s'
                   : 'digests / slow_log / PROCESSLIST'}{' '}
@@ -147,7 +148,13 @@ export default async function SlowQueriesPage({
                     .map(([src, n]) => `${SOURCE_LABEL[src] ?? src}:${n}`)
                     .join(' ')
             }
-            hint="digest · slow_log · processlist"
+            hint={
+              engine === 'oracle'
+                ? 'v$sql avg ≥1s'
+                : engine === 'redis'
+                  ? 'SLOWLOG'
+                  : 'digest · slow_log · processlist'
+            }
           />
         </div>
 
@@ -227,59 +234,21 @@ export default async function SlowQueriesPage({
 
         <section className="panel">
           <div className="panel-header">
-            <span className="panel-title">Slow events</span>
+            <span className="panel-title">Slow events · {events.length}</span>
             <span className="tag tag--muted">duration ≥ 1s</span>
           </div>
-          {events.length === 0 ? (
-            <div className="panel-body empty">
-              No slow events captured. With performance_schema, digests emit when max latency climbs
-              past 1s. Without it, PROCESSLIST samples running statements ≥1s. With{' '}
-              <span className="font-mono">slow_query_log</span> +{' '}
-              <span className="font-mono">log_output=TABLE</span>, rows from{' '}
-              <span className="font-mono">mysql.slow_log</span> appear here.
-            </div>
-          ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>When</th>
-                  <th>Source</th>
-                  <th>Query</th>
-                  <th>Database</th>
-                  <th className="text-right">Duration</th>
-                  <th className="text-right">Rows exam.</th>
-                </tr>
-              </thead>
-              <tbody>
-                {events.map((row, index) => (
-                  <tr key={`${row.ts.getTime()}-${row.queryid}-${row.source}-${index}`}>
-                    <td className="font-mono text-[11px] text-foreground-muted">
-                      {formatAgo(row.ts)}
-                    </td>
-                    <td>
-                      <span className="tag tag--muted">{SOURCE_LABEL[row.source] ?? row.source}</span>
-                    </td>
-                    <td className="font-mono text-[11px] max-w-[24rem]">
-                      <Link
-                        href={`/instances/${instanceId}/queries/${row.queryid}`}
-                        className="text-accent hover:underline"
-                      >
-                        {row.query.slice(0, 120)}
-                        {row.query.length > 120 ? '…' : ''}
-                      </Link>
-                    </td>
-                    <td className="font-mono text-[11px] text-foreground-muted">
-                      {row.database ?? '—'}
-                    </td>
-                    <td className="num">{formatNumber(row.durationSec, 3)} s</td>
-                    <td className="num">
-                      {row.rowsExamined == null ? '—' : formatNumber(row.rowsExamined)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <SlowEventsTable
+            instanceId={instanceId}
+            events={events.map((row) => ({
+              ts: row.ts.toISOString(),
+              queryid: row.queryid,
+              database: row.database,
+              query: row.query,
+              durationSec: row.durationSec,
+              rowsExamined: row.rowsExamined,
+              source: row.source,
+            }))}
+          />
         </section>
       </div>
     </>

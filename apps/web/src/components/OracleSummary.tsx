@@ -1,7 +1,8 @@
+import { FindingsPanel } from '@/components/FindingsPanel';
 import { StatCard, toneForMinimum, toneForPct } from '@/components/StatCard';
 import { TimeseriesPanel } from '@/components/TimeseriesPanel';
-import { formatBytes, formatNumber, formatPct } from '@/lib/format';
-import { getLabeled, getSeries } from '@/lib/queries';
+import { formatBytes, formatClock, formatNumber, formatPct } from '@/lib/format';
+import { getFindings, getLabeled, getSeries } from '@/lib/queries';
 
 const COLOR = {
   accent: '#005eb8',
@@ -30,7 +31,7 @@ export async function OracleSummary({
   bucketSeconds: number;
   windowHint: string;
 }) {
-  const [connections, activity, memory, cache, waits, sizes, pressure, slow] = await Promise.all([
+  const [connections, activity, memory, cache, waits, sizes, pressure, slow, findings] = await Promise.all([
     getSeries(
       instanceId,
       ['connections_total', 'connections_active', 'connections_used_pct', 'blocked_sessions'],
@@ -70,6 +71,7 @@ export async function OracleSummary({
       windowMinutes,
       bucketSeconds,
     ),
+    getFindings(instanceId),
   ]);
 
   const connPct = ultimo(connections, 'connections_used_pct');
@@ -158,6 +160,8 @@ export async function OracleSummary({
           ]}
         />
       </div>
+      <FindingsPanel findings={findings} checkedAt={findings[0] ? formatClock(findings[0].ts) : null} />
+
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="card">
           <h3 className="card-title">Current waits</h3>

@@ -12,7 +12,10 @@ export async function getOrmModel(
   minutes: number,
   weight: FlowWeight,
   engine = 'postgres',
+  opts?: { includeTraffic?: boolean },
 ): Promise<OrmModel> {
+  const includeTraffic = opts?.includeTraffic !== false;
+
   const [catalog, fks, flow] = await Promise.all([
     query<{
       schema_name: string;
@@ -39,7 +42,9 @@ export async function getOrmModel(
         where instance_id = $1`,
       [instanceId],
     ).catch(() => []),
-    getFlow(instanceId, minutes, weight, 'both', engine, 'aplicacion', 14),
+    includeTraffic
+      ? getFlow(instanceId, minutes, weight, 'both', engine, 'aplicacion', 14)
+      : Promise.resolve({ allTables: [] as Awaited<ReturnType<typeof getFlow>>['allTables'] }),
   ]);
 
   const heatByRelation = new Map(

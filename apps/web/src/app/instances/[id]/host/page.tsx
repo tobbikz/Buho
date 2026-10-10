@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
+import { CopyBlock } from '@/components/CopyBlock';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StatCard, toneForPct } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
@@ -26,7 +27,73 @@ const COLOR = { accent: '#005eb8', success: '#0a6e42', warning: '#9a4a00', error
  * dato no está y qué hay que escribir para tenerlo, incluyendo el permiso
  * min del lado SSH.
  */
-function NotConfigured({ alias }: { alias: string }) {
+function dataDirectoryHint(engine: string): string {
+  if (engine === 'mariadb') return '/var/lib/mysql';
+  if (engine === 'mssql') return '/var/opt/mssql/data';
+  if (engine === 'oracle') return '/opt/oracle/oradata';
+  return '/var/lib/postgresql/16/main';
+}
+
+function dockerContainerHint(alias: string, engine: string): string {
+  if (alias === 'oracle-lab' || engine === 'oracle') return 'buho-oracle-lab';
+  if (alias === 'maria-1' || engine === 'mariadb') return 'buho-maria-1';
+  if (alias === 'mssql-lab' || engine === 'mssql') return 'datasync-mssql-test';
+  return `buho-${alias}`;
+}
+
+function engineLabel(engine: string): string {
+  if (engine === 'mariadb') return 'MariaDB / MySQL';
+  if (engine === 'mssql') return 'SQL Server';
+  if (engine === 'oracle') return 'Oracle';
+  return 'PostgreSQL';
+}
+
+function NotConfigured({ alias, engine }: { alias: string; engine: string }) {
+  const label = engineLabel(engine);
+  const dataDir = dataDirectoryHint(engine);
+  const container = dockerContainerHint(alias, engine);
+  const storeUrl = 'postgres://buho:buho@127.0.0.1:55432/buho';
+
+  const dockerSql = `psql "${storeUrl}" -c "update buho.monitor_targets
+set host_metrics = jsonb_build_object(
+  'source', 'docker',
+  'container', '${container}',
+  'dataDirectory', '${dataDir}'
+),
+updated_at = now()
+where alias = '${alias}';"`;
+
+  const localSql = `psql "${storeUrl}" -c "update buho.monitor_targets
+set host_metrics = jsonb_build_object(
+  'source', 'local',
+  'dataDirectory', '${dataDir}'
+),
+updated_at = now()
+where alias = '${alias}';"`;
+
+  const sshSetup = `# 1) Key on the Búho host (once)
+sudo mkdir -p /etc/buho
+sudo ssh-keygen -t ed25519 -f /etc/buho/id_ed25519 -N '' -C buho-host-metrics
+sudo chmod 600 /etc/buho/id_ed25519
+
+# 2) Authorize on the DB host (replace buho@db-host)
+ssh-copy-id -i /etc/buho/id_ed25519.pub buho@db-host
+
+# 3) Point the target at SSH + data directory
+psql "${storeUrl}" -c "update buho.monitor_targets
+set host_metrics = jsonb_build_object(
+  'source', 'ssh',
+  'target', 'buho@db-host',
+  'identityFile', '/etc/buho/id_ed25519',
+  'dataDirectory', '${dataDir}'
+),
+updated_at = now()
+where alias = '${alias}';"`;
+
+  const verify = `# Collector picks it up on the next cycle (~30s). Confirm:
+psql "${storeUrl}" -c "select alias, host_metrics from buho.monitor_targets where alias = '${alias}';"
+# Then open Host again — charts should fill.`;
+
   return (
     <section className="panel">
       <div className="panel-header">
@@ -35,44 +102,24 @@ function NotConfigured({ alias }: { alias: string }) {
       </div>
       <div className="panel-body">
         <p className="text-[12.5px]">
-          PostgreSQL does not expose host CPU, memory, or disk: no view has them. The data lives
-          in <span className="font-mono">/proc</span>, so it must be read there. Búho installs nothing on the watched
-          server — it only reads files.
+          {label} does not expose host CPU, memory, or disk through SQL alone for a full OS view. That data lives
+          in <span className="font-mono">/proc</span> (or the container&apos;s cgroup), so Búho reads files there.
+          Nothing is installed on the watched server — copy one block below, paste in a terminal, done.
         </p>
 
-        <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-          If Búho runs on the same server as the database
-        </p>
-        <pre className="mt-1 border border-border bg-surface-muted p-2 font-mono text-[11px]">
-          {`{
-  "alias": "${alias}",
-  "hostMetrics": { "source": "local", "dataDirectory": "/var/lib/postgresql/16/main" }
-}`}
-        </pre>
+        <CopyBlock
+          label={`Lab / Docker (recommended for ${alias})`}
+          value={dockerSql}
+        />
+        <CopyBlock label="Same machine as Búho (local /proc)" value={localSql} />
+        <CopyBlock label="Remote DB host over SSH" value={sshSetup} />
+        <CopyBlock label="Verify" value={verify} />
 
-        <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-          If the database is on another server (no agent, read-only SSH)
-        </p>
-        <pre className="mt-1 border border-border bg-surface-muted p-2 font-mono text-[11px]">
-          {`{
-  "alias": "${alias}",
-  "hostMetrics": {
-    "source": "ssh",
-    "target": "buho@db-host",
-    "identityFile": "/etc/buho/id_ed25519",
-    "dataDirectory": "/var/lib/postgresql/16/main"
-  }
-}`}
-        </pre>
-        <p className="mt-2 text-[12px] text-foreground-secondary">
-          An unprivileged user with access to <span className="font-mono">/proc</span> and{' '}
-          <span className="font-mono">df</span>. The connection uses{' '}
-          <span className="font-mono">BatchMode=yes</span>: if the key fails, the cycle errors into
-          collector events instead of hanging on a password prompt.
-        </p>
-        <p className="mt-2 text-[12px] text-foreground-secondary">
-          Until this is configured, Overview still shows the PostgreSQL-side approximations: wait
-          classes, DB time, cache hit, and temp spills.
+        <p className="mt-3 text-[12px] text-foreground-secondary">
+          Docker needs the collector to see the socket (<span className="font-mono">docker.sock</span>). SSH uses{' '}
+          <span className="font-mono">BatchMode=yes</span> — a bad key fails the cycle instead of hanging on a
+          password prompt. Until configured, Overview still shows engine-side approximations (waits, DB time,
+          cache hit, temp / undo) — not OS CPU.
         </p>
       </div>
     </section>
@@ -149,6 +196,7 @@ export default async function HostPage({
   const engineKind = (await getInstanceEngine(instanceId)) ?? 'postgres';
   const esMssql = engineKind === 'mssql';
   const esMaria = engineKind === 'mariadb';
+  const esOracle = engineKind === 'oracle';
   const esMongo =
     engineKind === 'mongodb' ||
     engineKind === 'redis' ||
@@ -264,10 +312,15 @@ export default async function HostPage({
                 ? 'SQL Server process CPU and host RAM from DMVs (dm_os_sys_info / dm_os_sys_memory) — no SSH agent.'
                 : esMaria
                   ? 'OS CPU/RAM/disk when hostMetrics is set (docker/ssh/local). Always: InnoDB memory, buffer pool, threads, I/O.'
-                  : <>
-                      Server CPU, memory, and disk from <span className="font-mono">/proc</span> — the only
-                      host view in this console that does not come from PostgreSQL.
-                    </>}
+                  : esOracle
+                    ? <>
+                        OS CPU/RAM/disk when <span className="font-mono">hostMetrics</span> is set (docker/ssh/local).
+                        Overview still shows Oracle SGA/PGA, waits, and temp/undo without hostMetrics.
+                      </>
+                    : <>
+                        Server CPU, memory, and disk from <span className="font-mono">/proc</span> — OS view via{' '}
+                        <span className="font-mono">hostMetrics</span>, separate from PostgreSQL SQL stats.
+                      </>}
             </p>
           </div>
           {(host || hasMssqlSystem || hasMariaSystem) && (
@@ -286,6 +339,22 @@ export default async function HostPage({
         </header>
 
         <InstanceTabs instanceId={instanceId} engine={engineKind} blockedCount={instance.blockedSessions ?? 0} />
+
+        {host &&
+        ((host.swapUsedPct !== null && host.swapUsedPct >= 20) ||
+          (host.diskUsedPct !== null && host.diskUsedPct >= 80)) ? (
+          <div className="notice notice--warn">
+            <strong>Host pressure (on-call).</strong>{' '}
+            {host.swapUsedPct !== null && host.swapUsedPct >= 20
+              ? `Swap is at ${host.swapUsedPct.toFixed(0)}% — a swapping database is already in trouble; check memory pressure before blaming SQL.`
+              : null}{' '}
+            {host.diskUsedPct !== null && host.diskUsedPct >= 80
+              ? `Disk is at ${host.diskUsedPct.toFixed(1)}% used${
+                  host.mount ? ` on ${host.mount}` : ''
+                }. Full volumes cause I/O waits that look like a DB incident.`
+              : null}
+          </div>
+        ) : null}
 
         {esMssql ? (
           hasMssqlSystem ? (
@@ -483,7 +552,7 @@ export default async function HostPage({
             )}
           </>
         ) : !host ? (
-          <NotConfigured alias={instance.alias} />
+          <NotConfigured alias={instance.alias} engine={engineKind} />
         ) : (
           <>
             <Cards host={host} />

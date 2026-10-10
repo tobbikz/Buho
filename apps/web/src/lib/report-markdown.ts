@@ -17,7 +17,7 @@ const BACKUP_KIND: Record<string, string> = {
   full: 'full',
   differential: 'differential',
   log: 'log',
-  wal_archive: 'WAL archive',
+  wal_archive: 'Binlog / WAL archive',
 };
 
 const DATE = new Intl.DateTimeFormat('en-US', { dateStyle: 'long' });

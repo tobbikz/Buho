@@ -37,19 +37,19 @@ const WINDOWS = [
 ] as const;
 
 const AGGREGATIONS: { key: CrossLabel; label: string; hint: string }[] = [
-  { key: 'sum', label: 'suma', hint: 'total across labels: correct for rates and counts' },
-  { key: 'avg', label: 'promedio', hint: 'promedio entre etiquetas' },
-  { key: 'min', label: 'min', hint: 'worst case para ratios (cache hit)' },
-  { key: 'max', label: 'max', hint: 'worst case para uso y latencias' },
+  { key: 'sum', label: 'sum', hint: 'total across labels: correct for rates and counts' },
+  { key: 'avg', label: 'avg', hint: 'average across labels' },
+  { key: 'min', label: 'min', hint: 'worst case for ratios (cache hit)' },
+  { key: 'max', label: 'max', hint: 'worst case for usage and latency' },
 ];
 
 const UNIT_TITLE: Record<Unit, string> = {
-  pct: 'Porcentajes',
+  pct: 'Percentages',
   bytes: 'Bytes',
   rate: 'Per second',
-  seconds: 'Duraciones',
+  seconds: 'Durations',
   ms: 'Milliseconds',
-  count: 'Conteos',
+  count: 'Counts',
 };
 
 function asArray(value: string | string[] | undefined): string[] {
@@ -124,12 +124,20 @@ export default async function AnalysisPage({
   if (!instance) notFound();
 
   const labelKeysOf = new Map(available.map((item) => [item.metric, item.labelKeys]));
-  const catalog = available.map((item) => describeMetric(item.metric, item.labelKeys));
+  // WAL / pg-only metric names must not appear in the picker on other engines
+  // even if a stray sample exists in the store.
+  const catalog = available
+    .map((item) => describeMetric(item.metric, item.labelKeys))
+    .filter((meta) => {
+      if (engine === 'postgres') return true;
+      const m = meta.metric.toLowerCase();
+      return !m.includes('wal_') && !m.includes('xid') && !m.includes('autovacuum');
+    });
 
   const requested = asArray(m);
   // Se ignoran las métricas que esta instancia no tiene: un enlace copiado de
   // otra instancia no debe romper la pantalla, sólo mostrar menos.
-  const fallback = defaultMetricsForEngine(engine);
+  const fallback = defaultMetricsForEngine(engine, { standby: Boolean(instance.inRecovery) });
   const preferred = (requested.length > 0 ? requested : fallback).filter((metric) =>
     labelKeysOf.has(metric),
   );
@@ -173,6 +181,232 @@ export default async function AnalysisPage({
     for (const metric of selected) search.append('m', metric);
     return `${basePath}?${search.toString()}`;
   }
+
+  function presetHref(metrics: string[]): string {
+    const search = new URLSearchParams();
+    search.set('w', window.key);
+    if (aggregation) search.set('agg', aggregation);
+    for (const metric of metrics) {
+      if (labelKeysOf.has(metric)) search.append('m', metric);
+    }
+    return `${basePath}?${search.toString()}`;
+  }
+
+  const analysisPresets: { key: string; label: string; hint: string; metrics: string[] }[] =
+    engine === 'mongodb'
+      ? [
+          {
+            key: 'ops',
+            label: 'Ops',
+            hint: 'Opcounters, active/slow currentOp',
+            metrics: [
+              'mongo_op_query_per_sec',
+              'mongo_op_insert_per_sec',
+              'mongo_ops_active',
+              'mongo_ops_slow',
+            ],
+          },
+          {
+            key: 'wiredtiger',
+            label: 'WiredTiger',
+            hint: 'Cache, tickets, resident RAM',
+            metrics: [
+              'mongo_wt_cache_used_pct',
+              'mongo_tickets_read_used_pct',
+              'mongo_tickets_write_used_pct',
+              'mongo_mem_resident_mb',
+            ],
+          },
+          {
+            key: 'locks',
+            label: 'Locks',
+            hint: 'Global lock queue and waiters',
+            metrics: [
+              'mongo_global_lock_queue',
+              'mongo_ops_waiting_lock',
+              'mongo_global_lock_readers',
+              'mongo_global_lock_writers',
+            ],
+          },
+          {
+            key: 'host',
+            label: 'Host',
+            hint: 'CPU, memory, disk (needs hostMetrics)',
+            metrics: ['host_cpu_pct', 'host_mem_used_pct', 'host_disk_used_pct', 'host_cpu_iowait_pct'],
+          },
+        ]
+      : engine === 'redis'
+        ? [
+            {
+              key: 'throughput',
+              label: 'Throughput',
+              hint: 'Ops/s, commands, clients',
+              metrics: [
+                'redis_instantaneous_ops',
+                'redis_total_commands_per_sec',
+                'connections_total',
+                'redis_blocked_clients',
+              ],
+            },
+            {
+              key: 'memory',
+              label: 'Memory',
+              hint: 'Used memory, hit ratio, keys, evictions',
+              metrics: [
+                'redis_used_memory_bytes',
+                'redis_memory_used_pct',
+                'db_cache_hit_pct',
+                'redis_keys_total',
+                'redis_evicted_keys_per_sec',
+              ],
+            },
+            {
+              key: 'slowlog',
+              label: 'Slowlog',
+              hint: 'SLOWLOG length and blocked clients',
+              metrics: ['redis_slowlog_len', 'redis_blocked_clients', 'redis_instantaneous_ops'],
+            },
+            {
+              key: 'host',
+              label: 'Host',
+              hint: 'CPU, memory, disk (needs hostMetrics)',
+              metrics: ['host_cpu_pct', 'host_mem_used_pct', 'host_disk_used_pct', 'host_cpu_iowait_pct'],
+            },
+          ]
+        : engine === 'elasticsearch'
+          ? [
+              {
+                key: 'cluster',
+                label: 'Cluster',
+                hint: 'Health, unassigned, active shards',
+                metrics: [
+                  'es_cluster_status',
+                  'es_unassigned_shards',
+                  'es_active_shards_pct',
+                  'es_pending_tasks',
+                ],
+              },
+              {
+                key: 'jvm',
+                label: 'JVM / disk',
+                hint: 'Heap, FS, OS CPU',
+                metrics: ['es_jvm_heap_used_pct_avg', 'es_fs_used_pct', 'es_os_cpu_pct_avg', 'es_store_bytes'],
+              },
+              {
+                key: 'search',
+                label: 'Search / index',
+                hint: 'Query and indexing rates',
+                metrics: [
+                  'es_search_query_total_per_sec',
+                  'es_indexing_index_total_per_sec',
+                  'connections_total',
+                ],
+              },
+              {
+                key: 'host',
+                label: 'Host',
+                hint: 'CPU, memory, disk (needs hostMetrics)',
+                metrics: ['host_cpu_pct', 'host_mem_used_pct', 'host_disk_used_pct', 'host_cpu_iowait_pct'],
+              },
+            ]
+          : [
+              {
+                key: 'standby',
+                label: 'Standby',
+                hint: 'Lag, recovery conflicts, connections',
+                metrics: defaultMetricsForEngine('postgres', { standby: true }),
+              },
+              {
+                key: 'throughput',
+                label: 'Throughput',
+                hint:
+                  engine === 'mariadb'
+                    ? 'Queries, cache, buffer pool, connections'
+                    : engine === 'mssql'
+                      ? 'Commits, cache, queries, page life'
+                      : engine === 'oracle'
+                        ? 'Executes, cache, connections, physical reads'
+                        : 'Commits, cache, WAL, connections',
+                metrics:
+                  engine === 'mariadb'
+                    ? [
+                        'queries_total_per_sec',
+                        'db_cache_hit_pct',
+                        'connections_active',
+                        'buffer_pool_dirty_pct',
+                      ]
+                    : engine === 'mssql'
+                      ? [
+                          'db_xact_commit_per_sec',
+                          'db_cache_hit_pct',
+                          'queries_total_per_sec',
+                          'page_life_expectancy_seconds',
+                        ]
+                      : engine === 'oracle'
+                        ? [
+                            'oracle_execute_count_per_sec',
+                            'db_cache_hit_pct',
+                            'connections_active',
+                            'oracle_physical_reads_per_sec',
+                          ]
+                        : [
+                            'db_xact_commit_per_sec',
+                            'db_cache_hit_pct',
+                            'wal_bytes_per_sec',
+                            'connections_active',
+                          ],
+              },
+              {
+                key: 'locks',
+                label: 'Locks',
+                hint: 'Blocked sessions and wait pressure',
+                metrics:
+                  engine === 'mariadb'
+                    ? [
+                        'blocked_sessions',
+                        'innodb_row_lock_waits_per_sec',
+                        'max_blocked_seconds',
+                        'threads_running',
+                      ]
+                    : engine === 'mssql'
+                      ? [
+                          'blocked_sessions',
+                          'lock_waits_per_sec',
+                          'max_blocked_seconds',
+                          'connections_active',
+                        ]
+                      : engine === 'oracle'
+                        ? [
+                            'blocked_sessions',
+                            'max_blocked_seconds',
+                            'connections_active',
+                            'oracle_execute_count_per_sec',
+                          ]
+                        : [
+                            'blocked_sessions',
+                            'max_blocked_seconds',
+                            'connections_active',
+                            'longest_active_query_seconds',
+                          ],
+              },
+              {
+                key: 'host',
+                label: 'Host',
+                hint: 'CPU, memory, disk (needs hostMetrics)',
+                metrics: ['host_cpu_pct', 'host_mem_used_pct', 'host_disk_used_pct', 'host_cpu_iowait_pct'],
+              },
+            ];
+
+  const visiblePresets = analysisPresets.filter((preset) => {
+    if (preset.key === 'standby') return engine === 'postgres' && Boolean(instance.inRecovery);
+    return preset.metrics.some((metric) => labelKeysOf.has(metric));
+  });
+
+  const selectedKey = selected.slice().sort().join('|');
+  const activePreset = visiblePresets.find(
+    (preset) =>
+      preset.metrics.filter((metric) => labelKeysOf.has(metric)).slice().sort().join('|') === selectedKey,
+  );
 
   let panels: {
     key: string;
@@ -323,7 +557,7 @@ export default async function AnalysisPage({
           <div>
             <h1 className="page-title">Analysis · {instance.alias}</h1>
             <p className="page-sub">
-              Cualquier métrica del store en un gráfico de líneas. La selección va en la URL: el enlace es el gráfico.
+              Any store metric as a line chart. Selection lives in the URL — the link is the chart.
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -340,6 +574,24 @@ export default async function AnalysisPage({
         </header>
 
         <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
+
+        {visiblePresets.length > 0 ? (
+          <div className="mb-3 flex flex-wrap items-center gap-1.5">
+            <span className="text-[10.5px] font-semibold uppercase tracking-wide text-foreground-muted">
+              Presets
+            </span>
+            {visiblePresets.map((preset) => (
+              <Link
+                key={preset.key}
+                href={presetHref(preset.metrics)}
+                title={preset.hint}
+                className={`tag ${activePreset?.key === preset.key ? 'tag--info' : 'tag--muted'}`}
+              >
+                {preset.label}
+              </Link>
+            ))}
+          </div>
+        ) : null}
 
         <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-[19rem_minmax(0,1fr)]">
           <MetricPicker
@@ -360,7 +612,7 @@ export default async function AnalysisPage({
               <div className="panel-body flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px]">
                 <span className="flex items-center gap-1.5">
                   <span className="font-semibold uppercase tracking-wide text-foreground-muted">
-                    Entre etiquetas
+                    Across labels
                   </span>
                   {AGGREGATIONS.map((entry) => (
                     <Link
@@ -374,7 +626,7 @@ export default async function AnalysisPage({
                   ))}
                   {aggregation === null && (
                     <span className="text-foreground-muted">
-                      automática por unidad (los porcentajes usan el worst case)
+                      auto by unit (percentages use worst case)
                     </span>
                   )}
                 </span>
@@ -382,7 +634,7 @@ export default async function AnalysisPage({
                 {single && single.labelKeys.length > 0 && (
                   <span className="flex items-center gap-1.5">
                     <span className="font-semibold uppercase tracking-wide text-foreground-muted">
-                      Desglosar por
+                      Break down by
                     </span>
                     {single.labelKeys.map((key) => (
                       <Link
@@ -399,14 +651,14 @@ export default async function AnalysisPage({
                 {canCompare && (
                   <span className="flex items-center gap-1.5">
                     <span className="font-semibold uppercase tracking-wide text-foreground-muted">
-                      Línea base
+                      Baseline
                     </span>
                     <Link
                       href={linkWith({ base: comparing ? null : '1', vs: null })}
                       title="Compare the series to what is normal for that hour"
                       className={`tag ${comparing ? 'tag--info' : 'tag--muted'}`}
                     >
-                      comparar
+                      compare
                     </Link>
                   </span>
                 )}
@@ -474,7 +726,7 @@ export default async function AnalysisPage({
             ) : selected.length === 0 ? (
               <section className="panel">
                 <div className="empty" style={{ height: 200 }}>
-                  Elegí una o más métricas de la lista para graficarlas.
+                  Pick one or more metrics from the list to chart them.
                 </div>
               </section>
             ) : (

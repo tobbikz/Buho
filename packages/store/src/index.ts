@@ -4,9 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 import type {
   BloatMeasurement,
+  BackupRow,
   LogEntry,
   VacuumSnapshot,
   IndexSnapshot,
+  MssqlMaintenanceSnapshot,
   BlockedSession,
   Capabilities,
   InstanceConfig,
@@ -15,6 +17,44 @@ import type {
   SecurityAudit,
   StatementDelta,
 } from '@buho/core';
+
+/** Seconds of data-loss exposure from inventory backup rows (for pack.rpo_exposure). */
+function rpoExposureSecondsFromBackups(backups: BackupRow[]): number | null {
+  if (backups.length === 0) return null;
+  const BROKEN = 86_400 * 365; // 1y sentinel → pack critical
+
+  for (const row of backups) {
+    const detail = row.detail ?? {};
+    if (detail['archive_mode'] === 'off') return BROKEN;
+    if (row.source === 'binlog' && detail['log_bin'] !== true) return BROKEN;
+  }
+
+  let best: number | null = null;
+  for (const row of backups) {
+    if (!row.finishedAt) {
+      if (row.kind === 'log' || row.kind === 'wal_archive') {
+        // Catalog present but never finished → treat as broken for FULL/archive chain.
+        if (row.source === 'msdb' || row.source === 'v$backup_set') return BROKEN;
+      }
+      continue;
+    }
+    const age = Math.max(0, (Date.now() - row.finishedAt.getTime()) / 1000);
+    if (best === null || age < best) best = age;
+  }
+
+  // Binlog/WAL on with no timestamp → continuous-ish (0).
+  if (
+    best === null &&
+    backups.some(
+      (r) =>
+        (r.source === 'binlog' && r.detail?.['log_bin'] === true) ||
+        (r.kind === 'wal_archive' && r.detail?.['archive_mode'] === 'on'),
+    )
+  ) {
+    return 0;
+  }
+  return best;
+}
 import type {
   AlertPackConfig,
   CheckResult,
@@ -391,6 +431,18 @@ export class Store {
       throw error;
     } finally {
       client.release();
+    }
+
+    // Fleet RPO pack metric — exposure seconds derived from inventory backups.
+    try {
+      const exposure = rpoExposureSecondsFromBackups(snapshot.backups);
+      if (exposure !== null) {
+        await this.insertSamples(instanceId, [
+          { metric: 'rpo_exposure_seconds', value: exposure, labels: {} },
+        ]);
+      }
+    } catch {
+      /* metric is best-effort; inventory itself already committed */
     }
   }
 
@@ -1206,16 +1258,21 @@ export class Store {
       }[];
     },
   ): Promise<number> {
-    if (snapshot.waits.length === 0 && snapshot.detail.length === 0) return 0;
+    // Idle cycles still need a wait tick — otherwise Live keeps replaying the last
+    // busy snapshot (frozen durations) until the age gate eventually kicks in.
+    const waits =
+      snapshot.waits.length > 0 || snapshot.detail.length > 0
+        ? snapshot.waits
+        : [{ waitType: 'Idle', waitEvent: null as string | null, sessions: 0 }];
 
     const client = await this.pool.connect();
     try {
       await client.query('begin');
 
-      if (snapshot.waits.length > 0) {
+      {
         const values: unknown[] = [];
         const tuples: string[] = [];
-        snapshot.waits.forEach((espera, indice) => {
+        waits.forEach((espera, indice) => {
           const base = indice * 5;
           tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`);
           values.push(instanceId, snapshot.at, espera.waitType, espera.waitEvent, espera.sessions);
@@ -1262,7 +1319,7 @@ export class Store {
       }
 
       await client.query('commit');
-      return snapshot.waits.length + snapshot.detail.length;
+      return waits.length + snapshot.detail.length;
     } catch (error) {
       await client.query('rollback');
       throw error;
@@ -1484,6 +1541,65 @@ export class Store {
           where instance_id = $1 and captured_at < now() - interval '1 minute'`,
         [instanceId],
       );
+
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async saveMssqlMaintenance(instanceId: number, snapshot: MssqlMaintenanceSnapshot): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+
+      await client.query('delete from buho.mssql_heap_pressure where instance_id = $1', [instanceId]);
+      if (snapshot.heaps.length > 0) {
+        const values: unknown[] = [];
+        const tuples: string[] = [];
+        snapshot.heaps.forEach((row, index) => {
+          const base = index * 5;
+          tuples.push(
+            `(${Array.from({ length: 5 }, (_, offset) => `$${base + offset + 1}`).join(', ')}, now())`,
+          );
+          values.push(instanceId, row.schema, row.table, Math.round(row.forwardedFetchCount), Math.round(row.writeCount));
+        });
+        await client.query(
+          `insert into buho.mssql_heap_pressure
+             (instance_id, schema_name, table_name, forwarded_fetch_count, write_count, captured_at)
+           values ${tuples.join(', ')}`,
+          values,
+        );
+      }
+
+      await client.query('delete from buho.mssql_index_fragmentation where instance_id = $1', [instanceId]);
+      if (snapshot.fragmentation.length > 0) {
+        const values: unknown[] = [];
+        const tuples: string[] = [];
+        snapshot.fragmentation.forEach((row, index) => {
+          const base = index * 6;
+          tuples.push(
+            `(${Array.from({ length: 6 }, (_, offset) => `$${base + offset + 1}`).join(', ')}, now())`,
+          );
+          values.push(
+            instanceId,
+            row.schema,
+            row.table,
+            row.indexName,
+            row.fragmentationPct,
+            Math.round(row.pageCount),
+          );
+        });
+        await client.query(
+          `insert into buho.mssql_index_fragmentation
+             (instance_id, schema_name, table_name, index_name, fragmentation_pct, page_count, captured_at)
+           values ${tuples.join(', ')}`,
+          values,
+        );
+      }
 
       await client.query('commit');
     } catch (error) {
@@ -1916,7 +2032,7 @@ export class Store {
   async listMonitorTargets(enabledOnly = false): Promise<MonitorTargetRow[]> {
     const result = await this.pool.query<Record<string, unknown>>(
       `select target_id, tenant, alias, engine, host, port, database, username, password,
-              environment, ssl, tags, host_metrics, enabled, created_at, updated_at, created_by
+              environment, ssl, tags, host_metrics, endpoint, enabled, created_at, updated_at, created_by
          from buho.monitor_targets
         where ($1::boolean = false or enabled)
         order by alias`,
@@ -1929,8 +2045,8 @@ export class Store {
     const result = await this.pool.query<{ target_id: string }>(
       `insert into buho.monitor_targets
          (tenant, alias, engine, host, port, database, username, password,
-          environment, ssl, tags, host_metrics, enabled, created_by, updated_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14, now())
+          environment, ssl, tags, host_metrics, endpoint, enabled, created_by, updated_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13::jsonb,$14,$15, now())
        on conflict (tenant, alias) do update set
          engine = excluded.engine,
          host = excluded.host,
@@ -1943,6 +2059,10 @@ export class Store {
          ssl = excluded.ssl,
          tags = excluded.tags,
          host_metrics = excluded.host_metrics,
+         endpoint = case
+           when excluded.endpoint = '{}'::jsonb then buho.monitor_targets.endpoint
+           else excluded.endpoint
+         end,
          enabled = excluded.enabled,
          updated_at = now()
        returning target_id`,
@@ -1959,6 +2079,7 @@ export class Store {
         input.ssl ?? false,
         JSON.stringify(input.tags ?? {}),
         JSON.stringify(input.hostMetrics ?? {}),
+        JSON.stringify(input.endpoint ?? {}),
         input.enabled ?? true,
         input.createdBy ?? null,
       ],
@@ -2681,6 +2802,176 @@ export class Store {
     }));
   }
 
+  /**
+   * Link endpoint instance → DB instance by aliases (config dependsOnAlias).
+   */
+  async upsertServiceDepByAlias(
+    fromAlias: string,
+    toAlias: string,
+    relation = 'depends_on',
+  ): Promise<void> {
+    await this.pool.query(
+      `insert into buho.service_deps (from_instance_id, to_instance_id, relation)
+       select f.instance_id, t.instance_id, $3
+         from buho.instances f
+         join buho.instances t on t.alias = $2
+        where f.alias = $1
+       on conflict (from_instance_id, to_instance_id) do update
+         set relation = excluded.relation`,
+      [fromAlias, toAlias, relation],
+    );
+  }
+
+  async listServiceDeps(): Promise<
+    Array<{
+      depId: number;
+      fromInstanceId: number | null;
+      fromAlias: string | null;
+      fromServiceName: string | null;
+      fromEngine: string | null;
+      toInstanceId: number;
+      toAlias: string;
+      toEngine: string;
+      relation: string;
+      note: string | null;
+    }>
+  > {
+    const result = await this.pool.query<Record<string, unknown>>(
+      `select d.dep_id, d.from_instance_id, f.alias as from_alias, d.from_service_name,
+              f.engine as from_engine,
+              d.to_instance_id, t.alias as to_alias, t.engine as to_engine,
+              d.relation, d.note
+         from buho.service_deps d
+         left join buho.instances f on f.instance_id = d.from_instance_id
+         join buho.instances t on t.instance_id = d.to_instance_id
+        order by coalesce(f.alias, d.from_service_name), t.alias`,
+    );
+    return result.rows.map((row) => ({
+      depId: Number(row['dep_id']),
+      fromInstanceId:
+        row['from_instance_id'] == null ? null : Number(row['from_instance_id']),
+      fromAlias: (row['from_alias'] as string | null) ?? null,
+      fromServiceName: (row['from_service_name'] as string | null) ?? null,
+      fromEngine: (row['from_engine'] as string | null) ?? null,
+      toInstanceId: Number(row['to_instance_id']),
+      toAlias: String(row['to_alias']),
+      toEngine: String(row['to_engine'] ?? 'postgres'),
+      relation: String(row['relation']),
+      note: (row['note'] as string | null) ?? null,
+    }));
+  }
+
+  async ingestOtlpSpans(
+    spans: Array<{
+      traceId: string;
+      spanId: string;
+      parentSpanId: string | null;
+      name: string;
+      kind: string;
+      serviceName: string;
+      startTs: Date;
+      endTs: Date;
+      durationMs: number;
+      statusCode: string;
+      statusMessage: string | null;
+      httpMethod: string | null;
+      httpUrl: string | null;
+      httpStatus: number | null;
+      sqlText: string | null;
+      attributes: Record<string, unknown>;
+    }>,
+  ): Promise<number> {
+    if (spans.length === 0) return 0;
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      let n = 0;
+      const byTrace = new Map<string, typeof spans>();
+      for (const span of spans) {
+        const list = byTrace.get(span.traceId) ?? [];
+        list.push(span);
+        byTrace.set(span.traceId, list);
+        await client.query(
+          `insert into buho.otlp_spans
+                (trace_id, span_id, parent_span_id, name, kind, service_name,
+                 start_ts, end_ts, duration_ms, status_code, status_message,
+                 http_method, http_url, http_status, sql_text, attributes)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)
+           on conflict (trace_id, span_id) do update set
+             end_ts = excluded.end_ts,
+             duration_ms = excluded.duration_ms,
+             status_code = excluded.status_code,
+             attributes = excluded.attributes`,
+          [
+            span.traceId,
+            span.spanId,
+            span.parentSpanId,
+            span.name,
+            span.kind,
+            span.serviceName,
+            span.startTs,
+            span.endTs,
+            span.durationMs,
+            span.statusCode,
+            span.statusMessage,
+            span.httpMethod,
+            span.httpUrl,
+            span.httpStatus,
+            span.sqlText,
+            JSON.stringify(span.attributes),
+          ],
+        );
+        n += 1;
+      }
+      for (const [traceId, list] of byTrace) {
+        const startTs = new Date(Math.min(...list.map((s) => s.startTs.getTime())));
+        const endTs = new Date(Math.max(...list.map((s) => s.endTs.getTime())));
+        const root =
+          list.find((s) => !s.parentSpanId) ??
+          list.slice().sort((a, b) => a.startTs.getTime() - b.startTs.getTime())[0]!;
+        const errorCount = list.filter((s) => s.statusCode === 'ERROR').length;
+        const hasSql = list.some(
+          (s) =>
+            !!s.sqlText ||
+            /^(SELECT|INSERT|UPDATE|DELETE|WITH|MERGE|CALL|EXEC)\b/i.test(s.name.trim()),
+        );
+        await client.query(
+          `insert into buho.otlp_traces
+                (trace_id, root_service, root_name, start_ts, end_ts, duration_ms,
+                 span_count, error_count, has_sql, http_status)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           on conflict (trace_id) do update set
+             end_ts = greatest(buho.otlp_traces.end_ts, excluded.end_ts),
+             duration_ms = extract(epoch from (greatest(buho.otlp_traces.end_ts, excluded.end_ts)
+               - least(buho.otlp_traces.start_ts, excluded.start_ts))) * 1000,
+             span_count = buho.otlp_traces.span_count + excluded.span_count,
+             error_count = buho.otlp_traces.error_count + excluded.error_count,
+             has_sql = buho.otlp_traces.has_sql or excluded.has_sql,
+             http_status = coalesce(excluded.http_status, buho.otlp_traces.http_status)`,
+          [
+            traceId,
+            root.serviceName,
+            root.name,
+            startTs,
+            endTs,
+            endTs.getTime() - startTs.getTime(),
+            list.length,
+            errorCount,
+            hasSql,
+            root.httpStatus,
+          ],
+        );
+      }
+      await client.query('commit');
+      return n;
+    } catch (err) {
+      await client.query('rollback');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   /** Claim and send pending alert deliveries (webhook / Slack / Teams / Telegram / Rocket.Chat). */
   async flushAlertDeliveries(limit = 20): Promise<{ sent: number; failed: number }> {
     const client = await this.pool.connect();
@@ -2899,6 +3190,8 @@ export interface MonitorTargetInput {
   ssl?: boolean;
   tags?: Record<string, string>;
   hostMetrics?: Record<string, unknown>;
+  /** Synthetic probe config when engine = endpoint. */
+  endpoint?: Record<string, unknown>;
   enabled?: boolean;
   createdBy?: string | null;
 }
@@ -2917,6 +3210,7 @@ export interface MonitorTargetRow {
   ssl: boolean;
   tags: Record<string, string>;
   hostMetrics: Record<string, unknown>;
+  endpoint: Record<string, unknown>;
   enabled: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -2926,6 +3220,7 @@ export interface MonitorTargetRow {
 function mapMonitorTarget(row: Record<string, unknown>): MonitorTargetRow {
   const tags = row['tags'];
   const hostMetrics = row['host_metrics'];
+  const endpoint = row['endpoint'];
   return {
     targetId: Number(row['target_id']),
     tenant: String(row['tenant']),
@@ -2945,6 +3240,10 @@ function mapMonitorTarget(row: Record<string, unknown>): MonitorTargetRow {
     hostMetrics:
       hostMetrics && typeof hostMetrics === 'object' && !Array.isArray(hostMetrics)
         ? (hostMetrics as Record<string, unknown>)
+        : {},
+    endpoint:
+      endpoint && typeof endpoint === 'object' && !Array.isArray(endpoint)
+        ? (endpoint as Record<string, unknown>)
         : {},
     enabled: Boolean(row['enabled']),
     createdAt: row['created_at'] as Date,

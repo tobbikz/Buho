@@ -13,6 +13,8 @@ import {
   type Severity,
 } from '@/lib/checks';
 
+export const metadata = { title: 'Checks · Búho' };
+
 export const dynamic = 'force-dynamic';
 
 const FILTER_SEVERITIES: Record<CheckFilterKey, Severity[]> = {

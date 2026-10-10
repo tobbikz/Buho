@@ -15,6 +15,8 @@ import {
   healthScore,
   evaluateAlertPack,
   alertPackMetricNames,
+  evaluateEndpointSamples,
+  endpointHealthScore,
 } from '@buho/checks';
 import {
   capabilityWarnings,
@@ -61,16 +63,21 @@ import {
   sampleRedisSlowlog,
   sampleRedisCommandstats,
   sampleMariadbIndexes,
+  sampleMssqlIndexes,
+  sampleMssqlMaintenance,
+  sampleOracleIndexes,
   runMariadbExplain,
   digestToQueryid,
   ForeignProcedureTracker,
   sampleForeignProcedures,
   sampleMssqlCatalog,
   sampleMariadbCatalog,
+  sampleOracleCatalog,
   sampleForeignBlocking,
   sampleForeignSessions,
   tagged,
   readForeignLog,
+  probeEndpoint,
 } from '@buho/core';
 import type { Capabilities, EngineClient, InstanceConfig, Tier } from '@buho/core';
 import { Store } from '@buho/store';
@@ -87,6 +94,7 @@ const CHECKS_INTERVAL_MS = 300_000;
 // Los bloqueos se muestrean al ritmo del tier rápido: un bloqueo que dura diez
 // segundos y no se ve es un incidente que nadie puede explicar después.
 const LOCKS_INTERVAL_MS = 10_000;
+const ENDPOINT_INTERVAL_MS = 30_000;
 const STATEMENTS_INTERVAL_MS = 60_000;
 // 30 s: la CPU necesita dos lecturas para dar un porcentaje, y con intervalos
 // más largos el primer dato tarda demasiado en aparecer.
@@ -579,8 +587,8 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
     }
   });
 
-  // Error log file reader is SQL-engine only (Maria slow_log / MSSQL XE).
-  if (!isDocumentEngine(engine) && engine !== 'oracle') {
+  // Error / alert log: Maria slow_log + InnoDB, MSSQL errorlog, Oracle V$DIAG_ALERT_EXT.
+  if (!isDocumentEngine(engine)) {
     startLoop(`${instance.alias}/logs`, LOG_INTERVAL_MS, async () => {
       const cursor = await store.logCursor(instanceId);
       const result = await readForeignLog(client, caps, cursor);
@@ -660,6 +668,12 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
       const written = await store.saveStatementSlowEvents(instanceId, events);
       log('info', `${instance.alias}/slow-events: ${written} SQL ≥1s avg`);
     });
+
+    startLoop(`${instance.alias}/indexes`, 15 * 60_000, async () => {
+      const indexes = await sampleOracleIndexes(client, caps);
+      await store.saveIndexes(instanceId, indexes);
+      log('info', `${instance.alias}/indexes: ${indexes.indexes.length} índice(s)`);
+    });
   }
 
   if (caps.engine === 'mariadb') {
@@ -733,14 +747,31 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
           (slow.length > 0 ? `, ${slow.length} lento(s)` : ''),
       );
     });
+
+    startLoop(`${instance.alias}/indexes`, 15 * 60_000, async () => {
+      const indexes = await sampleMssqlIndexes(client, caps);
+      await store.saveIndexes(instanceId, indexes);
+      log('info', `${instance.alias}/indexes: ${indexes.indexes.length} índice(s)`);
+    });
+
+    startLoop(`${instance.alias}/maintenance`, 15 * 60_000, async () => {
+      const maintenance = await sampleMssqlMaintenance(client);
+      await store.saveMssqlMaintenance(instanceId, maintenance);
+      log(
+        'info',
+        `${instance.alias}/maintenance: ${maintenance.heaps.length} heap(s), ${maintenance.fragmentation.length} índice(s) fragmentado(s)`,
+      );
+    });
   }
 
-  if (caps.engine === 'mssql' || caps.engine === 'mariadb') {
+  if (caps.engine === 'mssql' || caps.engine === 'mariadb' || caps.engine === 'oracle') {
     startLoop(`${instance.alias}/orm-catalog`, 15 * 60_000, async () => {
       const catalog =
         caps.engine === 'mssql'
           ? await sampleMssqlCatalog(client)
-          : await sampleMariadbCatalog(client);
+          : caps.engine === 'oracle'
+            ? await sampleOracleCatalog(client)
+            : await sampleMariadbCatalog(client);
       await store.saveForeignOrmCatalog(instanceId, catalog.tables, catalog.fks);
       log(
         'info',
@@ -833,7 +864,49 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
   });
 }
 
+async function monitorEndpoint(instance: InstanceConfig): Promise<void> {
+  const instanceId = await store.upsertInstance(instance);
+  const dependsOn = instance.endpoint?.dependsOnAlias;
+  if (dependsOn) {
+    try {
+      await store.upsertServiceDepByAlias(instance.alias, dependsOn, 'depends_on');
+    } catch (err) {
+      log(
+        'warn',
+        `${instance.alias}: could not link dependency ${dependsOn}: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+    }
+  }
+
+  startLoop(`${instance.alias}/endpoint`, ENDPOINT_INTERVAL_MS, async () => {
+    const result = await probeEndpoint({
+      host: instance.host,
+      port: instance.port || 443,
+      ssl: instance.ssl,
+      probe: instance.endpoint ?? {
+        path: instance.database || '/',
+        expectStatus: [200],
+      },
+    });
+    const written = await store.insertSamples(instanceId, result.samples);
+    const findings = evaluateEndpointSamples(result.samples);
+    const score = endpointHealthScore(findings);
+    await store.saveCheckResults(instanceId, findings, score);
+    log(
+      'info',
+      `${instance.alias}/endpoint: ${written} métricas, ${result.ok ? 'up' : 'DOWN'}, score ${score}/100` +
+        `${result.error ? ` · ${result.error}` : ''}`,
+    );
+  });
+}
+
 async function monitorInstance(instance: InstanceConfig): Promise<void> {
+  if (engineOf(instance) === 'endpoint') {
+    await monitorEndpoint(instance);
+    return;
+  }
   if (engineOf(instance) !== 'postgres') {
     await monitorForeign(instance);
     return;
@@ -1070,6 +1143,13 @@ function targetToInstance(target: Awaited<ReturnType<typeof store.listMonitorTar
     hostMetrics.source &&
     hostMetrics.source !== 'none';
 
+  const endpoint =
+    target.endpoint &&
+    typeof target.endpoint === 'object' &&
+    Object.keys(target.endpoint).length > 0
+      ? (target.endpoint as InstanceConfig['endpoint'])
+      : undefined;
+
   return {
     alias: target.alias,
     engine: target.engine as InstanceConfig['engine'],
@@ -1083,11 +1163,16 @@ function targetToInstance(target: Awaited<ReturnType<typeof store.listMonitorTar
     ssl: target.ssl,
     tags: target.tags,
     hostMetrics: hasHostMetrics ? (hostMetrics as InstanceConfig['hostMetrics']) : undefined,
-    // Console-added Postgres: read server logs over SQL by default (no SSH).
+    endpoint,
+    // Console-added Postgres: prefer journald (typical when logging_collector=off
+    // under systemd). File/sql needs logging_collector=on.
+    // Endpoint synthetics have no log extractor — APM/Events cover app logs.
     logs:
-      target.engine === 'postgres' || !target.engine
-        ? { source: 'sql' }
-        : undefined,
+      target.engine === 'endpoint'
+        ? undefined
+        : target.engine === 'postgres' || !target.engine
+          ? { source: 'journal', unit: 'postgresql.service' }
+          : undefined,
   };
 }
 
@@ -1108,7 +1193,12 @@ async function ensureMonitors(): Promise<void> {
   }
 
   for (const instance of byAlias.values()) {
-    const key = instanceKey(instance);
+    // Endpoints share host:port freely (many apps on :3100). Dedupe by alias.
+    // DB engines still dedupe by host:port/database (one collector per target DB).
+    const key =
+      engineOf(instance) === 'endpoint'
+        ? `endpoint:${instance.alias}`
+        : instanceKey(instance);
     if (startedKeys.has(key)) continue;
     startedKeys.add(key);
     log('info', `${instance.alias}: starting monitor (${instance.engine ?? 'postgres'})`);

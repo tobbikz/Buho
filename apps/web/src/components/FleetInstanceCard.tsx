@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { ENGINE_LABEL } from '@/lib/grouping';
-import { formatAgo, formatCompactNumber, formatNumber, formatPct, formatVersion, formatDuration } from '@/lib/format';
+import { formatCompactNumber, formatPct, formatVersion, formatDuration } from '@/lib/format';
 import type { FleetCardDensity } from '@/components/FleetCardDensity';
+import { RelativeTime } from '@/components/RelativeTime';
 import type { FleetInstance, Severity } from '@/lib/queries';
 
 const STALE_AFTER_MS = 120_000;
@@ -179,9 +180,10 @@ export function FleetInstanceCard({
         <div className="fleet-card__foot">
           {!compact ? <span className="fleet-card__version">{versionLabel(instance)}</span> : null}
           {!dense ? (
-            <span className={`fleet-card__seen ${stale ? 'fleet-card__seen--stale' : ''}`}>
-              {formatAgo(instance.lastSeenAt)}
-            </span>
+            <RelativeTime
+              at={instance.lastSeenAt}
+              className={`fleet-card__seen ${stale ? 'fleet-card__seen--stale' : ''}`}
+            />
           ) : null}
         </div>
       </Link>
