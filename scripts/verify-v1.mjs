@@ -141,8 +141,9 @@ await ver('Estate RPO', '/estate/rpo', 'RPO');
 
 // Observability FEAT wave (excl. host inventory)
 await ver('Obs: Services', '/observability/services', 'Services');
-await ver('Obs: Hosts', '/observability/hosts', 'Host inventory|PRTG-depth Hosts|No hosts yet|Derived fleet');
-await ver('Obs: Hosts depth', '/observability/hosts/127.0.0.1', 'Device · sensors|Sensors|No hosts|Not Found|Host inventory');
+await ver('Obs: Hosts', '/observability/hosts', 'Host inventory|PRTG-depth Hosts|No hosts yet|Derived fleet|Map');
+await ver('Obs: Hosts depth', '/observability/hosts/127.0.0.1', 'Device · sensors|Sensors|SNMP traps|No hosts|Not Found|Host inventory');
+await ver('Obs: Hosts map', '/observability/hosts/map', 'Hosts map|Fleet map|Discovery suggestions|No hosts to map');
 await ver('Obs: App logs', '/observability/app-logs', 'App logs');
 await ver('Obs: DB logs', '/observability/logs', 'DB logs');
 await ver('Obs: Probes', '/observability/synthetics', 'Probe');

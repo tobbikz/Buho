@@ -12,6 +12,8 @@ import { runHttpSensor } from "./http.js";
 import { runTlsCertSensor } from "./tls_cert.js";
 import { runDnsSensor } from "./dns.js";
 import { runSnmpSensor } from "./snmp.js";
+import { runProcessSensor } from "./process.js";
+import { runWinrmSensor } from "./winrm.js";
 
 export { runHostSensor } from "./host.js";
 export { runIcmpSensor } from "./icmp.js";
@@ -21,6 +23,12 @@ export { runHttpSensor, readJsonPath } from "./http.js";
 export { runTlsCertSensor } from "./tls_cert.js";
 export { runDnsSensor } from "./dns.js";
 export { runSnmpSensor } from "./snmp.js";
+export { runProcessSensor } from "./process.js";
+export { runWinrmSensor } from "./winrm.js";
+export { discoverHosts } from "./discovery.js";
+export type { DiscoveryHit, DiscoveryOptions } from "./discovery.js";
+export { startTrapListener } from "./traps.js";
+export type { SnmpTrapEvent, TrapListener } from "./traps.js";
 export { enrichSnmpBandwidth, deltaCounter32 } from "./snmp_rates.js";
 export type { SampleHistory } from "./snmp_rates.js";
 export { sensorSampleToBuho, sensorSamplesToBuho } from "./to-buho-samples.js";
@@ -76,6 +84,18 @@ export async function runSensor(
       });
     case "snmp":
       return runSnmpSensor({
+        targetId: target.id,
+        host: target.host,
+        sensor,
+      });
+    case "process":
+      return runProcessSensor({
+        targetId: target.id,
+        host: target.host,
+        sensor,
+      });
+    case "winrm":
+      return runWinrmSensor({
         targetId: target.id,
         host: target.host,
         sensor,

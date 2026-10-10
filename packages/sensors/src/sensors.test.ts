@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { runTcpSensor } from "./tcp.js";
 import { readJsonPath, runHttpSensor } from "./http.js";
 import { deltaCounter32, enrichSnmpBandwidth } from "./snmp_rates.js";
+import { runProcessSensor } from "./process.js";
+import { runWinrmSensor } from "./winrm.js";
 import type { Sample } from "./types.js";
 
 describe("tcp sensor", () => {
@@ -46,6 +48,38 @@ describe("http sensor", () => {
     assert.equal(readJsonPath(doc, "$.slideshow.author"), "Yours Truly");
     assert.equal(readJsonPath(doc, "slideshow.title"), "Sample");
     assert.equal(readJsonPath(doc, "$.missing"), undefined);
+  });
+});
+
+describe("process sensor", () => {
+  it("matches a local process pattern", async () => {
+    const sample = await runProcessSensor({
+      targetId: "t",
+      host: "127.0.0.1",
+      sensor: { type: "process", id: "node", match: "node", minCount: 1 },
+    });
+    assert.equal(sample.sensorType, "process");
+    assert.equal(typeof sample.ok, "boolean");
+    assert.ok(typeof sample.metrics.processCount === "number");
+  });
+});
+
+describe("winrm sensor", () => {
+  it("fails honestly without a Windows endpoint", async () => {
+    const sample = await runWinrmSensor({
+      targetId: "t",
+      host: "127.0.0.1",
+      sensor: {
+        type: "winrm",
+        id: "w",
+        transport: "ssh",
+        user: "no-such-user",
+        timeoutMs: 2000,
+      },
+    });
+    assert.equal(sample.sensorType, "winrm");
+    assert.equal(sample.ok, false);
+    assert.ok(sample.error);
   });
 });
 

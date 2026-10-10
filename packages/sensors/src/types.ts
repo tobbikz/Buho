@@ -24,7 +24,9 @@ export type SensorType =
   | "http"
   | "tls_cert"
   | "dns"
-  | "snmp";
+  | "snmp"
+  | "process"
+  | "winrm";
 
 export type SensorConfig =
   | HostSensorConfig
@@ -34,7 +36,9 @@ export type SensorConfig =
   | HttpSensorConfig
   | TlsCertSensorConfig
   | DnsSensorConfig
-  | SnmpSensorConfig;
+  | SnmpSensorConfig
+  | ProcessSensorConfig
+  | WinrmSensorConfig;
 
 export type HostSensorConfig = {
   type: "host";
@@ -130,6 +134,35 @@ export type SnmpSensorConfig = {
   oids?: string[];
   /** If true (default for interface), operStatus must be up(1). */
   expectOperUp?: boolean;
+};
+
+/** Linux process match (local ps or SSH). */
+export type ProcessSensorConfig = {
+  type: "process";
+  id: string;
+  /** JS regex matched against ps args/comm lines. */
+  match: string;
+  minCount?: number;
+  timeoutMs?: number;
+  ssh?: { user: string; port?: number };
+};
+
+/**
+ * Windows metrics via SSH+PowerShell (preferred from Linux) or WinRM (pwsh Invoke-Command).
+ */
+export type WinrmSensorConfig = {
+  type: "winrm";
+  id: string;
+  transport?: "ssh" | "winrm";
+  user?: string;
+  password?: string;
+  /** WinRM HTTP(S) port; default 5985. */
+  port?: number;
+  sshPort?: number;
+  useSsl?: boolean;
+  query?: "cpu_mem" | "process";
+  processName?: string;
+  timeoutMs?: number;
 };
 
 export type TargetConfig = {

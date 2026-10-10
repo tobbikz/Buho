@@ -40,7 +40,9 @@
     "seed:demo-users": "tsx scripts/seed-demo-users.ts",
     "test:sensors": "npm run test -w @buho/sensors",
     "lab:infra:snmp": "node lab/infra/fake-snmp-agent.mjs",
-    "lab:infra:seed": "tsx scripts/seed-infra-lab.ts"
+    "lab:infra:seed": "tsx scripts/seed-infra-lab.ts",
+    "lab:infra:discover": "tsx scripts/infra-discover.ts",
+    "lab:infra:trap": "tsx scripts/inject-snmp-trap.ts"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",

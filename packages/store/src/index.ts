@@ -3205,6 +3205,57 @@ export class Store {
     return { sent, failed };
   }
 
+  async insertSnmpTrap(input: {
+    receivedAt?: Date | string;
+    sourceAddress: string;
+    sourcePort: number;
+    community?: string | null;
+    pduType?: string | null;
+    oid?: string | null;
+    varbinds?: unknown;
+    raw?: unknown;
+  }): Promise<number> {
+    const result = await this.pool.query<{ trap_id: string }>(
+      `insert into buho.snmp_traps
+            (received_at, source_address, source_port, community, pdu_type, oid, varbinds, raw)
+            values (coalesce($1::timestamptz, now()), $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb)
+       returning trap_id`,
+      [
+        input.receivedAt ?? null,
+        input.sourceAddress,
+        input.sourcePort,
+        input.community ?? null,
+        input.pduType ?? null,
+        input.oid ?? null,
+        JSON.stringify(input.varbinds ?? []),
+        JSON.stringify(input.raw ?? {}),
+      ],
+    );
+    return Number(result.rows[0]?.trap_id);
+  }
+
+  async upsertInfraDiscovery(hits: Array<{
+    host: string;
+    icmpOk: boolean;
+    icmpMs: number | null;
+    openPorts: number[];
+  }>): Promise<number> {
+    let n = 0;
+    for (const hit of hits) {
+      await this.pool.query(
+        `insert into buho.infra_discovery (host, icmp_ok, icmp_ms, open_ports, scanned_at, adopted)
+              values ($1, $2, $3, $4, now(), false)
+         on conflict (host) do update
+                set icmp_ok = excluded.icmp_ok,
+                    icmp_ms = excluded.icmp_ms,
+                    open_ports = excluded.open_ports,
+                    scanned_at = now()`,
+        [hit.host, hit.icmpOk, hit.icmpMs, hit.openPorts],
+      );
+      n += 1;
+    }
+    return n;
+  }
 }
 
 export {
@@ -3401,3 +3452,25 @@ function mapAlertRule(row: Record<string, unknown>): AlertRuleRow {
     updatedBy: (row['updated_by'] as string | null) ?? null,
   };
 }
+
+export type SnmpTrapRow = {
+  trapId: number;
+  receivedAt: Date;
+  sourceAddress: string;
+  sourcePort: number;
+  community: string | null;
+  pduType: string | null;
+  oid: string | null;
+  varbinds: unknown;
+  raw: unknown;
+};
+
+export type InfraDiscoveryRow = {
+  discoveryId: number;
+  scannedAt: Date;
+  host: string;
+  icmpOk: boolean;
+  icmpMs: number | null;
+  openPorts: number[];
+  adopted: boolean;
+};

@@ -62,7 +62,7 @@ export default async function ObservabilityHostDetailPage({ params }: Props) {
   }
 
   if (!detail.inventory) notFound();
-  const { inventory: inv, sensors, sparks } = detail;
+  const { inventory: inv, sensors, sparks, traps } = detail;
 
   return (
     <div className="obs-page">
@@ -178,6 +178,43 @@ export default async function ObservabilityHostDetailPage({ params }: Props) {
                         .join(' · ') || '—'}
                     </td>
                     <td className="num">{formatAgo(s.lastAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <span className="panel-title">SNMP traps</span>
+          <span className="text-[11px] text-foreground-muted">{traps.length} recent</span>
+        </div>
+        {traps.length === 0 ? (
+          <p className="p-4 text-sm text-foreground-muted">
+            No traps from this address. Enable{' '}
+            <span className="font-mono">infraTraps</span> on the collector (UDP, default 1162) and
+            point devices here.
+          </p>
+        ) : (
+          <div className="table-scroll" style={{ maxHeight: 'none' }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>OID</th>
+                  <th>Community</th>
+                  <th className="num">Port</th>
+                </tr>
+              </thead>
+              <tbody>
+                {traps.map((t) => (
+                  <tr key={t.trapId}>
+                    <td className="font-mono text-[11px]">{formatAgo(t.receivedAt)}</td>
+                    <td className="font-mono text-[11px]">{t.oid ?? '—'}</td>
+                    <td>{t.community ?? '—'}</td>
+                    <td className="num">{t.sourcePort}</td>
                   </tr>
                 ))}
               </tbody>

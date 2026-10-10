@@ -128,14 +128,39 @@ export async function listHostInventory(): Promise<HostInventoryRow[]> {
   });
 }
 
+export type HostTrapRow = {
+  trapId: number;
+  receivedAt: Date;
+  sourceAddress: string;
+  sourcePort: number;
+  community: string | null;
+  oid: string | null;
+  varbinds: unknown;
+};
+
+export type DiscoveryRow = {
+  discoveryId: number;
+  scannedAt: Date;
+  host: string;
+  icmpOk: boolean;
+  icmpMs: number | null;
+  openPorts: number[];
+  adopted: boolean;
+  /** Linked infra/db instance if already monitored. */
+  monitored: boolean;
+};
+
 export async function getHostDetail(host: string): Promise<{
   inventory: HostInventoryRow | null;
   sensors: HostSensorRow[];
   sparks: { cpu: number[]; mem: number[]; disk: number[] };
+  traps: HostTrapRow[];
 }> {
   const all = await listHostInventory();
   const inventory = all.find((r) => r.host === host) ?? null;
-  if (!inventory) return { inventory: null, sensors: [], sparks: { cpu: [], mem: [], disk: [] } };
+  if (!inventory) {
+    return { inventory: null, sensors: [], sparks: { cpu: [], mem: [], disk: [] }, traps: [] };
+  }
 
   const sensorRows = await query<Record<string, unknown>>(
     `with latest as (
@@ -207,5 +232,92 @@ export async function getHostDetail(host: string): Promise<{
     if (m === 'host_disk_used_pct') sparks.disk.push(v);
   }
 
-  return { inventory, sensors: [...byKey.values()], sparks };
+  const trapRows = await query<Record<string, unknown>>(
+    `select trap_id, received_at, source_address, source_port, community, oid, varbinds
+       from buho.snmp_traps
+      where source_address = $1
+         or source_address = host($1::inet)
+      order by received_at desc
+      limit 50`,
+    [host],
+  ).catch(async () => {
+    // host() cast fails for hostnames — fall back to text match only.
+    return query<Record<string, unknown>>(
+      `select trap_id, received_at, source_address, source_port, community, oid, varbinds
+         from buho.snmp_traps
+        where source_address = $1
+        order by received_at desc
+        limit 50`,
+      [host],
+    );
+  });
+
+  const traps: HostTrapRow[] = trapRows.map((row) => ({
+    trapId: Number(row['trap_id']),
+    receivedAt: row['received_at'] as Date,
+    sourceAddress: String(row['source_address']),
+    sourcePort: Number(row['source_port'] ?? 0),
+    community: row['community'] == null ? null : String(row['community']),
+    oid: row['oid'] == null ? null : String(row['oid']),
+    varbinds: row['varbinds'],
+  }));
+
+  return { inventory, sensors: [...byKey.values()], sparks, traps };
+}
+
+export async function listInfraDiscovery(): Promise<DiscoveryRow[]> {
+  const rows = await query<Record<string, unknown>>(
+    `select d.discovery_id, d.scanned_at, d.host, d.icmp_ok, d.icmp_ms, d.open_ports, d.adopted,
+            exists(
+              select 1 from buho.instances i
+               where i.host = d.host
+            ) as monitored
+       from buho.infra_discovery d
+      order by d.scanned_at desc, d.host
+      limit 500`,
+  );
+  return rows.map((row) => ({
+    discoveryId: Number(row['discovery_id']),
+    scannedAt: row['scanned_at'] as Date,
+    host: String(row['host']),
+    icmpOk: Boolean(row['icmp_ok']),
+    icmpMs: row['icmp_ms'] == null ? null : Number(row['icmp_ms']),
+    openPorts: Array.isArray(row['open_ports'])
+      ? (row['open_ports'] as number[]).map(Number)
+      : [],
+    adopted: Boolean(row['adopted']),
+    monitored: Boolean(row['monitored']),
+  }));
+}
+
+export async function listHostsForMap(): Promise<
+  Array<HostInventoryRow & { x: number; y: number }>
+> {
+  const rows = await listHostInventory();
+  // Deterministic layout: circle by role ring.
+  const byRole = {
+    infra: rows.filter((r) => r.roles.includes('infra')),
+    database: rows.filter((r) => r.roles.includes('database') && !r.roles.includes('infra')),
+    probe: rows.filter(
+      (r) => r.roles.includes('probe') && !r.roles.includes('infra') && !r.roles.includes('database'),
+    ),
+    other: rows.filter((r) => r.roles.length === 0),
+  };
+  const placed: Array<HostInventoryRow & { x: number; y: number }> = [];
+  const placeRing = (list: HostInventoryRow[], radius: number) => {
+    const n = Math.max(list.length, 1);
+    list.forEach((row, i) => {
+      const angle = (2 * Math.PI * i) / n - Math.PI / 2;
+      placed.push({
+        ...row,
+        x: 50 + radius * Math.cos(angle),
+        y: 50 + radius * Math.sin(angle),
+      });
+    });
+  };
+  placeRing(byRole.infra, 18);
+  placeRing(byRole.database, 32);
+  placeRing(byRole.probe, 42);
+  placeRing(byRole.other, 48);
+  return placed;
 }

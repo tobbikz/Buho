@@ -495,9 +495,15 @@ DB engine scrape stays on `/observability/logs`. Probe kinds: HTTP · TCP · ICM
 UI: Observability → **Hosts** → drill-down `/observability/hosts/<host>`.
 
 ```bash
-npm run lab:infra:snmp    # fake SNMP agents UDP 1161/1162 — leave running
-npm run lab:infra:seed    # probe lab devices → metric_samples
+npm run lab:infra:snmp      # fake SNMP agents UDP 1161/1162 — leave running
+npm run lab:infra:seed      # probe lab devices → metric_samples
+npm run lab:infra:discover  # CIDR/host scan → buho.infra_discovery
+npm run lab:infra:trap      # inject SNMP trap row (+ UDP if listener up)
 npm run test:sensors
 ```
 
 Lab config fragment: `lab/infra/config.infra.lab.json` (merge into `instances[]` for continuous collector scrape).
+
+P2 sensors: `process` (Linux ps/SSH) · `winrm` (SSH+PowerShell or pwsh WinRM).  
+Collector optional: `"infraTraps": { "enabled": true, "port": 1162 }` · `"infraDiscovery": { "enabled": true, "hosts": ["127.0.0.1"] }`.  
+UI: Hosts map `/observability/hosts/map` · traps on host drill-down.

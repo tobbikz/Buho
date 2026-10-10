@@ -81,9 +81,11 @@ import {
 } from '@buho/core';
 import type { Capabilities, EngineClient, InstanceConfig, Tier } from '@buho/core';
 import {
+  discoverHosts,
   enrichSnmpBandwidth,
   probeTarget,
   sensorSamplesToBuho,
+  startTrapListener,
   type Sample as SensorSample,
   type SampleHistory,
   type SensorConfig,
@@ -1356,4 +1358,53 @@ startLoop('targets', 30_000, async () => {
 });
 
 await ensureMonitors();
+
+// SNMP trap receiver (PRTG P2) — default off unless infraTraps.enabled.
+const trapsCfg = config.infraTraps;
+if (trapsCfg?.enabled !== false && (trapsCfg?.port || process.env['BUHO_INFRA_TRAPS_PORT'])) {
+  const port = Number(process.env['BUHO_INFRA_TRAPS_PORT'] ?? trapsCfg?.port ?? 1162);
+  try {
+    await startTrapListener({
+      port,
+      address: trapsCfg?.address ?? '0.0.0.0',
+      communities: trapsCfg?.communities ?? ['public'],
+      onTrap: async (ev) => {
+        const id = await store.insertSnmpTrap({
+          receivedAt: ev.receivedAt,
+          sourceAddress: ev.sourceAddress,
+          sourcePort: ev.sourcePort,
+          community: ev.community,
+          pduType: ev.pduType,
+          oid: ev.oid,
+          varbinds: ev.varbinds,
+          raw: ev.raw,
+        });
+        log('info', `infra/traps: #${id} from ${ev.sourceAddress}:${ev.sourcePort} oid=${ev.oid ?? '—'}`);
+      },
+      onError: (err) => log('warn', `infra/traps: ${err.message}`),
+    });
+    log('info', `infra/traps: listening UDP ${port}`);
+  } catch (err) {
+    log(
+      'warn',
+      `infra/traps: failed to bind :${port} — ${err instanceof Error ? err.message : err}`,
+    );
+  }
+}
+
+// Auto-discovery scan (PRTG P2).
+const discCfg = config.infraDiscovery;
+if (discCfg?.enabled && (discCfg.cidr || (discCfg.hosts && discCfg.hosts.length > 0))) {
+  const intervalMs = Math.max(5, discCfg.intervalMinutes ?? 60) * 60_000;
+  startLoop('infra/discovery', intervalMs, async () => {
+    const hits = await discoverHosts({
+      hosts: discCfg.hosts,
+      cidr: discCfg.cidr,
+      ports: discCfg.ports,
+      timeoutMs: discCfg.timeoutMs ?? 1500,
+    });
+    const n = await store.upsertInfraDiscovery(hits);
+    log('info', `infra/discovery: ${hits.length} hits upserted (${n})`);
+  });
+}
 

@@ -12,6 +12,7 @@
         "role": "server",
         "sensors": [
           { "type": "host", "id": "os" },
+          { "type": "process", "id": "node-procs", "match": "node", "minCount": 1 },
           { "type": "icmp", "id": "ping", "count": 2, "timeoutMs": 1500 },
           { "type": "dns", "id": "resolve", "name": "example.com", "recordType": "A", "server": "1.1.1.1" },
           { "type": "http", "id": "example", "url": "https://example.com/", "expectStatus": [200], "timeoutMs": 10000 },

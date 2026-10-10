@@ -6,7 +6,9 @@ ADR: `buho-infra-prtg-sensors-2026-10-10`
 
 ## Types
 
-`host` · `icmp` · `tcp` · `udp` · `http` · `tls_cert` · `dns` · `snmp`
+`host` · `icmp` · `tcp` · `udp` · `http` · `tls_cert` · `dns` · `snmp` · `process` · `winrm`
+
+P2 helpers: `discoverHosts()` · `startTrapListener()`
 
 ## Usage
 

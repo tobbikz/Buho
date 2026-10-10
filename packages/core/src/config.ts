@@ -26,10 +26,32 @@ export interface CollectorConfig {
   retention: RetentionConfig;
 }
 
+export interface InfraTrapsConfig {
+  /** UDP listen port (default 1162 lab / non-root). */
+  port?: number;
+  address?: string;
+  communities?: string[];
+  enabled?: boolean;
+}
+
+export interface InfraDiscoveryConfig {
+  enabled?: boolean;
+  /** Interval minutes between scans (default 60). */
+  intervalMinutes?: number;
+  hosts?: string[];
+  cidr?: string;
+  ports?: number[];
+  timeoutMs?: number;
+}
+
 export interface BuhoConfig {
   store: { url: string };
   collector: CollectorConfig;
   instances: InstanceConfig[];
+  /** SNMP trap receiver (PRTG P2). */
+  infraTraps?: InfraTrapsConfig;
+  /** Auto-discovery scan (PRTG P2). */
+  infraDiscovery?: InfraDiscoveryConfig;
 }
 
 const DEFAULT_COLLECTOR: CollectorConfig = {
@@ -120,6 +142,8 @@ export async function loadConfig(path = process.env['BUHO_CONFIG'] ?? 'config.js
       retention: { ...DEFAULT_COLLECTOR.retention, ...parsed.collector?.retention },
     },
     instances,
+    infraTraps: parsed.infraTraps,
+    infraDiscovery: parsed.infraDiscovery,
   };
 }
 

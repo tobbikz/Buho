@@ -43,6 +43,9 @@ export default async function ObservabilityHostsPage() {
         sub="Fleet + device sensors (PRTG-class) · not Elastic Agent"
         actions={
           <>
+            <Link className="btn" href="/observability/hosts/map">
+              Map + discovery
+            </Link>
             <Link className="btn" href="/observability/services">
               Services
             </Link>

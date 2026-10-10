@@ -1754,3 +1754,36 @@ alter table buho.monitor_targets drop constraint if exists monitor_targets_engin
 alter table buho.monitor_targets
   add constraint monitor_targets_engine_check
   check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint', 'infra'));
+
+-- SNMP traps (PRTG P2). ADR buho-infra-prtg-p2-2026-10-10
+create table if not exists buho.snmp_traps (
+  trap_id         bigint generated always as identity primary key,
+  received_at     timestamptz not null default now(),
+  source_address  text        not null,
+  source_port     integer     not null default 0,
+  community       text,
+  pdu_type        text,
+  oid             text,
+  varbinds        jsonb       not null default '[]'::jsonb,
+  raw             jsonb       not null default '{}'::jsonb
+);
+
+create index if not exists snmp_traps_received_idx
+  on buho.snmp_traps (received_at desc);
+create index if not exists snmp_traps_source_idx
+  on buho.snmp_traps (source_address, received_at desc);
+
+-- Infra auto-discovery suggestions (CIDR / host scan).
+create table if not exists buho.infra_discovery (
+  discovery_id    bigint generated always as identity primary key,
+  scanned_at      timestamptz not null default now(),
+  host            text        not null,
+  icmp_ok         boolean     not null default false,
+  icmp_ms         double precision,
+  open_ports      integer[]   not null default '{}',
+  adopted         boolean     not null default false,
+  unique (host)
+);
+
+create index if not exists infra_discovery_scanned_idx
+  on buho.infra_discovery (scanned_at desc);
