@@ -1,0 +1,14 @@
+{
+  "name": "@buho/backup-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Buho backup storage agent — drains queued backup_jobs to local/S3/NFS artifacts.",
+  "scripts": {
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@buho/core": "*",
+    "@buho/store": "*"
+  }
+}

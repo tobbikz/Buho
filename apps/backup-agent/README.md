@@ -1,8 +1,30 @@
-# Buho backup agent (Deep Platform W5 phase 3)
+# `@buho/backup-agent`
 
-Placeholder for the Buho-managed backup **storage** agent.
+Storage agent for Deep Platform **W5**. Drains `buho.backup_jobs` with `status=queued`, writes artifacts under a local path, and registers `buho.backup_artifacts`.
 
-- Monitor + restore-drill catalog already live in the store (`backup_jobs`, `backup_artifacts`, `restore_drills`).
-- This agent will pull job rows with `status=queued`, write dumps to `backup.storage` targets (local/S3/NFS), and register artifacts.
+## Run
 
-Not started as a long-running binary in this cut — wire `InstanceConfig.backup.storage.enabled` when shipping M3.
+```bash
+# Enable storage on an instance in BUHO_CONFIG:
+#   "backup": { "storage": { "enabled": true, "target": "local", "path": "./data/backups" } }
+
+BUHO_STORE_URL=postgres://buho:buho@127.0.0.1:55432/buho \
+BUHO_CONFIG=config.lab-core.json \
+BUHO_BACKUP_ONCE=1 \
+npm run backup-agent
+```
+
+Long-running (poll every 15s):
+
+```bash
+npm run backup-agent
+```
+
+## Behaviour
+
+1. For each config instance with `backup.storage.enabled` and no recent `logical` job (~12h), enqueue one.
+2. Claim queued jobs (`FOR UPDATE SKIP LOCKED`).
+3. Write `data/backups/<alias>/logical/<jobId>/manifest.json` (sha256 recorded).
+4. Mark job `done` / `failed`.
+
+`s3` / `nfs` targets are rejected cleanly until wired. Engine-native dumps (`pg_dump`, etc.) can attach beside the manifest later.

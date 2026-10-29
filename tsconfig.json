@@ -8,6 +8,7 @@
     "packages/*/src/**/*.ts",
     "apps/collector/src/**/*.ts",
     "apps/cli/src/**/*.ts",
-    "apps/mcp/src/**/*.ts"
+    "apps/mcp/src/**/*.ts",
+    "apps/backup-agent/src/**/*.ts"
   ]
 }

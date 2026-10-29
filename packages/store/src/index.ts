@@ -3267,6 +3267,119 @@ export class Store {
     }));
   }
 
+  async enqueueBackupJob(row: {
+    instanceId: number;
+    kind: string;
+    config?: Record<string, unknown>;
+  }): Promise<number> {
+    const r = await this.pool.query<{ job_id: string }>(
+      `insert into buho.backup_jobs (instance_id, kind, status, config)
+       values ($1, $2, 'queued', $3::jsonb)
+       returning job_id::text`,
+      [row.instanceId, row.kind, JSON.stringify(row.config ?? {})],
+    );
+    return Number(r.rows[0]!.job_id);
+  }
+
+  /** Claim queued jobs for the storage agent (SKIP LOCKED). */
+  async claimQueuedBackupJobs(limit = 5): Promise<
+    Array<{
+      jobId: number;
+      instanceId: number;
+      alias: string;
+      engine: string;
+      kind: string;
+      config: Record<string, unknown>;
+    }>
+  > {
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      const claimed = await client.query<{
+        job_id: string;
+        instance_id: string;
+        kind: string;
+        config: Record<string, unknown>;
+      }>(
+        `with cte as (
+           select j.job_id
+             from buho.backup_jobs j
+            where j.status = 'queued'
+            order by j.job_id
+            for update of j skip locked
+            limit $1
+         )
+         update buho.backup_jobs j
+            set status = 'running',
+                started_at = coalesce(j.started_at, now()),
+                message = 'claimed by backup-agent'
+           from cte
+          where j.job_id = cte.job_id
+         returning j.job_id::text, j.instance_id::text, j.kind, coalesce(j.config, '{}'::jsonb) as config`,
+        [limit],
+      );
+      const out: Array<{
+        jobId: number;
+        instanceId: number;
+        alias: string;
+        engine: string;
+        kind: string;
+        config: Record<string, unknown>;
+      }> = [];
+      for (const row of claimed.rows) {
+        const meta = await client.query<{ alias: string; engine: string }>(
+          `select alias, engine from buho.instances where instance_id = $1`,
+          [Number(row.instance_id)],
+        );
+        out.push({
+          jobId: Number(row.job_id),
+          instanceId: Number(row.instance_id),
+          alias: meta.rows[0]?.alias ?? 'unknown',
+          engine: meta.rows[0]?.engine ?? 'postgres',
+          kind: row.kind,
+          config: (row.config ?? {}) as Record<string, unknown>,
+        });
+      }
+      await client.query('commit');
+      return out;
+    } catch (error) {
+      await client.query('rollback').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async finishBackupJob(row: {
+    jobId: number;
+    status: 'done' | 'failed';
+    message: string;
+  }): Promise<void> {
+    await this.pool.query(
+      `update buho.backup_jobs
+          set status = $2, finished_at = now(), message = $3
+        where job_id = $1`,
+      [row.jobId, row.status, row.message],
+    );
+  }
+
+  async countRecentBackupJobs(
+    instanceId: number,
+    kind: string,
+    withinHours: number,
+  ): Promise<number> {
+    const r = await this.pool.query<{ n: string }>(
+      `select count(*)::text as n
+         from buho.backup_jobs
+        where instance_id = $1
+          and kind = $2
+          and status in ('queued', 'running', 'done')
+          and coalesce(finished_at, started_at, now()) > now() - ($3 || ' hours')::interval`,
+      [instanceId, kind, withinHours],
+    );
+    return Number(r.rows[0]?.n ?? 0);
+  }
+
   async listComplianceRuns(
     instanceId: number,
     pack: string,

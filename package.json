@@ -43,7 +43,8 @@
     "lab:infra:seed": "tsx scripts/seed-infra-lab.ts",
     "lab:infra:discover": "tsx scripts/infra-discover.ts",
     "lab:infra:trap": "tsx scripts/inject-snmp-trap.ts",
-    "mcp": "tsx apps/mcp/src/main.ts"
+    "mcp": "tsx apps/mcp/src/main.ts",
+    "backup-agent": "tsx apps/backup-agent/src/main.ts"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",

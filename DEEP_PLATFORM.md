@@ -183,8 +183,8 @@ Use a dedicated action DB role — see `sql/monitor-user-notes-deep-platform.sql
 | W2 Airflow | Collectors + checks + UI + pause action |
 | W3 DPA depth | wait_class **% time** + timeline; dense bursts; auto-plans PG/Maria/MSSQL + regression; Blame: waits→SQL→plan, **Ops playbook** (`lock_waits`, `plan_regression`, `vacuum_risk`, `rpo`), blocking chain (+ cancel/kill), plan history, IndexAdvisorLite, vacuum risk (PG); Queries: **PlanFingerprintDiff**; MCP DPA reads: `buho_wait_blame`, `buho_plan_fingerprints`, `buho_lock_episodes`; MSSQL missing-index DMV; `scripts/dpa-lab-smoke.ts` |
 | W4 Actions | `runAction` + `/api/actions` + `action_audit` |
-| W5 Backups | RPO + logical/physical restore drills + `backup_jobs` / artifacts; MCP `buho_backup_status` (storage agent still placeholder) |
-| W6 Compliance | CIS PG/MSSQL packs + API + UI |
+| W5 Backups | RPO + logical/physical restore drills + `backup_jobs` / artifacts; **storage agent** `npm run backup-agent` (local manifest); MCP `buho_backup_status` |
+| W6 Compliance | CIS PG/MSSQL packs (expanded controls) + API + UI with per-control detail / re-run |
 | W7 DataHub | Platform + dataset ingest; `lineage_sync_state` with URN; MCP `buho_lineage_status` |
 | Advisors / baselines | `suggestIndexes` on EXPLAIN **and estimate/generic auto-plans** (`recordAutoPlan`); anomaly loop vs `metric_baselines` p90 |
 
