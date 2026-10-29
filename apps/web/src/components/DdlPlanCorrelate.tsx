@@ -41,7 +41,8 @@ async function listDdlNear(
 ): Promise<DdlRow[]> {
   try {
     return await query<DdlRow>(
-      `select at, command_tag, object_name, left(sql_text, 240) as sql_text
+      `select at, command_tag, coalesce(object_name, '') as object_name,
+              left(coalesce(sql, ''), 240) as sql_text
          from buho.ddl_events
         where instance_id = $1
           and at >= $2
