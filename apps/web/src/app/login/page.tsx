@@ -46,7 +46,7 @@ async function enter(formData: FormData) {
   if (accounts === 0) {
     await new Promise((resolve) => setTimeout(resolve, 500));
     if (!sharedPasswordMatches(candidate)) fail();
-    session = await issueSession('contraseña-compartida', 'admin');
+    session = await issueSession('shared-password', 'admin');
   } else {
     const user = username ? await findUser(username) : null;
     // Se hace la espera igual exista o no la cuenta: si sólo se demorara con
@@ -85,13 +85,13 @@ export default async function LoginPage({
       <div className="mx-auto max-w-[46rem] p-8">
         <h1 className="text-[18px] font-semibold">Console without authentication</h1>
         <p className="mt-2 text-[13px] text-foreground-secondary">
-          The console will not start in production without authentication: anyone who can reach the port would see the state of
-          every instance, including query text.
+          The console will not start in production without authentication: anyone who can reach the port would see
+          the state of every instance, including query text.
         </p>
         <pre className="mt-4 border border-border bg-surface-muted p-3 font-mono text-[11.5px]">
-          {`# docker compose o systemd
-BUHO_AUTH_SECRET='una-cadena-larga-generada'   # signs sessions
-BUHO_AUTH_PASSWORD='otra-cadena-larga'         # signs in as admin while no accounts exist
+          {`# docker compose or systemd
+BUHO_AUTH_SECRET='a-long-generated-string'   # signs sessions
+BUHO_AUTH_PASSWORD='another-long-string'     # signs in as admin while no accounts exist
 # optional, if the console serves HTTPS directly
 BUHO_AUTH_COOKIE_SECURE=true`}
         </pre>

@@ -154,9 +154,9 @@ function ForeignQueriesNotice({ engine, instanceId }: { engine: string; instance
         ) : (
           <>
             <p>
-              Las consultas salen de <span className="font-mono">sys.dm_exec_query_stats</span>, que vive en la caché
-              de planes: se vacía al reiniciar el servicio, al recompilar un plan y bajo presión de memoria. Con
-              tráfico, las filas aparecen en el primer ciclo de un minuto.
+              Statements come from <span className="font-mono">sys.dm_exec_query_stats</span>, which lives in the plan
+              cache: it clears on service restart, plan recompile, and memory pressure. With traffic, rows show up
+              within the first one-minute cycle.
             </p>
             <p className="mt-2">
               If it must survive a restart, turn on Query Store in the database:{' '}

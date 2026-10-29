@@ -567,7 +567,7 @@ export default async function QueryPlanPage({
         {history.length > 1 ? (
           <section className="panel">
             <div className="panel-header">
-              <span className="panel-title">Planes anteriores</span>
+              <span className="panel-title">Previous plans</span>
               <span className="text-[11px] text-foreground-muted">
                 shows whether the query plan changed
               </span>

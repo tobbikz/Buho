@@ -137,18 +137,18 @@ export default async function UsersPage({
             <span className="tag tag--warn">no accounts</span>
           </div>
           <div className="panel-body text-[12px] text-foreground-secondary">
-            Mientras no exista ninguna cuenta, quien sepa <span className="font-mono">BUHO_AUTH_PASSWORD</span> entra
-            como administrador y no hay forma de saber who hizo cada cambio. Al crear la primera cuenta esa
-            contraseña deja de funcionar: si siguiera valiendo sería una puerta trasera permanente que ignora los
-            roles. Also set <span className="font-mono">BUHO_AUTH_SECRET</span> so changing passwords does not
-            cierre todas las sessions.
+            While no accounts exist, anyone who knows <span className="font-mono">BUHO_AUTH_PASSWORD</span> signs in
+            as administrator and there is no per-user audit trail. Creating the first account disables that shared
+            password — otherwise it would be a permanent back door that ignores roles. Also set{' '}
+            <span className="font-mono">BUHO_AUTH_SECRET</span> so rotating passwords does not invalidate every
+            session.
           </div>
         </section>
       ) : null}
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Crear cuenta</span>
+          <span className="panel-title">Create account</span>
         </div>
         <form action={create} className="panel-body flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1">
@@ -171,7 +171,7 @@ export default async function UsersPage({
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Rol</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Role</span>
             <select
               name="role"
               defaultValue="viewer"
@@ -186,8 +186,8 @@ export default async function UsersPage({
           </button>
           {error ? <p className="w-full text-[12px] text-error">{decodeURIComponent(error)}</p> : null}
           <p className="w-full text-[11.5px] text-foreground-muted">
-            Mínimo {MIN_PASSWORD} caracteres. Se guarda con scrypt y sal por cuenta; Búho never almacena la
-            plaintext password and cannot recover it, only replace it.
+            Minimum {MIN_PASSWORD} characters. Stored with scrypt and a per-account salt; Búho never keeps the
+            plaintext password and cannot recover it — only replace it.
           </p>
         </form>
       </section>
@@ -203,12 +203,12 @@ export default async function UsersPage({
             <thead>
               <tr>
                 <th>Username</th>
-                <th>Rol</th>
+                <th>Role</th>
                 <th>State</th>
-                <th>Creada</th>
-                <th>Por</th>
+                <th>Created</th>
+                <th>By</th>
                 <th>Last sign-in</th>
-                <th>Acciones</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -229,15 +229,15 @@ export default async function UsersPage({
                         <option value="admin">admin</option>
                       </select>
                       <button type="submit" className="btn">
-                        Cambiar
+                        Change
                       </button>
                     </form>
                   </td>
                   <td>
                     {user.disabled ? (
-                      <span className="tag tag--muted">deshabilitada</span>
+                      <span className="tag tag--muted">disabled</span>
                     ) : (
-                      <span className="tag tag--ok">activa</span>
+                      <span className="tag tag--ok">active</span>
                     )}
                   </td>
                   <td>{formatAgo(user.createdAt)}</td>
@@ -257,7 +257,7 @@ export default async function UsersPage({
                           className="w-[9.5rem] border border-border bg-surface px-1.5 py-0.5 text-[11px] outline-none focus:border-accent"
                         />
                         <button type="submit" className="btn">
-                          Cambiar
+                          Change
                         </button>
                       </form>
                       <form action={update}>
@@ -269,7 +269,7 @@ export default async function UsersPage({
                           value={user.disabled ? 'habilitar' : 'deshabilitar'}
                         />
                         <button type="submit" className="btn">
-                          {user.disabled ? 'Habilitar' : 'Deshabilitar'}
+                          {user.disabled ? 'Enable' : 'Disable'}
                         </button>
                       </form>
                       <form action={update}>
@@ -277,7 +277,7 @@ export default async function UsersPage({
                         <input type="hidden" name="username" value={user.username} />
                         <input type="hidden" name="action" value="borrar" />
                         <button type="submit" className="btn">
-                          Borrar
+                          Delete
                         </button>
                       </form>
                     </div>
@@ -319,9 +319,8 @@ export default async function UsersPage({
           </tbody>
         </table>
         <div className="panel-body text-[11.5px] text-foreground-muted">
-          Un viewer ve todo lo que Búho monitorea, incluidos textos de consultas y findings de seguridad. La división
-          es entre mirar y cambiar, no entre qué instancias ve cada quien; si hace falta eso último, se puede construir
-          sobre las etiquetas.
+          A viewer can see everything Búho monitors, including query text and security findings. The split is between
+          read and change — not which instances each person sees; if you need that later, build it on top of tags.
         </div>
       </section>
     </div>
