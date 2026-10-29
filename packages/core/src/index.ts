@@ -159,6 +159,7 @@ export {
   sampleMssqlIndexes,
   sampleMssqlMaintenance,
   sampleMssqlMissingIndexes,
+  rewriteMariadbPlaceholders,
   runMariadbExplain,
   runMssqlExplain,
   runOracleExplain,

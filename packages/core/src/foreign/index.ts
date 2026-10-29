@@ -46,6 +46,7 @@ export {
   MariadbSlowEventTracker,
   sampleMariadbSlowEvents,
   sampleMariadbIndexes,
+  rewriteMariadbPlaceholders,
   runMariadbExplain,
 } from './mariadb-depth';
 export { sampleOracleIndexes } from './oracle-depth';

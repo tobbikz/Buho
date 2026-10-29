@@ -527,15 +527,23 @@ export interface ExplainOptions {
  * Repara el texto normalizado de `pg_stat_statements` para que GENERIC_PLAN
  * (y el parser) lo acepten.
  *
- * `interval '1 second'` se normaliza a `interval $1`, que es sintaxis inválida.
- * Lo mismo pasa con timestamp/date/time/timestamptz. El cast `$1::interval` sí
- * es válido y es lo que el planificador genérico espera.
+ * - `interval $1` / `timestamp $1` → `$1::interval` (typed constructor)
+ * - `extract($1 from …)` → `extract(epoch from …)` (field must be an identifier;
+ *   epoch is the monitoring default and the common pg_stat_statements shape)
+ * - `$1 * $2` → `$1::numeric * $2::numeric` (avoids "operator is not unique:
+ *   unknown * unknown")
  */
 export function rewriteNormalizedPlaceholders(sql: string): string {
-  return sql.replace(
+  let out = sql.replace(
     /\b(interval|timestamptz|timestamp|timetz|time|date)\s+(\$\d+)\b/gi,
     (_match, type: string, placeholder: string) => `${placeholder}::${type}`,
   );
+  out = out.replace(/\bextract\s*\(\s*\$\d+\s+from\b/gi, 'extract(epoch from');
+  out = out.replace(/\bdate_part\s*\(\s*\$\d+\s*,/gi, "date_part('epoch',");
+  // Untyped params on either side of * or / → numeric
+  out = out.replace(/\$(\d+)(?!\s*::)(?=\s*[*/])/g, (_m, n: string) => `$${n}::numeric`);
+  out = out.replace(/([*/])\s*\$(\d+)(?!\s*::)/g, (_m, op: string, n: string) => `${op} $${n}::numeric`);
+  return out;
 }
 
 /**

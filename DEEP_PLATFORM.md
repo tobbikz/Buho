@@ -178,5 +178,6 @@ Use a dedicated action DB role — see `sql/monitor-user-notes-deep-platform.sql
 ### DPA deep (collector)
 
 - **Dense waits**: when blocked sessions or query >5s, collector takes 5 extra snapshots ~2s apart (PG + foreign engines).
-- **Auto-plans**: top statements → EXPLAIN estimate/generic (PG), EXPLAIN JSON (Maria), cached plan XML (MSSQL `dm_exec_query_plan`); fingerprints + optional `plan_requests` rows for the advisor.
+- **Auto-plans**: top statements → EXPLAIN estimate/generic (PG: `rewriteNormalizedPlaceholders` also fixes `extract($n from)`→epoch and `$n*$m`→numeric; skip `/* buho */`), EXPLAIN JSON (Maria: digest `?`→NULL via `rewriteMariadbPlaceholders`, skip `...`/truncated mid-clause), cached plan XML (MSSQL `dm_exec_query_plan`); fingerprints + optional `plan_requests` rows for the advisor.
+- **MSSQL lab QDS**: `npx tsx scripts/mssql-lab-enable-qds.ts` creates `buho_lab` with Query Store ON (`database_id > 4`). Smoke: `BUHO_CONFIG=config.lab-core.json npx tsx scripts/dpa-deep-smoke.ts`.
 - **MSSQL**: no `SET SHOWPLAN` on shared pools — cache XML only, shape fingerprint fallback.

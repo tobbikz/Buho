@@ -455,6 +455,20 @@ function startRestoreDrillLoop(
 
 const AUTO_PLAN_INTERVAL_MS = 5 * 60_000;
 
+/** Reject digest text that is truncated mid-clause (parens / trailing join glue). */
+function looksExplainableSql(sql: string): boolean {
+  const s = sql.trim().replace(/;\s*$/, '');
+  if (s.length < 12) return false;
+  let depth = 0;
+  for (const ch of s) {
+    if (ch === '(') depth += 1;
+    else if (ch === ')') depth -= 1;
+    if (depth < 0) return false;
+  }
+  if (depth !== 0) return false;
+  return !/\b(on|from|where|and|or|join|set|by|select|values|when|then|else|as)\s*$/i.test(s) && !/,\s*$/.test(s);
+}
+
 /**
  * DPA-style auto plan capture: top statements by exec_ms → EXPLAIN estimate →
  * fingerprint. Emits `plan_regression` when the shape changes vs the prior capture.
@@ -489,6 +503,12 @@ function startAutoPlanLoop(
       const kind = statementKind(cand.query);
       if (kind === 'utilitaria') continue;
       if (!isReadOnly(cand.query) && kind !== 'escritura') continue;
+      // Collector self-SQL — not useful for DPA blame of the workload.
+      if (/\/\*\s*buho\s*\*\//i.test(cand.query)) continue;
+      // Maria/MySQL digests collapse IN-lists to `...` — not EXPLAIN-able.
+      if (engine === 'mariadb' && /\.\.\./.test(cand.query)) continue;
+      // Digests sometimes omit truncated=true but end mid-clause.
+      if ((engine === 'mariadb' || engine === 'postgres') && !looksExplainableSql(cand.query)) continue;
 
       try {
         const previous = await store.latestPlanFingerprint(instanceId, cand.queryid);
@@ -516,6 +536,7 @@ function startAutoPlanLoop(
             analyze: false,
             timeoutMs: 15_000,
           });
+          mode = report.mode === 'generic' ? 'generic' : 'estimate';
           fingerprint = fingerprintPlan(report.root);
           planText = report.text || fingerprintPlanText(JSON.stringify(report.raw ?? {}));
           totalCost = report.totalCost;

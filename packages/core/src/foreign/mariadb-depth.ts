@@ -457,6 +457,54 @@ function mariadbFindings(root: PlanNode): PlanFinding[] {
 }
 
 /**
+ * performance_schema digests replace literals with `?`. MariaDB EXPLAIN rejects
+ * those tokens (unlike PG GENERIC_PLAN). Rewrite to parseable estimate SQL:
+ * LIMIT/OFFSET get 1/0; remaining `?` → NULL. Skips `?` inside quotes/backticks.
+ */
+export function rewriteMariadbPlaceholders(sql: string): string {
+  let out = '';
+  let i = 0;
+  let quote: "'" | '"' | '`' | null = null;
+  while (i < sql.length) {
+    const ch = sql[i]!;
+    if (quote) {
+      out += ch;
+      if (ch === '\\' && quote !== '`') {
+        i += 1;
+        if (i < sql.length) out += sql[i]!;
+      } else if (ch === quote) {
+        // Maria '' / "" escape inside strings
+        if ((quote === "'" || quote === '"') && sql[i + 1] === quote) {
+          out += sql[i + 1]!;
+          i += 1;
+        } else {
+          quote = null;
+        }
+      }
+      i += 1;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') {
+      quote = ch;
+      out += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === '?') {
+      out += 'NULL';
+      i += 1;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  // LIMIT/OFFSET NULL is invalid — force small integers after the NULL pass.
+  return out
+    .replace(/\bLIMIT\s+NULL\b/gi, 'LIMIT 1')
+    .replace(/\bOFFSET\s+NULL\b/gi, 'OFFSET 0');
+}
+
+/**
  * MariaDB EXPLAIN lite — FORMAT=JSON tree + text. ANALYZE runs the statement
  * (admin-only in the UI); estimate is plan-only.
  */
@@ -472,7 +520,18 @@ export async function runMariadbExplain(
     );
   }
 
-  const clean = sql.replace(/;\s*$/, '').trim();
+  if (analyze && sql.includes('?')) {
+    throw new Error(
+      'ANALYZE needs concrete literals. Estimated EXPLAIN rewrites digest `?` to NULL.',
+    );
+  }
+
+  let clean = sql.replace(/;\s*$/, '').trim();
+  let mode: PlanReport['mode'] = analyze ? 'analyze' : 'estimate';
+  if (!analyze && clean.includes('?')) {
+    clean = rewriteMariadbPlaceholders(clean);
+    mode = 'generic';
+  }
   const prefix = analyze ? 'ANALYZE FORMAT=JSON' : 'EXPLAIN FORMAT=JSON';
   const textPrefix = analyze ? 'ANALYZE' : 'EXPLAIN';
 
@@ -505,7 +564,7 @@ export async function runMariadbExplain(
     .join('\n');
 
   return {
-    mode: analyze ? 'analyze' : 'estimate',
+    mode,
     planningMs: null,
     executionMs: null,
     totalCost: root.totalCost,
