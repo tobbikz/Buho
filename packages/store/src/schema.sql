@@ -494,7 +494,11 @@ alter table buho.instances
 alter table buho.instances drop constraint if exists instances_engine_check;
 alter table buho.instances
   add constraint instances_engine_check
-  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint', 'infra'));
+  check (engine in (
+    'postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle',
+    'cassandra', 'elasticsearch', 'endpoint', 'infra',
+    'kafka', 'airflow', 'cdc'
+  ));
 
 create table if not exists buho.engine_info (
   instance_id      bigint      primary key references buho.instances (instance_id) on delete cascade,
@@ -1134,7 +1138,11 @@ create table if not exists buho.suppressed_aliases (
 alter table buho.instances drop constraint if exists instances_engine_check;
 alter table buho.instances
   add constraint instances_engine_check
-  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint', 'infra'));
+  check (engine in (
+    'postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle',
+    'cassandra', 'elasticsearch', 'endpoint', 'infra',
+    'kafka', 'airflow', 'cdc'
+  ));
 
 -- --------------------------------------------------- registro de operaciones
 
@@ -1637,12 +1645,20 @@ on conflict (key) do update
 alter table buho.instances drop constraint if exists instances_engine_check;
 alter table buho.instances
   add constraint instances_engine_check
-  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint', 'infra'));
+  check (engine in (
+    'postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle',
+    'cassandra', 'elasticsearch', 'endpoint', 'infra',
+    'kafka', 'airflow', 'cdc'
+  ));
 
 alter table buho.monitor_targets drop constraint if exists monitor_targets_engine_check;
 alter table buho.monitor_targets
   add constraint monitor_targets_engine_check
-  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint', 'infra'));
+  check (engine in (
+    'postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle',
+    'cassandra', 'elasticsearch', 'endpoint', 'infra',
+    'kafka', 'airflow', 'cdc'
+  ));
 
 create table if not exists buho.otlp_spans (
   span_pk          bigint generated always as identity primary key,
@@ -1779,12 +1795,20 @@ create index if not exists security_cases_status_idx
 alter table buho.instances drop constraint if exists instances_engine_check;
 alter table buho.instances
   add constraint instances_engine_check
-  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint', 'infra'));
+  check (engine in (
+    'postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle',
+    'cassandra', 'elasticsearch', 'endpoint', 'infra',
+    'kafka', 'airflow', 'cdc'
+  ));
 
 alter table buho.monitor_targets drop constraint if exists monitor_targets_engine_check;
 alter table buho.monitor_targets
   add constraint monitor_targets_engine_check
-  check (engine in ('postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle', 'cassandra', 'elasticsearch', 'endpoint', 'infra'));
+  check (engine in (
+    'postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle',
+    'cassandra', 'elasticsearch', 'endpoint', 'infra',
+    'kafka', 'airflow', 'cdc'
+  ));
 
 -- SNMP traps (PRTG P2). ADR buho-infra-prtg-p2-2026-10-10
 create table if not exists buho.snmp_traps (
@@ -1818,3 +1842,125 @@ create table if not exists buho.infra_discovery (
 
 create index if not exists infra_discovery_scanned_idx
   on buho.infra_discovery (scanned_at desc);
+
+-- ------------------------------------- Deep Platform (Kafka/Airflow/Actions/Backup/Compliance/DPA)
+alter table buho.instances drop constraint if exists instances_engine_check;
+alter table buho.instances
+  add constraint instances_engine_check
+  check (engine in (
+    'postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle',
+    'cassandra', 'elasticsearch', 'endpoint', 'infra',
+    'kafka', 'airflow', 'cdc'
+  ));
+
+alter table buho.monitor_targets drop constraint if exists monitor_targets_engine_check;
+alter table buho.monitor_targets
+  add constraint monitor_targets_engine_check
+  check (engine in (
+    'postgres', 'mariadb', 'mssql', 'mongodb', 'redis', 'oracle',
+    'cassandra', 'elasticsearch', 'endpoint', 'infra',
+    'kafka', 'airflow', 'cdc'
+  ));
+
+-- DPA-style wait class rollup (derived from wait_samples)
+create table if not exists buho.wait_class_samples (
+  instance_id bigint      not null references buho.instances (instance_id) on delete cascade,
+  ts          timestamptz not null,
+  wait_class  text        not null,
+  sessions    integer     not null,
+  primary key (instance_id, ts, wait_class)
+);
+
+create index if not exists wait_class_samples_lookup
+  on buho.wait_class_samples (instance_id, ts desc);
+
+-- Plan fingerprint history (regress detection)
+create table if not exists buho.plan_fingerprints (
+  plan_fp_id   bigint generated always as identity primary key,
+  instance_id  bigint      not null references buho.instances (instance_id) on delete cascade,
+  queryid      bigint      not null,
+  fingerprint  text        not null,
+  plan_text    text,
+  total_cost   double precision,
+  captured_at  timestamptz not null default now()
+);
+
+create index if not exists plan_fingerprints_lookup
+  on buho.plan_fingerprints (instance_id, queryid, captured_at desc);
+
+-- Gated actions audit
+create table if not exists buho.action_audit (
+  action_id    bigint generated always as identity primary key,
+  instance_id  bigint,
+  alias        text,
+  kind         text        not null,
+  actor        text        not null,
+  reason       text        not null default '',
+  payload      jsonb       not null default '{}'::jsonb,
+  ok           boolean     not null,
+  message      text        not null default '',
+  created_at   timestamptz not null default now()
+);
+
+create index if not exists action_audit_created_idx
+  on buho.action_audit (created_at desc);
+
+-- Backup jobs / artifacts / restore drills
+create table if not exists buho.backup_jobs (
+  job_id       bigint generated always as identity primary key,
+  instance_id  bigint      not null references buho.instances (instance_id) on delete cascade,
+  kind         text        not null,
+  status       text        not null default 'queued',
+  started_at   timestamptz,
+  finished_at  timestamptz,
+  message      text,
+  config       jsonb       not null default '{}'::jsonb
+);
+
+create table if not exists buho.backup_artifacts (
+  artifact_id  bigint generated always as identity primary key,
+  instance_id  bigint      not null references buho.instances (instance_id) on delete cascade,
+  job_id       bigint      references buho.backup_jobs (job_id) on delete set null,
+  kind         text        not null,
+  target       text        not null,
+  path         text        not null,
+  size_bytes   bigint,
+  checksum     text,
+  created_at   timestamptz not null default now()
+);
+
+create table if not exists buho.restore_drills (
+  drill_id     bigint generated always as identity primary key,
+  instance_id  bigint      not null references buho.instances (instance_id) on delete cascade,
+  artifact_id  bigint      references buho.backup_artifacts (artifact_id) on delete set null,
+  ok           boolean     not null,
+  duration_ms  integer,
+  bytes        bigint,
+  message      text        not null default '',
+  ran_at       timestamptz not null default now()
+);
+
+create index if not exists restore_drills_lookup
+  on buho.restore_drills (instance_id, ran_at desc);
+
+-- Compliance pack runs
+create table if not exists buho.compliance_runs (
+  run_id       bigint generated always as identity primary key,
+  instance_id  bigint      not null references buho.instances (instance_id) on delete cascade,
+  pack         text        not null,
+  score        integer     not null default 0,
+  results      jsonb       not null default '[]'::jsonb,
+  ran_at       timestamptz not null default now()
+);
+
+create index if not exists compliance_runs_lookup
+  on buho.compliance_runs (instance_id, pack, ran_at desc);
+
+-- DataHub lineage sync soft-state
+create table if not exists buho.lineage_sync_state (
+  instance_id  bigint primary key references buho.instances (instance_id) on delete cascade,
+  last_ok_at   timestamptz,
+  last_error   text,
+  last_urn     text,
+  updated_at   timestamptz not null default now()
+);

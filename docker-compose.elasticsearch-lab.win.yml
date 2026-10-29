@@ -1,0 +1,10 @@
+﻿services:
+  elasticsearch-lab:
+    volumes:
+      - buho_es_lab_data:/usr/share/elasticsearch/data
+  kibana-lab:
+    profiles:
+      - kibana
+
+volumes:
+  buho_es_lab_data:

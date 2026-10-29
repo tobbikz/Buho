@@ -65,8 +65,10 @@ import {
   sampleMariadbIndexes,
   sampleMssqlIndexes,
   sampleMssqlMaintenance,
+  sampleMssqlMissingIndexes,
   sampleOracleIndexes,
   runMariadbExplain,
+  runMssqlExplain,
   digestToQueryid,
   ForeignProcedureTracker,
   sampleForeignProcedures,
@@ -78,6 +80,14 @@ import {
   tagged,
   readForeignLog,
   probeEndpoint,
+  emitInstanceToDatahub,
+  fingerprintPlan,
+  fingerprintPlanText,
+  detectPlanRegression,
+  runRestoreDrill,
+  suggestIndexes,
+  statementKind,
+  isReadOnly,
 } from '@buho/core';
 import type { Capabilities, EngineClient, InstanceConfig, Tier } from '@buho/core';
 import {
@@ -312,17 +322,233 @@ function startPlanQueueLoop(instance: InstanceConfig, instanceId: number, pool: 
         totalCost: report.totalCost,
       });
 
+      // Deep Platform W3 — persist plan fingerprint for regression / blame UI.
+      if (job.queryid != null && Number.isFinite(job.queryid)) {
+        const fp = fingerprintPlan(report.root);
+        await store.savePlanFingerprint({
+          instanceId,
+          queryid: job.queryid,
+          fingerprint: fp,
+          planText: report.text.slice(0, 32_000),
+          totalCost: report.totalCost,
+        });
+        const suggestions = suggestIndexes(report.root, String(job.queryid));
+        if (suggestions.length > 0) {
+          log(
+            'info',
+            `${instance.alias}/planes: ${suggestions.length} index suggestion(s) for queryid ${job.queryid}`,
+          );
+        }
+      }
+
       const critical = report.findings.filter((finding) => finding.severity === 'critica').length;
       log(
         'info',
         `${instance.alias}/planes: ${job.mode} para ${job.requestedBy} en ${Date.now() - started} ms, ` +
-          `${report.findings.length} hallazgo(s)${critical > 0 ? `, ${critical} crítico(s)` : ''}`,
+          `${report.findings.length} hallazgo(s)${critical > 0 ? `, ${critical} critico(s)` : ''}`,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await store.failPlanRequest(job.requestId, message);
       log('warn', `${instance.alias}/planes: ${job.mode} falló: ${message}`);
     }
+  });
+}
+
+/** W5 — periodic restore drill when backup.drillsEnabled. */
+function startRestoreDrillLoop(
+  instance: InstanceConfig,
+  instanceId: number,
+  conn: Pool | EngineClient,
+): void {
+  if (!instance.backup?.drillsEnabled) return;
+  const intervalMs = 24 * 60 * 60 * 1000;
+  startLoop(`${instance.alias}/restore-drill`, intervalMs, async () => {
+    const scratch = instance.backup?.scratchDatabase || 'buho_drill';
+    const result = await runRestoreDrill(
+      {
+        instanceAlias: instance.alias,
+        scratchDatabase: scratch,
+        engine: engineOf(instance),
+      },
+      conn,
+    );
+    let artifactId: number | null = null;
+    if (result.artifactPath) {
+      artifactId = await store.saveBackupArtifact({
+        instanceId,
+        kind: result.artifactKind ?? 'logical_probe',
+        target: scratch,
+        path: result.artifactPath,
+        sizeBytes: result.bytes ?? null,
+      });
+    }
+    await store.saveRestoreDrill({
+      instanceId,
+      artifactId,
+      ok: result.ok,
+      durationMs: result.durationMs,
+      bytes: result.bytes,
+      message: result.message,
+    });
+    log(result.ok ? 'info' : 'warn', `${instance.alias}/restore-drill: ${result.message}`);
+  });
+}
+
+const AUTO_PLAN_INTERVAL_MS = 5 * 60_000;
+
+/**
+ * DPA-style auto plan capture: top statements by exec_ms → EXPLAIN estimate →
+ * fingerprint. Emits `plan_regression` when the shape changes vs the prior capture.
+ */
+function startAutoPlanLoop(
+  instance: InstanceConfig,
+  instanceId: number,
+  conn: Pool | EngineClient,
+  engine: 'postgres' | 'mariadb' | 'mssql',
+): void {
+  startLoop(`${instance.alias}/auto-plans`, AUTO_PLAN_INTERVAL_MS, async () => {
+    const candidates = await store.listAutoPlanCandidates(instanceId, {
+      limit: 6,
+      lookbackMinutes: 60,
+      freshHours: 12,
+    });
+    if (candidates.length === 0) return;
+
+    let captured = 0;
+    let regressions = 0;
+    const regressionFindings: Array<{
+      checkId: string;
+      title: string;
+      severity: 'warning' | 'info';
+      object?: string;
+      message: string;
+      remediation: string;
+      value?: number;
+    }> = [];
+
+    for (const cand of candidates) {
+      const kind = statementKind(cand.query);
+      if (kind === 'utilitaria') continue;
+      if (!isReadOnly(cand.query) && kind !== 'escritura') continue;
+
+      try {
+        const previous = await store.latestPlanFingerprint(instanceId, cand.queryid);
+        let fingerprint: string;
+        let planText: string;
+        let totalCost: number | null = null;
+        let planTree: unknown = null;
+        let mode: 'estimate' | 'generic' = 'estimate';
+
+        if (engine === 'postgres' && 'connect' in conn) {
+          const pool = conn as Pool;
+          const hasPlaceholders = /\$\d+/.test(cand.query);
+          mode = hasPlaceholders ? 'generic' : 'estimate';
+          const report = await runExplain(pool, cand.query, {
+            analyze: false,
+            genericPlan: hasPlaceholders,
+            timeoutMs: Math.min(config.collector.statementTimeoutMs * 2, 20_000),
+          });
+          fingerprint = fingerprintPlan(report.root);
+          planText = report.text;
+          totalCost = report.totalCost;
+          planTree = report.root;
+        } else if (engine === 'mariadb') {
+          const report = await runMariadbExplain(conn as EngineClient, cand.query, {
+            analyze: false,
+            timeoutMs: 15_000,
+          });
+          fingerprint = fingerprintPlan(report.root);
+          planText = report.text || fingerprintPlanText(JSON.stringify(report.raw ?? {}));
+          totalCost = report.totalCost;
+          planTree = report.root;
+        } else {
+          const report = await runMssqlExplain(conn as EngineClient, cand.query);
+          fingerprint = report.fingerprint;
+          planText = report.planText;
+          totalCost = report.totalCost;
+        }
+
+        await store.savePlanFingerprint({
+          instanceId,
+          queryid: cand.queryid,
+          fingerprint,
+          planText: planText.slice(0, 32_000),
+          totalCost: totalCost ?? undefined,
+        });
+        if (planTree) {
+          await store.recordAutoPlan({
+            instanceId,
+            queryid: cand.queryid,
+            sql: cand.query,
+            mode,
+            plan: planTree,
+            planText,
+            totalCost,
+          });
+        }
+        captured += 1;
+
+        if (previous && previous.fingerprint !== fingerprint) {
+          const reg = detectPlanRegression({
+            queryid: cand.queryid,
+            previous: { fingerprint: previous.fingerprint, totalCost: previous.totalCost },
+            current: { fingerprint, totalCost },
+          });
+          if (reg) {
+            regressions += 1;
+            regressionFindings.push({
+              checkId: 'plan_regression',
+              title: 'Plan regression',
+              severity: reg.costDeltaPct != null && reg.costDeltaPct > 50 ? 'warning' : 'info',
+              object: `queryid ${cand.queryid}`,
+              message: reg.message,
+              remediation:
+                'Open Blame → Waits→SQL→Plan or Queries for this queryid. Compare fingerprints; check stats, indexes, and recent deploys.',
+              value: reg.costDeltaPct ?? undefined,
+            });
+          }
+        }
+      } catch (error) {
+        log(
+          'warn',
+          `${instance.alias}/auto-plans: queryid ${cand.queryid}: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+    }
+
+    if (regressionFindings.length > 0) {
+      await store.saveCheckResults(instanceId, regressionFindings, 100);
+      await store.reconcileAlerts(instanceId, regressionFindings);
+    }
+    if (captured > 0) {
+      log(
+        'info',
+        `${instance.alias}/auto-plans: ${captured} plan(s) captured` +
+          (regressions > 0 ? `, ${regressions} regression(s)` : ''),
+      );
+    }
+  });
+}
+
+/** Advisors + baselines — emit check-style findings when metrics exceed p90. */
+function startBaselineAnomalyLoop(instance: InstanceConfig, instanceId: number): void {
+  startLoop(`${instance.alias}/baselines`, 15 * 60 * 1000, async () => {
+    const anomalies = await store.listBaselineAnomalies(instanceId, 1.5);
+    if (anomalies.length === 0) return;
+    const results = anomalies.map((a) => ({
+      checkId: 'baseline_anomaly',
+      title: 'Baseline anomaly',
+      severity: (a.value > (a.p90 ?? 0) * 2 ? 'warning' : 'info') as 'warning' | 'info',
+      object: a.metric,
+      message: `${a.metric}=${a.value.toFixed(2)} above ${a.scope} p90=${a.p90?.toFixed(2) ?? '?'} (p50=${a.p50?.toFixed(2) ?? '?'})`,
+      remediation:
+        'Compare to the same hour last weeks. If expected (batch/load), silence; if not, inspect waits/queries on Blame.',
+      value: a.value,
+    }));
+    // Score unchanged — anomalies are informational overlays, not health score drivers.
+    await store.saveCheckResults(instanceId, results, 100);
+    log('info', `${instance.alias}/baselines: ${anomalies.length} anomaly(ies) vs p90`);
   });
 }
 
@@ -420,6 +646,7 @@ function startActorLoop(
  * son esperas que duran, no las que pasan en un milisegundo.
  */
 function startSessionLoop(instance: InstanceConfig, instanceId: number, pool: Pool): void {
+  let denseBurst = false;
   startLoop(`${instance.alias}/sesiones`, SESSION_INTERVAL_MS, async () => {
     const foto = summarizeSessions(await sampleSessions(pool));
     const escritas = await store.saveSessionSnapshot(instanceId, {
@@ -429,9 +656,9 @@ function startSessionLoop(instance: InstanceConfig, instanceId: number, pool: Po
     });
     if (escritas === 0) return;
 
-    // Se registra sólo cuando hay algo raro: una foto con dos sesiones activas
-    // en CPU no merece una línea de log cada diez segundos.
-    if (foto.blockedSessions > 0 || (foto.longestQueryMs ?? 0) > 30_000) {
+    const inPain =
+      foto.blockedSessions > 0 || (foto.longestQueryMs ?? 0) > 5_000;
+    if (inPain) {
       log(
         'info',
         `${instance.alias}/sesiones: ${foto.activeSessions} activa(s), ` +
@@ -440,6 +667,25 @@ function startSessionLoop(instance: InstanceConfig, instanceId: number, pool: Po
             ? `, la más larga ${(foto.longestQueryMs / 1000).toFixed(1)} s`
             : ''),
       );
+      // Dense DPA sampling: 5 extra snapshots ~2s apart while pain lasts.
+      if (!denseBurst) {
+        denseBurst = true;
+        void (async () => {
+          try {
+            for (let i = 0; i < 5; i++) {
+              await new Promise((r) => setTimeout(r, 2_000));
+              const burst = summarizeSessions(await sampleSessions(pool));
+              await store.saveSessionSnapshot(instanceId, {
+                at: burst.at,
+                waits: burst.waits,
+                detail: burst.detail,
+              });
+            }
+          } finally {
+            denseBurst = false;
+          }
+        })();
+      }
     }
   });
 }
@@ -510,7 +756,10 @@ function isDocumentEngine(engine: string): boolean {
     engine === 'mongodb' ||
     engine === 'redis' ||
     engine === 'cassandra' ||
-    engine === 'elasticsearch'
+    engine === 'elasticsearch' ||
+    engine === 'kafka' ||
+    engine === 'airflow' ||
+    engine === 'cdc'
   );
 }
 
@@ -534,6 +783,25 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
   for (const limite of caps.limitations) {
     log('warn', `${instance.alias}: ${limite}`);
     await store.logEvent(instanceId, 'warn', 'capability_probe', limite);
+  }
+
+  // DataHub soft emit (Deep Platform W7) — hourly
+  startLoop(`${instance.alias}/datahub`, 3_600_000, async () => {
+    const emit = await emitInstanceToDatahub(instance);
+    if (!emit.attempted) return;
+    await store.saveLineageSyncState({
+      instanceId,
+      ok: emit.ok,
+      message: emit.message,
+      urn: emit.urn,
+    });
+    log(emit.ok ? 'info' : 'warn', `${instance.alias}/datahub: ${emit.message}`);
+  });
+
+  startRestoreDrillLoop(instance, instanceId, client);
+  startBaselineAnomalyLoop(instance, instanceId);
+  if (engine === 'mariadb' || engine === 'mssql') {
+    startAutoPlanLoop(instance, instanceId, client, engine);
   }
 
   for (const tier of Object.keys(TIER_INTERVAL_MS) as Tier[]) {
@@ -580,6 +848,7 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
     );
   });
 
+  let denseBurst = false;
   startLoop(`${instance.alias}/sesiones`, SESSION_INTERVAL_MS, async () => {
     const foto = summarizeSessions(await sampleForeignSessions(client, caps));
     const escritas = await store.saveSessionSnapshot(instanceId, {
@@ -588,7 +857,9 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
       detail: foto.detail,
     });
     if (escritas === 0) return;
-    if (foto.blockedSessions > 0 || (foto.longestQueryMs ?? 0) > 30_000) {
+    const inPain =
+      foto.blockedSessions > 0 || (foto.longestQueryMs ?? 0) > 5_000;
+    if (inPain) {
       log(
         'info',
         `${instance.alias}/sesiones: ${foto.activeSessions} activa(s), ` +
@@ -597,6 +868,24 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
             ? `, la más larga ${(foto.longestQueryMs / 1000).toFixed(1)} s`
             : ''),
       );
+      if (!denseBurst) {
+        denseBurst = true;
+        void (async () => {
+          try {
+            for (let i = 0; i < 5; i++) {
+              await new Promise((r) => setTimeout(r, 2_000));
+              const burst = summarizeSessions(await sampleForeignSessions(client, caps));
+              await store.saveSessionSnapshot(instanceId, {
+                at: burst.at,
+                waits: burst.waits,
+                detail: burst.detail,
+              });
+            }
+          } finally {
+            denseBurst = false;
+          }
+        })();
+      }
     }
   });
 
@@ -764,7 +1053,38 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
     startLoop(`${instance.alias}/indexes`, 15 * 60_000, async () => {
       const indexes = await sampleMssqlIndexes(client, caps);
       await store.saveIndexes(instanceId, indexes);
-      log('info', `${instance.alias}/indexes: ${indexes.indexes.length} índice(s)`);
+      let missingN = 0;
+      try {
+        const missing = await sampleMssqlMissingIndexes(client, 8);
+        missingN = missing.length;
+        if (missing.length > 0) {
+          const findings = missing.map((m) => ({
+            checkId: 'mssql_missing_index',
+            title: 'Missing index (DMV)',
+            severity: (m.avgUserImpact * m.userSeeks > 50_000 ? 'warning' : 'info') as
+              | 'warning'
+              | 'info',
+            object: `${m.schema}.${m.table}`,
+            message: `impact ${m.avgUserImpact.toFixed(0)}% × ${m.userSeeks} seeks` +
+              (m.equalityColumns ? `; eq (${m.equalityColumns})` : '') +
+              (m.inequalityColumns ? `; ineq (${m.inequalityColumns})` : ''),
+            remediation: m.createStatement,
+            value: m.avgUserImpact,
+          }));
+          await store.saveCheckResults(instanceId, findings, 100);
+          await store.reconcileAlerts(instanceId, findings);
+        }
+      } catch (error) {
+        log(
+          'warn',
+          `${instance.alias}/indexes missing-DMV: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+      log(
+        'info',
+        `${instance.alias}/indexes: ${indexes.indexes.length} índice(s)` +
+          (missingN > 0 ? `, ${missingN} missing-index hint(s)` : ''),
+      );
     });
 
     startLoop(`${instance.alias}/maintenance`, 15 * 60_000, async () => {
@@ -999,6 +1319,22 @@ async function monitorInstance(instance: InstanceConfig): Promise<void> {
   const startMonitoringLoops = () => {
     if (monitoringStarted) return;
     monitoringStarted = true;
+
+    startLoop(`${instance.alias}/datahub`, 3_600_000, async () => {
+      const emit = await emitInstanceToDatahub(instance);
+      if (!emit.attempted) return;
+      await store.saveLineageSyncState({
+        instanceId,
+        ok: emit.ok,
+        message: emit.message,
+        urn: emit.urn,
+      });
+      log(emit.ok ? 'info' : 'warn', `${instance.alias}/datahub: ${emit.message}`);
+    });
+
+    startRestoreDrillLoop(instance, instanceId, pool);
+    startBaselineAnomalyLoop(instance, instanceId);
+    startAutoPlanLoop(instance, instanceId, pool, 'postgres');
 
     for (const tier of Object.keys(TIER_INTERVAL_MS) as Tier[]) {
       startLoop(`${instance.alias}/${tier}`, TIER_INTERVAL_MS[tier], async () => {
@@ -1267,6 +1603,40 @@ function targetToInstance(target: Awaited<ReturnType<typeof store.listMonitorTar
  * so a handwritten config cannot be silently overridden by the console.
  */
 async function ensureMonitors(): Promise<void> {
+  // Publish file-based instances into monitor_targets so console /api/v1 + MCP
+  // write tools can resolve credentials without a separate seed step.
+  for (const instance of config.instances) {
+    try {
+      await store.upsertMonitorTarget({
+        alias: instance.alias,
+        engine: engineOf(instance),
+        host: instance.host,
+        port: instance.port,
+        database: instance.database ?? '',
+        username: instance.user ?? '',
+        password: instance.password ?? '',
+        ssl: Boolean(instance.ssl),
+        environment: instance.environment ?? 'lab',
+        tags: instance.tags,
+        enabled: true,
+        endpoint: {
+          actions: instance.actions,
+          kafka: instance.kafka,
+          airflow: instance.airflow,
+          cdc: instance.cdc,
+          backup: instance.backup,
+          datahub: instance.datahub,
+        },
+        createdBy: 'config.json',
+      });
+    } catch (error) {
+      log(
+        'warn',
+        `${instance.alias}: monitor_targets sync failed: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
+
   const fromStore = await store.listMonitorTargets(true);
   const byAlias = new Map<string, InstanceConfig>();
   for (const target of fromStore) {

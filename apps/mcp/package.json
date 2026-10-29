@@ -1,0 +1,19 @@
+{
+  "name": "@buho/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server — agents query Búho fleet, metrics, alerts, Deep Platform.",
+  "bin": {
+    "buho-mcp": "./src/main.ts"
+  },
+  "scripts": {
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@buho/store": "*",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "pg": "^8.16.0",
+    "zod": "^3.25.0"
+  }
+}

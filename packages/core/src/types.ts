@@ -53,6 +53,94 @@ export interface InstanceConfig {
   endpoint?: EndpointProbeConfig;
   /** Device + sensors when engine = infra (also persisted in monitor_targets.endpoint jsonb). */
   infra?: InfraDeviceConfig;
+  /** Kafka / CDC broker monitoring. */
+  kafka?: KafkaInstanceConfig;
+  /** Airflow REST monitoring. */
+  airflow?: AirflowInstanceConfig;
+  /** CDC overlay (engine=cdc): DataSync / apply lag. */
+  cdc?: CdcInstanceConfig;
+  /** Gated destructive actions (default off). */
+  actions?: ActionsInstanceConfig;
+  /** Buho-managed backup / drill / storage. */
+  backup?: BackupInstanceConfig;
+  /** Optional DataHub deep-link base. */
+  datahub?: DatahubInstanceConfig;
+}
+
+/** Kafka Admin + consumer-group lag. */
+export interface KafkaInstanceConfig {
+  /** bootstrap.servers — falls back to host:port */
+  brokers?: string[];
+  clientId?: string;
+  ssl?: boolean;
+  sasl?: { mechanism: 'plain' | 'scram-sha-256' | 'scram-sha-512'; username: string; password: string };
+  /** Groups to track lag for (required for lag checks). */
+  consumerGroups?: string[];
+  /** Optional Prometheus / JMX exporter base URL. */
+  metricsUrl?: string;
+}
+
+export interface AirflowInstanceConfig {
+  /** Base URL e.g. https://airflow.example — falls back to http(s)://host:port */
+  baseUrl?: string;
+  /** Prefer v2; collector falls back to v1 paths when needed. */
+  apiVersion?: 'v1' | 'v2';
+  username?: string;
+  password?: string;
+  /** DAG ids to focus; empty = fleet summary only. */
+  dagIds?: string[];
+}
+
+export interface CdcInstanceConfig {
+  /** Kafka brokers/topics for CDC stream. */
+  kafka?: KafkaInstanceConfig;
+  /** Topics that carry CDC (Debezium / DataSync). */
+  topics?: string[];
+  /** Consumer groups that apply to the lake. */
+  applyGroups?: string[];
+  /** Optional DataSync daemon health HTTP URL. */
+  datasyncHealthUrl?: string;
+  /** Max acceptable apply lag seconds before warning. */
+  maxApplyLagSeconds?: number;
+}
+
+export interface ActionsInstanceConfig {
+  /** Master switch — default false. */
+  enabled?: boolean;
+  allowKillSession?: boolean;
+  allowCancelQuery?: boolean;
+  allowAirflowDagPause?: boolean;
+  allowAirflowClearTi?: boolean;
+  allowKafkaConsumerRewind?: boolean;
+  /** Separate DB user for actions (never the read-only monitor user). */
+  actionUser?: string;
+  actionPassword?: string;
+}
+
+export interface BackupInstanceConfig {
+  /** Target RPO in seconds for this instance. */
+  rpoSeconds?: number;
+  /** Enable scheduled restore-to-scratch drills. */
+  drillsEnabled?: boolean;
+  drillCron?: string;
+  scratchDatabase?: string;
+  /** Buho backup storage (phase 3). */
+  storage?: {
+    enabled?: boolean;
+    target: 'local' | 's3' | 'nfs';
+    path?: string;
+    s3Bucket?: string;
+    s3Prefix?: string;
+    retainDays?: number;
+  };
+}
+
+export interface DatahubInstanceConfig {
+  /** DataHub GMS / frontend base, e.g. https://datahub.example */
+  baseUrl?: string;
+  token?: string;
+  /** Emit inventory entities from collector (soft-fail). */
+  emit?: boolean;
 }
 
 /**

@@ -246,3 +246,65 @@ export async function sampleMssqlMaintenance(client: EngineClient): Promise<Mssq
 
   return { heaps, fragmentation };
 }
+
+export interface MssqlMissingIndexRow {
+  schema: string;
+  table: string;
+  equalityColumns: string;
+  inequalityColumns: string;
+  includedColumns: string;
+  userSeeks: number;
+  avgUserImpact: number;
+  lastUserSeek: Date | null;
+  createStatement: string;
+}
+
+/**
+ * Top missing-index DMV hits (impact × seeks). Advisory only — validate before CREATE.
+ */
+export async function sampleMssqlMissingIndexes(
+  client: EngineClient,
+  limit = 10,
+): Promise<MssqlMissingIndexRow[]> {
+  const rows = await client.query(`
+    select top (${Math.min(Math.max(limit, 1), 25)})
+           mid.statement as statement_text,
+           migs.user_seeks,
+           migs.avg_user_impact,
+           migs.last_user_seek,
+           mid.equality_columns,
+           mid.inequality_columns,
+           mid.included_columns
+      from sys.dm_db_missing_index_group_stats migs
+      join sys.dm_db_missing_index_groups mig on mig.index_group_handle = migs.group_handle
+      join sys.dm_db_missing_index_details mid on mid.index_handle = mig.index_handle
+     where mid.database_id = db_id()
+     order by migs.avg_user_impact * migs.user_seeks desc`);
+
+  return rows.map((row) => {
+    const statement = str(row['statement_text']);
+    // statement looks like: [db].[schema].[table]
+    const parts = statement.replace(/[\[\]]/g, '').split('.');
+    const schema = parts.length >= 2 ? parts[parts.length - 2]! : 'dbo';
+    const table = parts.length >= 1 ? parts[parts.length - 1]! : statement;
+    const eq = str(row['equality_columns']).replace(/[\[\]]/g, '');
+    const ineq = str(row['inequality_columns']).replace(/[\[\]]/g, '');
+    const incl = str(row['included_columns']).replace(/[\[\]]/g, '');
+    const keyCols = [eq, ineq].filter(Boolean).join(', ');
+    const includeClause = incl ? ` include (${incl})` : '';
+    const idxName = `IX_${table}_${(eq || ineq || 'cols').replace(/[,\s]+/g, '_').slice(0, 40)}`;
+    return {
+      schema,
+      table,
+      equalityColumns: eq,
+      inequalityColumns: ineq,
+      includedColumns: incl,
+      userSeeks: num(row['user_seeks']),
+      avgUserImpact: num(row['avg_user_impact']),
+      lastUserSeek: (row['last_user_seek'] as Date | null) ?? null,
+      createStatement: keyCols
+        ? `create nonclustered index [${idxName}] on [${schema}].[${table}] (${keyCols})${includeClause};`
+        : `-- missing key columns for ${schema}.${table}`,
+    };
+  });
+}

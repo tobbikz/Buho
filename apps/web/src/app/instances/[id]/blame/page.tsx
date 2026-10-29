@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { ApmBlameLite } from '@/components/ApmBlameLite';
+import { BaselineAnomalies } from '@/components/BaselineAnomalies';
 import { ChangeTimeline } from '@/components/ChangeTimeline';
 import { DbaShield } from '@/components/DbaShield';
 import { IncidentFreeze } from '@/components/IncidentFreeze';
@@ -10,6 +11,12 @@ import {
 } from '@/components/ProveRestore';
 import { StoreError } from '@/components/StoreError';
 import { Topbar } from '@/components/Topbar';
+import { BlockingChainLite } from '@/components/BlockingChainLite';
+import { IndexAdvisorLite } from '@/components/IndexAdvisorLite';
+import { PlanFingerprintHistory } from '@/components/PlanFingerprintHistory';
+import { VacuumRiskLite } from '@/components/VacuumRiskLite';
+import { WaitClassTimeline } from '@/components/WaitClassTimeline';
+import { WaitSqlPlanBlame } from '@/components/WaitSqlPlanBlame';
 import { ENGINE_LABEL, getInstanceEngine } from '@/lib/estate';
 import { getInstance } from '@/lib/queries';
 
@@ -92,6 +99,28 @@ export default async function BlamePage({
             windowKey={windowKey}
             windowMinutes={windowMinutes}
           />
+
+          <WaitSqlPlanBlame instanceId={instanceId} windowMinutes={windowMinutes} />
+
+          <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+            <WaitClassTimeline instanceId={instanceId} windowMinutes={windowMinutes} />
+            <BlockingChainLite
+              instanceId={instanceId}
+              alias={instance.alias}
+              hours={Math.max(1, Math.round(windowMinutes / 60))}
+              actionsEnabled
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+            <IndexAdvisorLite instanceId={instanceId} />
+            <BaselineAnomalies instanceId={instanceId} />
+          </div>
+
+          <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+            <PlanFingerprintHistory instanceId={instanceId} windowMinutes={windowMinutes} />
+            {motor === 'postgres' ? <VacuumRiskLite instanceId={instanceId} /> : null}
+          </div>
 
           <DbaShield
             instanceId={instanceId}

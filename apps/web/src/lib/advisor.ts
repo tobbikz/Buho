@@ -43,12 +43,14 @@ export async function getIndexSuggestions(
 
   for (const row of rows) {
     if (!row.plan) continue;
-    // Sólo los planes ejecutados con ANALYZE traen filas reales, y no rows
-    // reales no se sabe cuántas descartó el filtro. Un plan estimado puede
-    // mentir por un factor de mil.
-    if (row.mode !== 'analyze') continue;
-    conRowsReales += 1;
-    todas.push(...suggestIndexes(row.plan, row.queryid));
+    // ANALYZE = strong evidence. estimate/generic (auto-plans) still yield
+    // weaker Seq Scan+filter suggestions — labeled as such in the advisor.
+    if (row.mode === 'analyze') {
+      conRowsReales += 1;
+      todas.push(...suggestIndexes(row.plan, row.queryid));
+    } else if (row.mode === 'estimate' || row.mode === 'generic') {
+      todas.push(...suggestIndexes(row.plan, row.queryid));
+    }
   }
 
   return {

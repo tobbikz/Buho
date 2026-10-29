@@ -66,6 +66,38 @@ import {
   customCheckId,
   mergeAlertPack,
 } from '@buho/checks';
+
+/** Lightweight wait-class map (mirrors @buho/core waitClassOf for PG types). */
+function waitClassName(waitType: string): string {
+  const t = (waitType || '').trim();
+  if (!t || t === 'Idle') return 'Idle';
+  const known = new Set([
+    'CPU',
+    'IO',
+    'Lock',
+    'LWLock',
+    'IPC',
+    'Network',
+    'Client',
+    'Timeout',
+    'Activity',
+    'Extension',
+    'BufferPin',
+  ]);
+  if (known.has(t)) {
+    if (t === 'IPC') return 'Network';
+    if (t === 'Activity') return 'Idle';
+    if (t === 'BufferPin') return 'IO';
+    if (t === 'Extension') return 'Other';
+    return t;
+  }
+  if (/^LCK_/i.test(t)) return 'Lock';
+  if (/^PAGEIOLATCH_|^WRITELOG/i.test(t)) return 'IO';
+  if (/^ASYNC_NETWORK/i.test(t)) return 'Network';
+  if (/^SOS_SCHEDULER|^CXPACKET|^CXCONSUMER/i.test(t)) return 'CPU';
+  return 'Other';
+}
+
 import {
   ALERT_CHANNEL_KINDS,
   ALERT_CHANNEL_KINDS_SQL,
@@ -103,6 +135,7 @@ export interface PlanRequestJob {
   sql: string;
   mode: 'estimate' | 'generic' | 'analyze';
   requestedBy: string;
+  queryid: number | null;
 }
 
 export interface PlanResult {
@@ -463,8 +496,9 @@ export class Store {
         sql: string;
         mode: 'estimate' | 'generic' | 'analyze';
         requested_by: string;
+        queryid: string | null;
       }>(
-        `select request_id, sql, mode, requested_by
+        `select request_id, sql, mode, requested_by, queryid::text
            from buho.plan_requests
           where instance_id = $1 and state = 'pendiente'
           order by requested_at
@@ -490,6 +524,7 @@ export class Store {
         sql: row.sql,
         mode: row.mode,
         requestedBy: row.requested_by,
+        queryid: row.queryid != null ? Number(row.queryid) : null,
       };
     } catch (error) {
       await client.query('rollback').catch(() => {});
@@ -597,6 +632,33 @@ export class Store {
         result.planningMs,
         result.executionMs,
         result.totalCost,
+      ],
+    );
+  }
+
+  /** Persist an auto-captured estimated plan so the advisor UI can consume it. */
+  async recordAutoPlan(row: {
+    instanceId: number;
+    queryid: number;
+    sql: string;
+    mode: 'estimate' | 'generic';
+    plan: unknown;
+    planText: string;
+    totalCost: number | null;
+  }): Promise<void> {
+    await this.pool.query(
+      `insert into buho.plan_requests
+         (instance_id, queryid, sql, mode, requested_by, state, requested_at, started_at, finished_at,
+          plan, plan_text, findings, total_cost)
+       values ($1,$2,$3,$4,'auto-plans','listo', now(), now(), now(), $5::jsonb, $6, '[]'::jsonb, $7)`,
+      [
+        row.instanceId,
+        row.queryid,
+        row.sql.slice(0, 16_000),
+        row.mode,
+        JSON.stringify(row.plan ?? null),
+        row.planText.slice(0, 32_000),
+        row.totalCost,
       ],
     );
   }
@@ -1282,6 +1344,31 @@ export class Store {
            values ${tuples.join(', ')}`,
           values,
         );
+
+        // DPA wait-class rollup (Deep Platform W3)
+        const classMap = new Map<string, number>();
+        for (const espera of waits) {
+          const cls = waitClassName(espera.waitType);
+          classMap.set(cls, (classMap.get(cls) ?? 0) + espera.sessions);
+        }
+        if (classMap.size > 0) {
+          const cValues: unknown[] = [];
+          const cTuples: string[] = [];
+          let i = 0;
+          for (const [waitClass, sessions] of classMap) {
+            const base = i * 4;
+            cTuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`);
+            cValues.push(instanceId, snapshot.at, waitClass, sessions);
+            i += 1;
+          }
+          await client.query(
+            `insert into buho.wait_class_samples (instance_id, ts, wait_class, sessions)
+             values ${cTuples.join(', ')}
+             on conflict (instance_id, ts, wait_class) do update
+               set sessions = excluded.sessions`,
+            cValues,
+          );
+        }
       }
 
       if (snapshot.detail.length > 0) {
@@ -1738,6 +1825,500 @@ export class Store {
       `insert into buho.collector_events (instance_id, level, component, message, detail)
             values ($1, $2, $3, $4, $5)`,
       [instanceId, level, component, message, detail === undefined ? null : JSON.stringify(detail)],
+    );
+  }
+
+  async recordActionAudit(row: {
+    instanceId?: number | null;
+    alias?: string;
+    kind: string;
+    actor: string;
+    reason: string;
+    payload?: unknown;
+    ok: boolean;
+    message: string;
+  }): Promise<void> {
+    await this.pool.query(
+      `insert into buho.action_audit
+         (instance_id, alias, kind, actor, reason, payload, ok, message)
+       values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8)`,
+      [
+        row.instanceId ?? null,
+        row.alias ?? null,
+        row.kind,
+        row.actor,
+        row.reason,
+        JSON.stringify(row.payload ?? {}),
+        row.ok,
+        row.message,
+      ],
+    );
+  }
+
+  async saveComplianceRun(
+    instanceId: number,
+    pack: string,
+    score: number,
+    results: unknown,
+  ): Promise<void> {
+    await this.pool.query(
+      `insert into buho.compliance_runs (instance_id, pack, score, results)
+       values ($1,$2,$3,$4::jsonb)`,
+      [instanceId, pack, score, JSON.stringify(results)],
+    );
+  }
+
+  async saveRestoreDrill(row: {
+    instanceId: number;
+    artifactId?: number | null;
+    ok: boolean;
+    durationMs?: number;
+    bytes?: number;
+    message: string;
+  }): Promise<void> {
+    await this.pool.query(
+      `insert into buho.restore_drills
+         (instance_id, artifact_id, ok, duration_ms, bytes, message)
+       values ($1,$2,$3,$4,$5,$6)`,
+      [
+        row.instanceId,
+        row.artifactId ?? null,
+        row.ok,
+        row.durationMs ?? null,
+        row.bytes ?? null,
+        row.message,
+      ],
+    );
+  }
+
+  async savePlanFingerprint(row: {
+    instanceId: number;
+    queryid: number;
+    fingerprint: string;
+    planText?: string;
+    totalCost?: number;
+  }): Promise<void> {
+    await this.pool.query(
+      `insert into buho.plan_fingerprints
+         (instance_id, queryid, fingerprint, plan_text, total_cost)
+       values ($1,$2,$3,$4,$5)`,
+      [
+        row.instanceId,
+        row.queryid,
+        row.fingerprint,
+        row.planText ?? null,
+        row.totalCost ?? null,
+      ],
+    );
+  }
+
+  /**
+   * Top statements by exec time that still need an auto plan capture
+   * (no fingerprint in the last `freshHours`, or never captured).
+   */
+  async listAutoPlanCandidates(
+    instanceId: number,
+    opts: {
+      limit?: number;
+      lookbackMinutes?: number;
+      /** Skip if captured more recently than this (rate limit). */
+      freshHours?: number;
+    } = {},
+  ): Promise<Array<{ queryid: number; query: string; execMs: number; calls: number }>> {
+    const limit = opts.limit ?? 8;
+    const lookback = opts.lookbackMinutes ?? 60;
+    const freshHours = opts.freshHours ?? 12;
+    const r = await this.pool.query<{
+      queryid: string;
+      query: string;
+      exec_ms: number;
+      calls: number;
+    }>(
+      `with top as (
+         select s.queryid,
+                sum(s.exec_ms) as exec_ms,
+                sum(s.calls) as calls
+           from buho.statement_stats s
+          where s.instance_id = $1
+            and s.ts > now() - ($2 || ' minutes')::interval
+          group by s.queryid
+          order by sum(s.exec_ms) desc
+          limit $3
+       ),
+       latest_fp as (
+         select distinct on (queryid) queryid, captured_at
+           from buho.plan_fingerprints
+          where instance_id = $1
+          order by queryid, captured_at desc
+       )
+       select t.queryid::text, st.query, t.exec_ms, t.calls
+         from top t
+         join buho.statement_texts st
+           on st.instance_id = $1 and st.queryid = t.queryid
+         left join latest_fp lf on lf.queryid = t.queryid
+        where coalesce(st.truncated, false) = false
+          and length(st.query) between 12 and 8000
+          and (
+            lf.captured_at is null
+            or lf.captured_at < now() - ($4 || ' hours')::interval
+          )
+        order by t.exec_ms desc
+        limit $5`,
+      [instanceId, lookback, Math.max(limit * 3, 15), freshHours, limit],
+    );
+    return r.rows.map((row) => ({
+      queryid: Number(row.queryid),
+      query: row.query,
+      execMs: Number(row.exec_ms),
+      calls: Number(row.calls),
+    }));
+  }
+
+  async latestPlanFingerprint(
+    instanceId: number,
+    queryid: number,
+  ): Promise<{ fingerprint: string; totalCost: number | null; capturedAt: Date } | null> {
+    const r = await this.pool.query<{
+      fingerprint: string;
+      total_cost: number | null;
+      captured_at: Date;
+    }>(
+      `select fingerprint, total_cost, captured_at
+         from buho.plan_fingerprints
+        where instance_id = $1 and queryid = $2
+        order by captured_at desc
+        limit 1`,
+      [instanceId, queryid],
+    );
+    const row = r.rows[0];
+    if (!row) return null;
+    return {
+      fingerprint: row.fingerprint,
+      totalCost: row.total_cost,
+      capturedAt: row.captured_at,
+    };
+  }
+
+  /** Previous fingerprint before the latest (for regression detection). */
+  async previousPlanFingerprint(
+    instanceId: number,
+    queryid: number,
+  ): Promise<{ fingerprint: string; totalCost: number | null; capturedAt: Date } | null> {
+    const r = await this.pool.query<{
+      fingerprint: string;
+      total_cost: number | null;
+      captured_at: Date;
+    }>(
+      `select fingerprint, total_cost, captured_at
+         from buho.plan_fingerprints
+        where instance_id = $1 and queryid = $2
+        order by captured_at desc
+        offset 1
+        limit 1`,
+      [instanceId, queryid],
+    );
+    const row = r.rows[0];
+    if (!row) return null;
+    return {
+      fingerprint: row.fingerprint,
+      totalCost: row.total_cost,
+      capturedAt: row.captured_at,
+    };
+  }
+
+  async saveBackupArtifact(row: {
+    instanceId: number;
+    jobId?: number | null;
+    kind: string;
+    target: string;
+    path: string;
+    sizeBytes?: number | null;
+    checksum?: string | null;
+  }): Promise<number> {
+    const r = await this.pool.query<{ artifact_id: string }>(
+      `insert into buho.backup_artifacts
+         (instance_id, job_id, kind, target, path, size_bytes, checksum)
+       values ($1,$2,$3,$4,$5,$6,$7)
+       returning artifact_id::text`,
+      [
+        row.instanceId,
+        row.jobId ?? null,
+        row.kind,
+        row.target,
+        row.path,
+        row.sizeBytes ?? null,
+        row.checksum ?? null,
+      ],
+    );
+    return Number(r.rows[0]!.artifact_id);
+  }
+
+  /** DPA: wait-class time series for an instance. */
+  async listWaitClassHistory(
+    instanceId: number,
+    minutes: number,
+  ): Promise<Array<{ ts: Date; waitClass: string; sessions: number }>> {
+    const r = await this.pool.query<{ ts: Date; wait_class: string; sessions: number }>(
+      `select ts, wait_class, sessions
+         from buho.wait_class_samples
+        where instance_id = $1
+          and ts > now() - ($2 || ' minutes')::interval
+        order by ts desc
+        limit 2000`,
+      [instanceId, minutes],
+    );
+    return r.rows.map((row) => ({
+      ts: row.ts,
+      waitClass: row.wait_class,
+      sessions: Number(row.sessions),
+    }));
+  }
+
+  /**
+   * DPA blame: queryids seen with non-Idle waits in the window, joined to
+   * latest plan fingerprint when present.
+   */
+  async listWaitSqlBlame(
+    instanceId: number,
+    minutes: number,
+  ): Promise<
+    Array<{
+      queryid: string;
+      waitType: string | null;
+      waitEvent: string | null;
+      samples: number;
+      /** Share of non-idle wait samples in the window (0–100). */
+      pct: number;
+      maxQueryMs: number | null;
+      query: string | null;
+      fingerprint: string | null;
+      planCapturedAt: Date | null;
+      totalCost: number | null;
+    }>
+  > {
+    const r = await this.pool.query<{
+      queryid: string;
+      wait_type: string | null;
+      wait_event: string | null;
+      samples: string;
+      pct: number;
+      max_query_ms: number | null;
+      query: string | null;
+      fingerprint: string | null;
+      plan_captured_at: Date | null;
+      total_cost: number | null;
+    }>(
+      `with sess as (
+         select queryid::text as queryid,
+                wait_type,
+                wait_event,
+                count(*)::int as samples,
+                max(query_ms) as max_query_ms,
+                max(query) as query
+           from buho.session_samples
+          where instance_id = $1
+            and ts > now() - ($2 || ' minutes')::interval
+            and queryid is not null
+            and coalesce(wait_type, '') not in ('', 'Idle')
+          group by queryid, wait_type, wait_event
+       ),
+       tot as (
+         select greatest(sum(samples), 1)::float as n from sess
+       ),
+       plans as (
+         select distinct on (queryid)
+                queryid::text as queryid, fingerprint, captured_at, total_cost
+           from buho.plan_fingerprints
+          where instance_id = $1
+          order by queryid, captured_at desc
+       )
+       select s.queryid, s.wait_type, s.wait_event, s.samples::text,
+              (s.samples::float / t.n) * 100 as pct,
+              s.max_query_ms, s.query,
+              p.fingerprint, p.captured_at as plan_captured_at, p.total_cost
+         from sess s
+         cross join tot t
+         left join plans p using (queryid)
+        order by s.samples desc
+        limit 40`,
+      [instanceId, minutes],
+    );
+    return r.rows.map((row) => ({
+      queryid: row.queryid,
+      waitType: row.wait_type,
+      waitEvent: row.wait_event,
+      samples: Number(row.samples),
+      pct: Number(row.pct),
+      maxQueryMs: row.max_query_ms,
+      query: row.query,
+      fingerprint: row.fingerprint,
+      planCapturedAt: row.plan_captured_at,
+      totalCost: row.total_cost,
+    }));
+  }
+
+  /** Wait-class share of samples in window (DPA-style % time proxy). */
+  async listWaitClassShare(
+    instanceId: number,
+    minutes: number,
+  ): Promise<Array<{ waitClass: string; samples: number; pct: number }>> {
+    const r = await this.pool.query<{ wait_class: string; samples: string; pct: number }>(
+      `with agg as (
+         select wait_class, sum(sessions)::int as samples
+           from buho.wait_class_samples
+          where instance_id = $1
+            and ts > now() - ($2 || ' minutes')::interval
+            and wait_class <> 'Idle'
+          group by wait_class
+       ),
+       tot as (select greatest(sum(samples), 1)::float as n from agg)
+       select a.wait_class, a.samples::text, (a.samples::float / t.n) * 100 as pct
+         from agg a
+         cross join tot t
+        order by a.samples desc`,
+      [instanceId, minutes],
+    );
+    return r.rows.map((row) => ({
+      waitClass: row.wait_class,
+      samples: Number(row.samples),
+      pct: Number(row.pct),
+    }));
+  }
+
+  /**
+   * Minute-bucketed wait-class sessions for a compact DPA timeline.
+   * Caps at ~90 buckets (coarse step for long windows).
+   */
+  async listWaitClassTimeline(
+    instanceId: number,
+    minutes: number,
+  ): Promise<Array<{ bucket: Date; waitClass: string; sessions: number }>> {
+    const stepMinutes = minutes <= 60 ? 1 : minutes <= 360 ? 5 : minutes <= 1440 ? 15 : 60;
+    const r = await this.pool.query<{
+      bucket: Date;
+      wait_class: string;
+      sessions: string;
+    }>(
+      `select date_bin(($3 || ' minutes')::interval, ts, timestamptz '2000-01-01') as bucket,
+              wait_class,
+              sum(sessions)::int::text as sessions
+         from buho.wait_class_samples
+        where instance_id = $1
+          and ts > now() - ($2 || ' minutes')::interval
+          and wait_class <> 'Idle'
+        group by 1, 2
+        order by 1, 2`,
+      [instanceId, minutes, stepMinutes],
+    );
+    return r.rows.map((row) => ({
+      bucket: row.bucket,
+      waitClass: row.wait_class,
+      sessions: Number(row.sessions),
+    }));
+  }
+
+  async listPlanFingerprints(
+    instanceId: number,
+    queryid: number,
+    limit = 20,
+  ): Promise<
+    Array<{ fingerprint: string; totalCost: number | null; capturedAt: Date; planText: string | null }>
+  > {
+    const r = await this.pool.query<{
+      fingerprint: string;
+      total_cost: number | null;
+      captured_at: Date;
+      plan_text: string | null;
+    }>(
+      `select fingerprint, total_cost, captured_at, plan_text
+         from buho.plan_fingerprints
+        where instance_id = $1 and queryid = $2
+        order by captured_at desc
+        limit $3`,
+      [instanceId, queryid, limit],
+    );
+    return r.rows.map((row) => ({
+      fingerprint: row.fingerprint,
+      totalCost: row.total_cost,
+      capturedAt: row.captured_at,
+      planText: row.plan_text,
+    }));
+  }
+
+  /**
+   * Metrics above baseline p90 for current hour-of-week (DPA-style anomaly).
+   * Requires `buho.build_baselines` to have run via maintenance.
+   */
+  async listBaselineAnomalies(
+    instanceId: number,
+    factor = 1.5,
+  ): Promise<
+    Array<{
+      metric: string;
+      value: number;
+      p50: number | null;
+      p90: number | null;
+      scope: string;
+    }>
+  > {
+    const r = await this.pool.query<{
+      metric: string;
+      value: number;
+      p50: number | null;
+      p90: number | null;
+      scope: string;
+    }>(
+      `with latest as (
+         select distinct on (metric) metric, value
+           from buho.metric_samples
+          where instance_id = $1
+            and ts > now() - interval '15 minutes'
+            and labels = '{}'::jsonb
+          order by metric, ts desc
+       ),
+       base as (
+         select metric, scope, p50, p90
+           from buho.metric_baselines
+          where instance_id = $1
+            and scope = 'hora_semana'
+            and dow = extract(dow from now())::smallint
+            and hour = extract(hour from now())::smallint
+            and samples >= 4
+            and p90 is not null
+            and p90 > 0
+       )
+       select l.metric, l.value, b.p50, b.p90, b.scope
+         from latest l
+         join base b using (metric)
+        where l.value > b.p90 * $2
+        order by (l.value / nullif(b.p90, 0)) desc
+        limit 25`,
+      [instanceId, factor],
+    );
+    return r.rows.map((row) => ({
+      metric: row.metric,
+      value: Number(row.value),
+      p50: row.p50 != null ? Number(row.p50) : null,
+      p90: row.p90 != null ? Number(row.p90) : null,
+      scope: row.scope,
+    }));
+  }
+
+  async saveLineageSyncState(row: {
+    instanceId: number;
+    ok: boolean;
+    message: string;
+    urn?: string;
+  }): Promise<void> {
+    await this.pool.query(
+      `insert into buho.lineage_sync_state (instance_id, last_ok_at, last_error, last_urn, updated_at)
+       values ($1, case when $2 then now() else null end, case when $2 then null else $3 end, $4, now())
+       on conflict (instance_id) do update set
+         last_ok_at = coalesce(excluded.last_ok_at, buho.lineage_sync_state.last_ok_at),
+         last_error = excluded.last_error,
+         last_urn = coalesce(excluded.last_urn, buho.lineage_sync_state.last_urn),
+         updated_at = now()`,
+      [row.instanceId, row.ok, row.message, row.urn ?? null],
     );
   }
 

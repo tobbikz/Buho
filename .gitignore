@@ -5,6 +5,7 @@ next-env.d.ts
 *.tsbuildinfo
 .env
 .env.local
+.buho-api-token.lab
 config.json
 !config.example.json
 *.log

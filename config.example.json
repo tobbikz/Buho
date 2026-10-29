@@ -20,6 +20,27 @@
       "unreachableAfterMinutes": 5
     }
   },
-  "_comment_instances": "Leave instances empty in production. Add databases from the console (Admin → Databases); they persist in buho.monitor_targets inside the store volume. Optional file-based instances remain supported for labs. For app probes use engine endpoint + endpoint.url / dependsOnAlias. For PRTG-class Hosts use engine infra + infra.sensors[] (see lab/infra/config.infra.lab.json).",
-  "instances": []
+  "_comment_instances": "Leave instances empty in production. Add databases from the console (Admin → Databases); they persist in buho.monitor_targets inside the store volume. Optional file-based instances remain supported for labs. For app probes use engine endpoint + endpoint.url / dependsOnAlias. For PRTG-class Hosts use engine infra + infra.sensors[] (see lab/infra/config.infra.lab.json). Deep Platform: engine kafka|cdc|airflow — see DEEP_PLATFORM.md.",
+  "instances": [],
+  "_comment_deep_platform_examples": [
+    {
+      "alias": "kafka-lab",
+      "engine": "kafka",
+      "host": "127.0.0.1",
+      "port": 9092,
+      "database": "",
+      "user": "",
+      "kafka": { "brokers": ["127.0.0.1:9092"], "consumerGroups": ["example-group"] }
+    },
+    {
+      "alias": "airflow-lab",
+      "engine": "airflow",
+      "host": "127.0.0.1",
+      "port": 8080,
+      "database": "",
+      "user": "admin",
+      "password": "admin",
+      "airflow": { "baseUrl": "http://127.0.0.1:8080", "apiVersion": "v2" }
+    }
+  ]
 }

@@ -30,6 +30,11 @@ export async function proxy(request: NextRequest) {
     return withPath(request);
   }
 
+  // Agent / MCP API — Bearer token checked inside each /api/v1 route (not cookie session).
+  if (pathname.startsWith('/api/v1/')) {
+    return withPath(request);
+  }
+
   if (!authConfigured()) {
     // Sin secreto definido: en producción sólo se puede ver la pantalla que
     // explica cómo configurarlo; en desarrollo se pasa de largo.

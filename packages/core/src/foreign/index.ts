@@ -50,12 +50,19 @@ export {
 } from './mariadb-depth';
 export { sampleOracleIndexes } from './oracle-depth';
 export type { StatementSlowEvent } from './mariadb-depth';
-export { sampleMssqlIndexes, sampleMssqlMaintenance } from './mssql-depth';
+export {
+  sampleMssqlIndexes,
+  sampleMssqlMaintenance,
+  sampleMssqlMissingIndexes,
+} from './mssql-depth';
 export type {
   MssqlMaintenanceSnapshot,
   MssqlHeapPressureRow,
   MssqlIndexFragmentationRow,
+  MssqlMissingIndexRow,
 } from './mssql-depth';
+export { runMssqlExplain } from './mssql-explain';
+export type { MssqlPlanCapture } from './mssql-explain';
 export {
   ForeignProcedureTracker,
   sampleForeignProcedures,
@@ -76,6 +83,8 @@ import { REDIS_COLLECTORS } from './redis';
 import { ORACLE_COLLECTORS } from './oracle';
 import { CASSANDRA_COLLECTORS } from './cassandra';
 import { ELASTICSEARCH_COLLECTORS } from './elasticsearch';
+import { KAFKA_COLLECTORS, CDC_COLLECTORS } from '../kafka/collectors';
+import { AIRFLOW_COLLECTORS } from '../airflow/collectors';
 import type { ForeignCaps, ForeignCollector } from './types';
 
 export function foreignCollectorsFor(caps: ForeignCaps, tier?: string): ForeignCollector[] {
@@ -87,6 +96,9 @@ export function foreignCollectorsFor(caps: ForeignCaps, tier?: string): ForeignC
     oracle: ORACLE_COLLECTORS,
     cassandra: CASSANDRA_COLLECTORS,
     elasticsearch: ELASTICSEARCH_COLLECTORS,
+    kafka: KAFKA_COLLECTORS,
+    airflow: AIRFLOW_COLLECTORS,
+    cdc: CDC_COLLECTORS,
   };
   const lista =
     caps.engine === 'postgres' || caps.engine === 'endpoint' || caps.engine === 'infra'

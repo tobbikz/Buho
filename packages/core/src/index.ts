@@ -6,7 +6,40 @@ export type {
   Sample,
   StatStatementsState,
   Tier,
+  KafkaInstanceConfig,
+  AirflowInstanceConfig,
+  CdcInstanceConfig,
+  ActionsInstanceConfig,
+  BackupInstanceConfig,
+  DatahubInstanceConfig,
 } from './types';
+export { KAFKA_COLLECTORS, CDC_COLLECTORS } from './kafka/collectors';
+export { AIRFLOW_COLLECTORS } from './airflow/collectors';
+export {
+  runAction,
+  killPostgresSession,
+  cancelPostgresQuery,
+  pauseAirflowDag,
+} from './actions';
+export type { ActionKind, ActionRequest, ActionResult } from './actions';
+export { emitInstanceToDatahub, datahubBrowseUrl } from './datahub/emitter';
+export type { DatahubEmitResult } from './datahub/emitter';
+export {
+  evaluateRpo,
+  runRestoreDrill,
+  runRestoreDrillStub,
+} from './backup/monitor';
+export type {
+  BackupEvidenceRow,
+  RpoEvaluation,
+  RestoreDrillSpec,
+  RestoreDrillResult,
+} from './backup/monitor';
+export { waitClassOf, correlateWaitsWithSql } from './waits/taxonomy';
+export { fingerprintPlan, fingerprintPlanText } from './waits/fingerprint';
+export { detectPlanRegression } from './waits/plan-regression';
+export type { PlanRegression } from './waits/plan-regression';
+export type { WaitClass, WaitShareRow, SqlBlameRow } from './waits/taxonomy';
 export { APPLICATION_NAME, createPool, instanceKey } from './pool';
 export type { PoolOptions } from './pool';
 export { capabilityWarnings, probeCapabilities } from './capabilities';
@@ -112,7 +145,9 @@ export {
   sampleOracleIndexes,
   sampleMssqlIndexes,
   sampleMssqlMaintenance,
+  sampleMssqlMissingIndexes,
   runMariadbExplain,
+  runMssqlExplain,
   ForeignProcedureTracker,
   sampleForeignProcedures,
   sampleMssqlCatalog,

@@ -11,6 +11,7 @@
   "dependencies": {
     "@elastic/elasticsearch": "^9.5.1",
     "cassandra-driver": "^4.9.0",
+    "kafkajs": "^2.2.4",
     "mongodb": "^6.21.0",
     "mssql": "^12.7.0",
     "mysql2": "^3.24.2",

@@ -84,6 +84,16 @@ Exit codes: `0` clean · `1` warnings · `2` critical · `3` connection error. S
 - **Hosts** — PRTG-style device → sensors (SNMP, process, WinRM, traps, discovery map)
 - **Unified alerts** — DB checks and observability signals in one plane
 
+### Deep Platform (Kafka / Airflow / DPA / actions / compliance)
+
+- **Kafka + CDC** — broker/topic health, under-replicated partitions, consumer lag; DataSync health overlay (`engine: cdc`)
+- **Airflow** — REST health, DAG import errors, pool saturation; optional gated pause/unpause
+- **DPA-depth waits** — wait-class rollups + plan fingerprint store for regress work
+- **Gated actions** — kill/cancel session (dedicated role); audit trail
+- **Backup posture** — RPO estate + restore-drill catalog (storage agent rolling out)
+- **CIS packs** — PostgreSQL / SQL Server scorecards; DataHub soft emit
+- Details: [`DEEP_PLATFORM.md`](DEEP_PLATFORM.md)
+
 ### Operations
 
 - Least-privilege monitor users (`sql/monitor-user*.sql`)

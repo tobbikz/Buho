@@ -111,6 +111,8 @@ import { REDIS_CHECKS } from './redis';
 import { ORACLE_CHECKS } from './oracle';
 import { CASSANDRA_CHECKS } from './cassandra';
 import { ELASTICSEARCH_CHECKS } from './elasticsearch';
+import { KAFKA_CHECKS, CDC_CHECKS } from './kafka';
+import { AIRFLOW_CHECKS } from './airflow';
 import type { ForeignCheckDefinition } from './mariadb';
 
 export { MARIADB_CHECKS } from './mariadb';
@@ -125,6 +127,15 @@ export {
 } from './oracle';
 export { CASSANDRA_CHECKS } from './cassandra';
 export { ELASTICSEARCH_CHECKS } from './elasticsearch';
+export { KAFKA_CHECKS, CDC_CHECKS } from './kafka';
+export { AIRFLOW_CHECKS } from './airflow';
+export {
+  runCompliancePack,
+  controlsForPack,
+  CIS_POSTGRES_CONTROLS,
+  CIS_MSSQL_CONTROLS,
+} from './compliance';
+export type { ComplianceControl, ComplianceRunResult, ComplianceVerdict } from './compliance';
 export {
   evaluateEndpointSamples,
   endpointHealthScore,
@@ -155,7 +166,13 @@ export async function runForeignChecks(client: EngineClient, caps: ForeignCaps):
                 ? CASSANDRA_CHECKS
                 : caps.engine === 'elasticsearch'
                   ? ELASTICSEARCH_CHECKS
-                  : [];
+                  : caps.engine === 'kafka'
+                    ? KAFKA_CHECKS
+                    : caps.engine === 'cdc'
+                      ? CDC_CHECKS
+                      : caps.engine === 'airflow'
+                        ? AIRFLOW_CHECKS
+                        : [];
 
   const results: CheckResult[] = [];
   const errors: CheckRunError[] = [];

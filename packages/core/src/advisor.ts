@@ -136,6 +136,45 @@ export function suggestIndexes(root: PlanNode, queryid: string | null): IndexSug
     const loops = node.actualLoops ?? 1;
     const devueltas = node.actualRows;
 
+    // Estimate-only Seq Scan with filter (no ANALYZE actuals): weaker signal.
+    if (
+      (node.type === 'Seq Scan' || node.type === 'Parallel Seq Scan') &&
+      node.filter &&
+      node.relation &&
+      removidas === null &&
+      (node.planRows ?? 0) >= MIN_ROWS_REMOVED
+    ) {
+      const columnas = columnsFromPredicate(node.filter);
+      if (columnas.length > 0) {
+        sugerencias.push({
+          kind: 'seq_scan_filtrado',
+          relation: node.relation,
+          columns: columnas,
+          ddl: ddlFor(node.relation, columnas),
+          reason:
+            `Estimated plan shows a sequential scan on ${node.relation} with a filter ` +
+            `(~${(node.planRows ?? 0).toLocaleString('en-US')} plan rows). ` +
+            'Run EXPLAIN ANALYZE to confirm discarded rows before creating an index.',
+          caveat:
+            'This suggestion comes from an estimated plan (auto-plans / GENERIC_PLAN). ' +
+            'Confirm with ANALYZE and check existing indexes / stale statistics first.',
+          wastedRows: node.planRows ?? 0,
+          observedMs: 0,
+          evidence: [
+            {
+              queryid,
+              nodeType: node.type,
+              predicate: node.filter,
+              rowsRemoved: null,
+              rowsReturned: null,
+              loops: null,
+              selfMs: null,
+            },
+          ],
+        });
+      }
+    }
+
     // ---------------------------------------------------- secuencial filtrado
     if (
       (node.type === 'Seq Scan' || node.type === 'Parallel Seq Scan') &&

@@ -217,7 +217,65 @@ export async function probeForeign(client: EngineClient): Promise<ForeignCaps> {
   if (client.kind === 'oracle') return probeOracle(client);
   if (client.kind === 'cassandra') return probeCassandra(client);
   if (client.kind === 'elasticsearch') return probeElasticsearch(client);
+  if (client.kind === 'kafka' || client.kind === 'cdc') return probeKafka(client);
+  if (client.kind === 'airflow') return probeAirflow(client);
   throw new Error(`probeForeign no aplica a ${client.kind}`);
+}
+
+async function probeKafka(client: EngineClient): Promise<ForeignCaps> {
+  if (!client.command) throw new Error('cliente Kafka sin command()');
+  const cluster = await client.command({ kafka: 'describeCluster' });
+  const brokers = Array.isArray(cluster['brokers']) ? cluster['brokers'] : [];
+  const limitations: string[] = [];
+  if (brokers.length < 3) {
+    limitations.push('Fewer than 3 brokers — RF=3 topics cannot be fully fault-tolerant.');
+  }
+  return {
+    engine: client.kind,
+    versionText: String(cluster['clusterId'] ?? 'kafka'),
+    versionNum: 0,
+    flavor: client.kind === 'cdc' ? 'CDC/Kafka' : 'Kafka',
+    startedAt: null,
+    serverName: String(
+      (brokers[0] as { host?: string } | undefined)?.host ?? 'kafka',
+    ),
+    role: 'primary',
+    features: {
+      statementDigests: false,
+      lockWaits: false,
+      seesAllSessions: false,
+      queryStore: false,
+      alwaysOn: brokers.length > 1,
+      slowLog: false,
+      binlog: false,
+    },
+    limitations,
+  };
+}
+
+async function probeAirflow(client: EngineClient): Promise<ForeignCaps> {
+  if (!client.command) throw new Error('cliente Airflow sin command()');
+  const health = await client.command({ airflow: 'health' });
+  const ok = health['ok'] !== false;
+  return {
+    engine: 'airflow',
+    versionText: 'airflow-rest',
+    versionNum: 0,
+    flavor: 'Airflow',
+    startedAt: null,
+    serverName: 'airflow',
+    role: 'primary',
+    features: {
+      statementDigests: false,
+      lockWaits: false,
+      seesAllSessions: false,
+      queryStore: false,
+      alwaysOn: false,
+      slowLog: false,
+      binlog: false,
+    },
+    limitations: ok ? [] : ['Airflow health endpoint unhealthy or unreachable'],
+  };
 }
 
 async function probeMongodb(client: EngineClient): Promise<ForeignCaps> {

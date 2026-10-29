@@ -23,6 +23,21 @@ const FLEET_LINKS_BASE = [
   { href: '/report', label: 'Report', match: (path: string) => path.startsWith('/report') },
   { href: '/estate', label: 'Estate', match: (path: string) => path.startsWith('/estate') },
   {
+    href: '/platform/kafka',
+    label: 'Kafka',
+    match: (path: string) => path.startsWith('/platform/kafka') || path.startsWith('/platform/cdc'),
+  },
+  {
+    href: '/platform/airflow',
+    label: 'Airflow',
+    match: (path: string) => path.startsWith('/platform/airflow'),
+  },
+  {
+    href: '/platform/compliance',
+    label: 'Compliance',
+    match: (path: string) => path.startsWith('/platform/compliance'),
+  },
+  {
     href: '/cluster',
     label: 'Cluster',
     match: (path: string) => path.startsWith('/cluster'),

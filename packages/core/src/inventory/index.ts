@@ -41,6 +41,12 @@ export async function collectInventory(client: EngineClient): Promise<InventoryS
       throw new Error(
         'collectInventory() no aplica a engine=infra — los dispositivos usan @buho/sensors, no inventario SQL.',
       );
+    case 'kafka':
+    case 'airflow':
+    case 'cdc':
+      throw new Error(
+        `collectInventory() no aplica a engine=${client.kind} — usa colectores/checks del Deep Platform.`,
+      );
     default: {
       const _exhaustive: never = client.kind;
       throw new Error(`collectInventory() motor no soportado: ${String(_exhaustive)}`);

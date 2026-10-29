@@ -1,0 +1,131 @@
+# Búho Deep Platform
+
+Expands Búho beyond SQL + probes into **Kafka/CDC**, **Airflow**, **DPA-depth waits**, **gated actions**, **backup monitor→drills→storage**, **CIS compliance**, and **DataHub** hooks.
+
+## New engines
+
+| Engine | Port default | Config extras |
+|--------|--------------|---------------|
+| `kafka` | 9092 | `kafka.brokers`, `kafka.consumerGroups`, optional SASL |
+| `cdc` | 9092 | `cdc.topics`, `cdc.applyGroups`, `cdc.datasyncHealthUrl` |
+| `airflow` | 8080 | `airflow.baseUrl`, `airflow.username/password`, API v2→v1 fallback |
+
+Example (file-based lab instance):
+
+```json
+{
+  "alias": "kafka-prod",
+  "engine": "kafka",
+  "host": "kafka.example",
+  "port": 9092,
+  "database": "",
+  "user": "",
+  "kafka": {
+    "brokers": ["kafka.example:9092"],
+    "consumerGroups": ["datasync-apply"]
+  }
+}
+```
+
+```json
+{
+  "alias": "airflow-prod",
+  "engine": "airflow",
+  "host": "airflow.example",
+  "port": 8080,
+  "database": "",
+  "user": "monitor",
+  "password": "…",
+  "airflow": { "baseUrl": "https://airflow.example", "apiVersion": "v2" }
+}
+```
+
+## Console routes
+
+- `/platform/kafka` — Kafka/CDC fleet lag & under-replicated
+- `/platform/airflow` — DAG / health / import errors
+- `/platform/compliance` — latest CIS pack scores
+- `POST /api/actions` — gated kill/cancel/pause DAG (requires `actions.enabled`)
+- `POST /api/compliance/run` — `{ "alias", "pack": "cis-postgres"|"cis-mssql" }`
+
+## Machine API + MCP (agents)
+
+Bearer token auth (`BUHO_API_TOKEN`, min 16 chars). Proxy skips cookie login for `/api/v1/*`.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/api/v1/fleet` | Fleet + scores |
+| GET | `/api/v1/instances/:alias` | One instance |
+| GET | `/api/v1/instances/:alias/metrics?names=` | Latest samples (15m) |
+| GET | `/api/v1/instances/:alias/checks` | Latest checks (24h) |
+| GET | `/api/v1/alerts` | Open alerts |
+| GET | `/api/v1/compliance/latest` | CIS/STIG scores |
+| POST | `/api/v1/compliance/run` | Needs `BUHO_API_ALLOW_WRITE=true` |
+| POST | `/api/v1/actions` | Needs write flag + `actions.enabled` |
+
+MCP package `@buho/mcp` (`npm run mcp` / `tsx apps/mcp/src/main.ts`):
+
+- Read (store): `buho_health`, `buho_list_fleet`, `buho_get_instance`, `buho_get_metrics`, `buho_list_alerts`, `buho_latest_checks`, `buho_compliance_latest`, `buho_platform_summary`
+- Write (opt-in): `buho_run_compliance`, `buho_run_action` — need `BUHO_MCP_ALLOW_WRITE=true` + `BUHO_WEB_URL` + `BUHO_API_TOKEN`
+
+Cursor `mcp.json` example:
+
+```json
+"buho": {
+  "command": "C:\\Program Files\\nodejs\\npx.cmd",
+  "args": ["tsx", "C:/Users/tomy.b/Documents/buho-monitor/apps/mcp/src/main.ts"],
+  "env": {
+    "BUHO_STORE_URL": "postgres://buho:buho@127.0.0.1:55432/buho",
+    "BUHO_MCP_ALLOW_WRITE": "false"
+  }
+}
+```
+
+## Store tables
+
+`wait_class_samples`, `plan_fingerprints`, `action_audit`, `backup_jobs`, `backup_artifacts`, `restore_drills`, `compliance_runs`, `lineage_sync_state`.
+
+Run `npm run migrate` after pull.
+
+## Pricing units (Deep Platform)
+
+A **billable server** additionally includes:
+
+- One Kafka **cluster** (bootstrap set), regardless of broker count
+- One Airflow **deployment** (one REST base URL)
+- One CDC overlay counts as the Kafka cluster it rides on (not double-billed if same brokers)
+
+## Safety
+
+Destructive actions default **off**. Enable per instance:
+
+```json
+"actions": {
+  "enabled": true,
+  "allowKillSession": true,
+  "allowCancelQuery": true,
+  "allowAirflowDagPause": false
+}
+```
+
+Use a dedicated action DB role — see `sql/monitor-user-notes-deep-platform.sql`.
+
+## Workstream status
+
+| Stream | Status in tree |
+|--------|----------------|
+| M0 foundation | EngineKind + schema + stubs |
+| W1 Kafka/CDC | Collectors + checks + UI |
+| W2 Airflow | Collectors + checks + UI + pause action |
+| W3 DPA depth | wait_class **% time** + timeline; dense bursts; auto-plans PG/Maria/MSSQL + regression; Blame: waits→SQL→plan, blocking chain (+ cancel/kill), plan history, IndexAdvisorLite, vacuum risk (PG); Queries: **PlanFingerprintDiff**; MSSQL missing-index DMV; `scripts/dpa-lab-smoke.ts` |
+| W4 Actions | `runAction` + `/api/actions` + `action_audit` |
+| W5 Backups | RPO + **logical restore drill agent** (schema probe) + artifacts |
+| W6 Compliance | CIS PG/MSSQL packs + API + UI |
+| W7 DataHub | Platform + dataset ingest; `lineage_sync_state` with URN |
+| Advisors / baselines | `suggestIndexes` on EXPLAIN **and estimate/generic auto-plans** (`recordAutoPlan`); anomaly loop vs `metric_baselines` p90 |
+
+### DPA deep (collector)
+
+- **Dense waits**: when blocked sessions or query >5s, collector takes 5 extra snapshots ~2s apart (PG + foreign engines).
+- **Auto-plans**: top statements → EXPLAIN estimate/generic (PG), EXPLAIN JSON (Maria), cached plan XML (MSSQL `dm_exec_query_plan`); fingerprints + optional `plan_requests` rows for the advisor.
+- **MSSQL**: no `SET SHOWPLAN` on shared pools — cache XML only, shape fingerprint fallback.

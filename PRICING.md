@@ -24,6 +24,16 @@ The earlier internal sketch ($15–25/instance/mo) undercut the market so hard i
 
 One **database host** (host+port), regardless of how many databases Búho monitors on it. Two aliases on the same PostgreSQL cluster count as **one** server for licensing.
 
+**Deep Platform units** (same Pro/Fleet price per unit):
+
+| Unit | Counts as |
+|------|-----------|
+| SQL engine host+port | 1 server |
+| Kafka **cluster** (one bootstrap set) | 1 server |
+| Airflow **deployment** (one REST base URL) | 1 server |
+| CDC overlay on an already-licensed Kafka cluster | **0** extra (same brokers) |
+| Endpoint / infra probe hosts | unchanged (existing probe rules) |
+
 ## Commercial license
 
 Production use is under **Business Source License 1.1** (`LICENSE`). Offering Búho as a competing hosted monitoring SaaS requires a separate commercial agreement with IKZ Technologies.

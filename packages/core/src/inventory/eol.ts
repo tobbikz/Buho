@@ -70,6 +70,9 @@ const EOL: Record<EngineKind, Record<string, string>> = {
   },
   endpoint: {},
   infra: {},
+  kafka: {},
+  airflow: {},
+  cdc: {},
 };
 
 const PRODUCT_NAME: Record<string, string> = {

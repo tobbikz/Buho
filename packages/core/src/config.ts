@@ -93,7 +93,21 @@ export async function loadConfig(path = process.env['BUHO_CONFIG'] ?? 'config.js
   // hablar PostgreSQL con un SQL Server.
   // Database monitors: PG / MSSQL / MariaDB / Oracle.
   // `endpoint` = Observability probes · `infra` = Hosts sensors (PRTG / Halcón).
-  const engines = new Set(['postgres', 'mariadb', 'mssql', 'oracle', 'endpoint', 'infra']);
+  const engines = new Set([
+    'postgres',
+    'mariadb',
+    'mssql',
+    'mongodb',
+    'redis',
+    'oracle',
+    'cassandra',
+    'elasticsearch',
+    'endpoint',
+    'infra',
+    'kafka',
+    'airflow',
+    'cdc',
+  ]);
   for (const instance of instances) {
     const engine = instance.engine ?? 'postgres';
     if (!engines.has(engine)) {

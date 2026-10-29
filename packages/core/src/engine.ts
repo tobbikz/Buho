@@ -29,7 +29,13 @@ export type EngineKind =
   | 'elasticsearch'
   | 'endpoint'
   /** PRTG-class device + sensors (Halcón runtime → @buho/sensors). */
-  | 'infra';
+  | 'infra'
+  /** Apache Kafka brokers (Admin API + consumer lag). */
+  | 'kafka'
+  /** Airflow REST orchestrator. */
+  | 'airflow'
+  /** CDC overlay (DataSync-class): Kafka + apply/source watermarks. */
+  | 'cdc';
 
 export const ENGINE_LABEL: Record<EngineKind, string> = {
   postgres: 'PostgreSQL',
@@ -42,6 +48,9 @@ export const ENGINE_LABEL: Record<EngineKind, string> = {
   elasticsearch: 'Elasticsearch',
   endpoint: 'Endpoint',
   infra: 'Infra',
+  kafka: 'Kafka',
+  airflow: 'Airflow',
+  cdc: 'CDC',
 };
 
 export const DEFAULT_PORT: Record<EngineKind, number> = {
@@ -55,6 +64,9 @@ export const DEFAULT_PORT: Record<EngineKind, number> = {
   elasticsearch: 9200,
   endpoint: 443,
   infra: 0,
+  kafka: 9092,
+  airflow: 8080,
+  cdc: 9092,
 };
 
 /**
@@ -321,6 +333,22 @@ export async function openEngine(
       requestTimeout: statementTimeout,
     });
     return new ElasticsearchClient(client as never);
+  }
+
+  if (kind === 'kafka' || kind === 'cdc') {
+    const { createKafkaHandle } = await import('./kafka/client');
+    const handle = await createKafkaHandle(instance, connectTimeout);
+    return new KafkaEngineClient(kind, handle);
+  }
+
+  if (kind === 'airflow') {
+    const { createAirflowHandle } = await import('./airflow/client');
+    const handle = createAirflowHandle(instance, connectTimeout);
+    return new AirflowEngineClient(handle);
+  }
+
+  if (kind !== 'mssql') {
+    throw new Error(`openEngine: motor no soportado: ${kind}`);
   }
 
   // `mssql` es CommonJS: bajo import() dinámico sus exportaciones quedan en
@@ -623,5 +651,64 @@ class ElasticsearchClient implements EngineClient {
 
   async close(): Promise<void> {
     await this.client.close();
+  }
+}
+
+/** Kafka / CDC — JSON commands via kafkajs Admin (+ optional HTTP health for CDC). */
+class KafkaEngineClient implements EngineClient {
+  readonly kind: 'kafka' | 'cdc';
+
+  constructor(
+    kind: 'kafka' | 'cdc',
+    private readonly handle: {
+      command: (cmd: Record<string, unknown>) => Promise<Record<string, unknown>>;
+      close: () => Promise<void>;
+    },
+  ) {
+    this.kind = kind;
+  }
+
+  async query(sql: string): Promise<Record<string, unknown>[]> {
+    const trimmed = sql.trim();
+    if (!trimmed.startsWith('{')) {
+      throw new Error('Kafka/CDC no acepta SQL; pasar un documento JSON');
+    }
+    return [await this.command(JSON.parse(trimmed) as Record<string, unknown>)];
+  }
+
+  async command(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.handle.command(cmd);
+  }
+
+  async close(): Promise<void> {
+    await this.handle.close();
+  }
+}
+
+/** Airflow REST — JSON commands. */
+class AirflowEngineClient implements EngineClient {
+  readonly kind = 'airflow' as const;
+
+  constructor(
+    private readonly handle: {
+      command: (cmd: Record<string, unknown>) => Promise<Record<string, unknown>>;
+      close: () => Promise<void>;
+    },
+  ) {}
+
+  async query(sql: string): Promise<Record<string, unknown>[]> {
+    const trimmed = sql.trim();
+    if (!trimmed.startsWith('{')) {
+      throw new Error('Airflow no acepta SQL; pasar un documento JSON');
+    }
+    return [await this.command(JSON.parse(trimmed) as Record<string, unknown>)];
+  }
+
+  async command(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.handle.command(cmd);
+  }
+
+  async close(): Promise<void> {
+    await this.handle.close();
   }
 }
