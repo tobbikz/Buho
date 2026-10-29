@@ -744,6 +744,11 @@ function startSessionLoop(instance: InstanceConfig, instanceId: number, pool: Po
                 detail: burst.detail,
               });
             }
+          } catch (error) {
+            log(
+              'warn',
+              `${instance.alias}/sesiones dense: ${error instanceof Error ? error.message : error}`,
+            );
           } finally {
             denseBurst = false;
           }
@@ -944,6 +949,11 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
                 detail: burst.detail,
               });
             }
+          } catch (error) {
+            log(
+              'warn',
+              `${instance.alias}/sesiones dense: ${error instanceof Error ? error.message : error}`,
+            );
           } finally {
             denseBurst = false;
           }

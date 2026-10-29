@@ -198,7 +198,12 @@ export class Store {
       application_name: 'buho_store',
       max: Number.isFinite(poolMax) && poolMax >= 8 ? Math.floor(poolMax) : 24,
       connectionTimeoutMillis: 10_000,
+      idleTimeoutMillis: 30_000,
       options: `-c timezone=${storeTimeZone()}`,
+    });
+    // Idle client errors must not crash the collector process.
+    this.pool.on('error', (err) => {
+      console.error(`[buho_store] pool error: ${err.message}`);
     });
   }
 
