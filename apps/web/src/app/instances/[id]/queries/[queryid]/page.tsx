@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import { PollWhilePending } from '@/components/PollWhilePending';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { PlanFingerprintDiff } from '@/components/PlanFingerprintDiff';
+import { QueryLoadTimeline } from '@/components/QueryLoadTimeline';
 import { PlanTree } from '@/components/PlanTree';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
@@ -260,6 +261,7 @@ export default async function QueryPlanPage({
         <InstanceTabs instanceId={instanceId} engine={instance.engine} />
 
         <PlanFingerprintDiff instanceId={instanceId} queryid={queryid} />
+        <QueryLoadTimeline instanceId={instanceId} queryid={queryid} />
 
         {summary ? (
           <div className="stat-grid">

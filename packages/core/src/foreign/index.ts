@@ -63,6 +63,8 @@ export type {
 } from './mssql-depth';
 export { runMssqlExplain } from './mssql-explain';
 export type { MssqlPlanCapture } from './mssql-explain';
+export { runOracleExplain } from './oracle-explain';
+export type { OraclePlanCapture } from './oracle-explain';
 export {
   ForeignProcedureTracker,
   sampleForeignProcedures,

@@ -1964,3 +1964,18 @@ create table if not exists buho.lineage_sync_state (
   last_urn     text,
   updated_at   timestamptz not null default now()
 );
+
+-- DDL capture for change ↔ plan_regression correlation (DBA deep)
+create table if not exists buho.ddl_events (
+  ddl_id       bigint generated always as identity primary key,
+  instance_id  bigint      not null references buho.instances (instance_id) on delete cascade,
+  at           timestamptz not null default now(),
+  command_tag  text        not null,
+  object_name  text,
+  sql          text,
+  username     text,
+  database     text
+);
+
+create index if not exists ddl_events_lookup
+  on buho.ddl_events (instance_id, at desc);

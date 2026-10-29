@@ -6,6 +6,14 @@ import type { ComplianceControl, ComplianceRunResult } from './types';
 export type { ComplianceControl, ComplianceRunResult, ComplianceVerdict } from './types';
 export { CIS_POSTGRES_CONTROLS } from './cis-postgres';
 export { CIS_MSSQL_CONTROLS } from './cis-mssql';
+export {
+  CIS_DRIFT_CHECK_ID,
+  CIS_DRIFT_TITLE,
+  cisDriftCheckResults,
+  evaluateCisDrift,
+  type ComplianceRunSnapshot,
+  type CisDriftOptions,
+} from './drift';
 
 export function controlsForPack(
   pack: 'cis-postgres' | 'cis-mssql' | 'stig-postgres',

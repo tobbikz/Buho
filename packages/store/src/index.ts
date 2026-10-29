@@ -2245,6 +2245,76 @@ export class Store {
     }));
   }
 
+  async saveDdlEvents(
+    instanceId: number,
+    events: Array<{
+      at?: Date;
+      commandTag: string;
+      objectName?: string | null;
+      sql?: string | null;
+      username?: string | null;
+      database?: string | null;
+    }>,
+  ): Promise<number> {
+    if (events.length === 0) return 0;
+    let n = 0;
+    for (const e of events) {
+      await this.pool.query(
+        `insert into buho.ddl_events
+           (instance_id, at, command_tag, object_name, sql, username, database)
+         values ($1, coalesce($2, now()), $3, $4, $5, $6, $7)`,
+        [
+          instanceId,
+          e.at ?? null,
+          e.commandTag,
+          e.objectName ?? null,
+          e.sql?.slice(0, 16_000) ?? null,
+          e.username ?? null,
+          e.database ?? null,
+        ],
+      );
+      n += 1;
+    }
+    return n;
+  }
+
+  async listRecentDdl(
+    instanceId: number,
+    hours = 24,
+    limit = 40,
+  ): Promise<
+    Array<{
+      at: Date;
+      commandTag: string;
+      objectName: string | null;
+      sql: string | null;
+      username: string | null;
+    }>
+  > {
+    const r = await this.pool.query<{
+      at: Date;
+      command_tag: string;
+      object_name: string | null;
+      sql: string | null;
+      username: string | null;
+    }>(
+      `select at, command_tag, object_name, sql, username
+         from buho.ddl_events
+        where instance_id = $1
+          and at > now() - ($2 || ' hours')::interval
+        order by at desc
+        limit $3`,
+      [instanceId, hours, limit],
+    );
+    return r.rows.map((row) => ({
+      at: row.at,
+      commandTag: row.command_tag,
+      objectName: row.object_name,
+      sql: row.sql,
+      username: row.username,
+    }));
+  }
+
   /**
    * Metrics above baseline p90 for current hour-of-week (DPA-style anomaly).
    * Requires `buho.build_baselines` to have run via maintenance.
@@ -3136,6 +3206,111 @@ export class Store {
       if (Number.isFinite(value)) out[row.metric] = value;
     }
     return out;
+  }
+
+  /** Hourly-ish series for capacity forecast (bucket = epoch ms). */
+  async metricSeries(
+    instanceId: number,
+    metrics: string[],
+    days = 14,
+  ): Promise<Record<string, Array<{ bucket: number; value: number }>>> {
+    const out: Record<string, Array<{ bucket: number; value: number }>> = {};
+    for (const m of metrics) out[m] = [];
+    if (metrics.length === 0) return out;
+    const result = await this.pool.query<{ metric: string; bucket: Date; value: number }>(
+      `select metric,
+              date_bin(interval '1 hour', ts, timestamptz '2000-01-01') as bucket,
+              avg(value)::float as value
+         from buho.metric_samples
+        where instance_id = $1
+          and metric = any($2::text[])
+          and ts > now() - ($3 || ' days')::interval
+          and labels = '{}'::jsonb
+        group by metric, 2
+        order by metric, 2`,
+      [instanceId, metrics, days],
+    );
+    for (const row of result.rows) {
+      const series = out[row.metric] ?? (out[row.metric] = []);
+      series.push({ bucket: row.bucket.getTime(), value: Number(row.value) });
+    }
+    return out;
+  }
+
+  async listBackupJobs(
+    instanceId: number,
+    limit = 20,
+  ): Promise<Array<{ kind: string; status: string; finishedAt: Date | null; startedAt: Date | null }>> {
+    const r = await this.pool.query<{
+      kind: string;
+      status: string;
+      finished_at: Date | null;
+      started_at: Date | null;
+    }>(
+      `select kind, status, finished_at, started_at
+         from buho.backup_jobs
+        where instance_id = $1
+        order by coalesce(finished_at, started_at) desc nulls last
+        limit $2`,
+      [instanceId, limit],
+    );
+    return r.rows.map((row) => ({
+      kind: row.kind,
+      status: row.status,
+      finishedAt: row.finished_at,
+      startedAt: row.started_at,
+    }));
+  }
+
+  async listComplianceRuns(
+    instanceId: number,
+    pack: string,
+    limit = 2,
+  ): Promise<Array<{ pack: string; score: number; ranAt: Date; results: unknown }>> {
+    const r = await this.pool.query<{
+      pack: string;
+      score: number;
+      ran_at: Date;
+      results: unknown;
+    }>(
+      `select pack, score, ran_at, results
+         from buho.compliance_runs
+        where instance_id = $1 and pack = $2
+        order by ran_at desc
+        limit $3`,
+      [instanceId, pack, limit],
+    );
+    return r.rows.map((row) => ({
+      pack: row.pack,
+      score: row.score,
+      ranAt: row.ran_at,
+      results: row.results,
+    }));
+  }
+
+  async listLatestBackupArtifacts(
+    instanceId: number,
+    limit = 5,
+  ): Promise<Array<{ artifactId: number; kind: string; path: string; sizeBytes: number | null }>> {
+    const r = await this.pool.query<{
+      artifact_id: string;
+      kind: string;
+      path: string;
+      size_bytes: number | null;
+    }>(
+      `select artifact_id::text, kind, path, size_bytes
+         from buho.backup_artifacts
+        where instance_id = $1
+        order by created_at desc nulls last
+        limit $2`,
+      [instanceId, limit],
+    );
+    return r.rows.map((row) => ({
+      artifactId: Number(row.artifact_id),
+      kind: row.kind,
+      path: row.path,
+      sizeBytes: row.size_bytes,
+    }));
   }
 
   async upsertAlertChannel(input: {

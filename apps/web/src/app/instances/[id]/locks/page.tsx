@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
+import { BlockingTreePanel } from '@/components/BlockingTreePanel';
 import { InstanceTabs } from '@/components/InstanceTabs';
+import { WhoHoldsLocks } from '@/components/WhoHoldsLocks';
 import { PollWhilePending } from '@/components/PollWhilePending';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
@@ -293,6 +295,11 @@ export default async function LocksPage({
             height={150}
             series={[{ metric: 'max_blocked_seconds', label: 'Max wait', color: '#9a4a00' }]}
           />
+        </div>
+
+        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+          <BlockingTreePanel instanceId={instanceId} hours={24} />
+          <WhoHoldsLocks instanceId={instanceId} hours={24} />
         </div>
 
         <section className="panel">

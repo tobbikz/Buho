@@ -137,6 +137,31 @@ export {
 } from './compliance';
 export type { ComplianceControl, ComplianceRunResult, ComplianceVerdict } from './compliance';
 export {
+  CIS_DRIFT_CHECK_ID,
+  cisDriftCheckResults,
+  evaluateCisDrift,
+  type ComplianceRunSnapshot,
+} from './compliance';
+export {
+  findingsFromSecuritySnapshot,
+  securityPrivilegeCheckResults,
+  PRIVILEGE_SUPERUSER_SPRAWL,
+  PRIVILEGE_NOLOGIN_MISSING,
+  PRIVILEGE_WILDCARD_HOST,
+  type SecuritySnapshot,
+} from './security-privileges';
+export {
+  INTEGRITY_PROBE_SQL,
+  INTEGRITY_INVALID_INDEX,
+  INTEGRITY_FK_ORPHAN,
+  fkOrphanProbeSql,
+  buildInvalidIndexFindings,
+  buildFkOrphanFindings,
+  integrityCheckResults,
+  type FkOrphanProbe,
+  type IntegrityProbeRow,
+} from './integrity';
+export {
   evaluateEndpointSamples,
   endpointHealthScore,
 } from './endpoint';
@@ -221,3 +246,39 @@ export {
   type PackItemMeta,
   type PackThresholds,
 } from './alert-pack';
+
+export {
+  HA_LAG_METRIC_CANDIDATES,
+  defaultHaReplicationSlo,
+  evaluateHaReplicationMetrics,
+  evaluateHaReplicationSamples,
+  type HaReplicationSlo,
+} from './ha-replication';
+
+export {
+  backupJobsToEvidence,
+  evaluateBackupRpoFindings,
+  evaluateRpo,
+  type BackupJobRow,
+  type BackupEvidenceRow,
+  type RpoEvaluation,
+} from './backup-rpo';
+
+/** DBA depth checks (snapshot / metric series in — findings out). Wired by collector, not SQL catalog. */
+export {
+  evaluateVacuumSla,
+  evaluateVacuumOverdue,
+  evaluateVacuumMaintenance,
+  type VacuumSlaInput,
+  type VacuumTableRow,
+  type VacuumOverdueOptions,
+} from './vacuum-sla';
+export {
+  evaluateCapacityGrowth,
+  type MetricTimeSample,
+  type CapacityGrowthOptions,
+} from './capacity-forecast';
+export {
+  evaluateMssqlFragmentation,
+  type MssqlFragOptions,
+} from './mssql-frag';

@@ -41,6 +41,16 @@
       "user": "admin",
       "password": "admin",
       "airflow": { "baseUrl": "http://127.0.0.1:8080", "apiVersion": "v2" }
+    },
+    {
+      "alias": "mssql-lab",
+      "engine": "mssql",
+      "host": "127.0.0.1",
+      "port": 1433,
+      "database": "master",
+      "user": "sa",
+      "password": "Buho_Mssql_Lab1!"
     }
-  ]
+  ],
+  "_comment_mssql_lab_password": "Match docker-compose.mssql-lab.yml: set MSSQL_SA_PASSWORD in the shell or use the default above; do not commit real passwords."
 }

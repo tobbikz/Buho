@@ -17,6 +17,16 @@ import {
   alertPackMetricNames,
   evaluateEndpointSamples,
   endpointHealthScore,
+  evaluateVacuumMaintenance,
+  evaluateMssqlFragmentation,
+  evaluateHaReplicationMetrics,
+  HA_LAG_METRIC_CANDIDATES,
+  evaluateCapacityGrowth,
+  evaluateBackupRpoFindings,
+  securityPrivilegeCheckResults,
+  cisDriftCheckResults,
+  INTEGRITY_PROBE_SQL,
+  integrityCheckResults,
 } from '@buho/checks';
 import {
   capabilityWarnings,
@@ -85,6 +95,8 @@ import {
   fingerprintPlanText,
   detectPlanRegression,
   runRestoreDrill,
+  runPhysicalRestoreDrill,
+  captureDdlEvents,
   suggestIndexes,
   statementKind,
   isReadOnly,
@@ -251,6 +263,12 @@ function startSecurityLoop(instance: InstanceConfig, instanceId: number, pool?: 
       const audit = await auditSecurity(client);
       await store.saveSecurity(instanceId, audit);
 
+      const privilegeFindings = securityPrivilegeCheckResults(audit.principals);
+      if (privilegeFindings.length > 0) {
+        await store.saveCheckResults(instanceId, privilegeFindings, 100);
+        await store.reconcileAlerts(instanceId, privilegeFindings);
+      }
+
       const critical = audit.findings.filter((finding) => finding.severity === 'critica');
       const high = audit.findings.filter((finding) => finding.severity === 'alta');
       const blind = audit.findings.filter((finding) => finding.severity === 'no_verificable');
@@ -259,7 +277,8 @@ function startSecurityLoop(instance: InstanceConfig, instanceId: number, pool?: 
         'info',
         `${instance.alias}/seguridad: postura ${audit.score}/100, ` +
           `${critical.length} crítica(s), ${high.length} alta(s), ` +
-          `${audit.verified}/${audit.total} comprobaciones verificadas`,
+          `${audit.verified}/${audit.total} comprobaciones verificadas` +
+          (privilegeFindings.length ? `, ${privilegeFindings.length} privilege finding(s)` : ''),
       );
 
       for (const finding of [...critical, ...high]) {
@@ -391,6 +410,28 @@ function startRestoreDrillLoop(
       bytes: result.bytes,
       message: result.message,
     });
+
+    // Physical drill stub: validate latest artifact presence (no real restore).
+    const arts = await store.listLatestBackupArtifacts(instanceId, 1);
+    if (arts[0]) {
+      const phys = await runPhysicalRestoreDrill({
+        instanceAlias: instance.alias,
+        artifactPath: arts[0].path,
+        artifactKind: arts[0].kind,
+        artifactId: arts[0].artifactId,
+        validatePresence: true,
+      });
+      await store.saveRestoreDrill({
+        instanceId,
+        artifactId: arts[0].artifactId,
+        ok: phys.ok,
+        durationMs: phys.durationMs,
+        bytes: phys.bytes,
+        message: phys.message,
+      });
+      log(phys.ok ? 'info' : 'warn', `${instance.alias}/physical-drill: ${phys.message}`);
+    }
+
     log(result.ok ? 'info' : 'warn', `${instance.alias}/restore-drill: ${result.message}`);
   });
 }
@@ -1090,9 +1131,15 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
     startLoop(`${instance.alias}/maintenance`, 15 * 60_000, async () => {
       const maintenance = await sampleMssqlMaintenance(client);
       await store.saveMssqlMaintenance(instanceId, maintenance);
+      const fragFindings = evaluateMssqlFragmentation(maintenance);
+      if (fragFindings.length > 0) {
+        await store.saveCheckResults(instanceId, fragFindings, 100);
+        await store.reconcileAlerts(instanceId, fragFindings);
+      }
       log(
         'info',
-        `${instance.alias}/maintenance: ${maintenance.heaps.length} heap(s), ${maintenance.fragmentation.length} índice(s) fragmentado(s)`,
+        `${instance.alias}/maintenance: ${maintenance.heaps.length} heap(s), ${maintenance.fragmentation.length} índice(s) fragmentado(s)` +
+          (fragFindings.length ? `, ${fragFindings.length} frag alert(s)` : ''),
       );
     });
   }
@@ -1160,7 +1207,46 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
         await store.latestMetrics(instanceId, alertPackMetricNames()),
         pack,
       );
-      const results = [...summary.results, ...custom.results, ...packFindings];
+      const haFindings = evaluateHaReplicationMetrics(
+        await store.latestMetrics(instanceId, [...HA_LAG_METRIC_CANDIDATES]),
+      );
+      const capacityFindings = evaluateCapacityGrowth(
+        await store.metricSeries(instanceId, ['connections_used_pct', 'database_size_bytes'], 14),
+      );
+      const rpoFindings = evaluateBackupRpoFindings(
+        await store.listBackupJobs(instanceId, 30),
+        instance.backup?.rpoSeconds ?? 86_400,
+      );
+      const cisPack = caps.engine === 'mssql' ? 'cis-mssql' : '';
+      const complianceRuns = cisPack
+        ? await store.listComplianceRuns(instanceId, cisPack, 2)
+        : [];
+      const cisFindings =
+        complianceRuns.length >= 1
+          ? cisDriftCheckResults(
+              {
+                pack: complianceRuns[0]!.pack,
+                score: complianceRuns[0]!.score,
+                ranAt: complianceRuns[0]!.ranAt,
+              },
+              complianceRuns[1]
+                ? {
+                    pack: complianceRuns[1].pack,
+                    score: complianceRuns[1].score,
+                    ranAt: complianceRuns[1].ranAt,
+                  }
+                : null,
+            )
+          : [];
+      const results = [
+        ...summary.results,
+        ...custom.results,
+        ...packFindings,
+        ...haFindings,
+        ...capacityFindings,
+        ...rpoFindings,
+        ...cisFindings,
+      ];
       const errors = [...summary.errors, ...custom.errors];
       const score = healthScore(results);
       await store.saveCheckResults(instanceId, results, score);
@@ -1402,13 +1488,20 @@ async function monitorInstance(instance: InstanceConfig): Promise<void> {
         await store.saveIndexes(instanceId, indexes);
       }
 
+      const vacFindings = evaluateVacuumMaintenance(snapshot.tables);
+      if (vacFindings.length > 0) {
+        await store.saveCheckResults(instanceId, vacFindings, 100);
+        await store.reconcileAlerts(instanceId, vacFindings);
+      }
+
       const running = snapshot.progress.length;
       const worst = snapshot.tables[0];
       log(
         'info',
         `${instance.alias}/vacuum: ${snapshot.tables.length} tabla(s)` +
           (running > 0 ? `, ${running} en curso` : '') +
-          (worst ? `, peor ${worst.schema}.${worst.table} con ${Math.round(worst.deadTuples)} muertas` : ''),
+          (worst ? `, peor ${worst.schema}.${worst.table} con ${Math.round(worst.deadTuples)} muertas` : '') +
+          (vacFindings.length ? `, ${vacFindings.length} SLA finding(s)` : ''),
       );
     });
 
@@ -1427,9 +1520,33 @@ async function monitorInstance(instance: InstanceConfig): Promise<void> {
 
       const written = await store.saveStatements(instanceId, deltas);
       const totalMs = deltas.reduce((sum, delta) => sum + delta.execMs, 0);
+
+      const ddlRaw = deltas
+        .filter((d) => /^\s*(create|alter|drop|truncate|comment)\b/i.test(d.query ?? ''))
+        .slice(0, 20)
+        .map((d) => ({
+          at: new Date(),
+          commandTag: (d.query ?? '').trim().split(/\s+/)[0]?.toUpperCase() ?? 'DDL',
+          sql: d.query,
+          object: undefined,
+        }));
+      if (ddlRaw.length > 0) {
+        const normalized = captureDdlEvents(ddlRaw);
+        await store.saveDdlEvents(
+          instanceId,
+          normalized.map((e) => ({
+            at: e.at,
+            commandTag: e.commandTag,
+            objectName: e.object || null,
+            sql: e.sql,
+          })),
+        );
+      }
+
       log(
         'info',
-        `${instance.alias}/statements: ${written} consulta(s) con actividad, ${totalMs.toFixed(0)} ms de ejecución`,
+        `${instance.alias}/statements: ${written} consulta(s) con actividad, ${totalMs.toFixed(0)} ms de ejecución` +
+          (ddlRaw.length ? `, ${ddlRaw.length} DDL` : ''),
       );
     });
 
@@ -1445,7 +1562,70 @@ async function monitorInstance(instance: InstanceConfig): Promise<void> {
         await store.latestMetrics(instanceId, alertPackMetricNames()),
         pack,
       );
-      const results = [...summary.results, ...custom.results, ...packFindings];
+
+      const haMetrics = await store.latestMetrics(instanceId, [
+        ...HA_LAG_METRIC_CANDIDATES,
+        'replication_slot_active',
+        'replication_slot_safe_wal_size_bytes',
+        'wal_buffers_full',
+        'replication_replay_paused',
+      ]);
+      const haFindings = evaluateHaReplicationMetrics(haMetrics);
+      const capacityFindings = evaluateCapacityGrowth(
+        await store.metricSeries(
+          instanceId,
+          ['connections_used_pct', 'database_size_bytes', 'pg_database_size_bytes'],
+          14,
+        ),
+      );
+      const rpoFindings = evaluateBackupRpoFindings(
+        await store.listBackupJobs(instanceId, 30),
+        instance.backup?.rpoSeconds ?? 86_400,
+      );
+
+      let integrityFindings: typeof summary.results = [];
+      try {
+        const invalid = await pool.query(tagged(INTEGRITY_PROBE_SQL.invalidIndexes));
+        integrityFindings = integrityCheckResults(
+          'invalid_index',
+          invalid.rows as Array<Record<string, unknown>>,
+        );
+      } catch (error) {
+        log(
+          'warn',
+          `${instance.alias}/checks integrity: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+
+      const complianceRuns = await store.listComplianceRuns(instanceId, 'cis-postgres', 2);
+      const cisFindings =
+        complianceRuns.length >= 1
+          ? cisDriftCheckResults(
+              {
+                pack: complianceRuns[0]!.pack,
+                score: complianceRuns[0]!.score,
+                ranAt: complianceRuns[0]!.ranAt,
+              },
+              complianceRuns[1]
+                ? {
+                    pack: complianceRuns[1].pack,
+                    score: complianceRuns[1].score,
+                    ranAt: complianceRuns[1].ranAt,
+                  }
+                : null,
+            )
+          : [];
+
+      const results = [
+        ...summary.results,
+        ...custom.results,
+        ...packFindings,
+        ...haFindings,
+        ...capacityFindings,
+        ...rpoFindings,
+        ...integrityFindings,
+        ...cisFindings,
+      ];
       const errors = [...summary.errors, ...custom.errors];
       const score = healthScore(results);
       await store.saveCheckResults(instanceId, results, score);

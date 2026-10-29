@@ -72,7 +72,7 @@ Exit codes: `0` clean · `1` warnings · `2` critical · `3` connection error. S
 - **Fleet overview** — health score, live vs posture, freshness per instance
 - **Instance deep dive** — sessions, locks, queries (analytical + live), replication, backups / RPO, capacity, indexes, vacuum / maintenance, host metrics, topology, blame
 - **Estate** — multi-engine inventory: backups, disk, jobs, replication, configuration, licensing, versions, RPO
-- **Checks & findings** — catalog with remediation; parity gate across PG / MSSQL / MariaDB / Oracle
+- **Checks & findings** — catalog with remediation; parity gate across PG / MSSQL / MariaDB / Oracle; depth runners (`evaluateVacuumMaintenance`, `evaluateCapacityGrowth`, `evaluateMssqlFragmentation`) for collector snapshots
 - **Security posture** — authentication, privileges, encryption, surface, audit (read-only; “not verifiable” is a first-class state)
 - **Weekly report** — Markdown export for the Monday email
 

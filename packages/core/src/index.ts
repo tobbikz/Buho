@@ -35,6 +35,8 @@ export type {
   RestoreDrillSpec,
   RestoreDrillResult,
 } from './backup/monitor';
+export { runPhysicalRestoreDrill } from './backup/physical-drill';
+export type { PhysicalDrillSpec, PhysicalDrillResult } from './backup/physical-drill';
 export { waitClassOf, correlateWaitsWithSql } from './waits/taxonomy';
 export { fingerprintPlan, fingerprintPlanText } from './waits/fingerprint';
 export { detectPlanRegression } from './waits/plan-regression';
@@ -50,6 +52,13 @@ export { HostTracker, readHostSnapshot, parseSnapshot } from './host';
 export type { HostConfig, HostSnapshot, HostSourceKind } from './host';
 export { sampleBlocking } from './blocking';
 export type { BlockedSession } from './blocking';
+export { buildBlockingTree, summarizeLockHolders, toBlockingTreeInput } from './locks/blocking-tree';
+export type {
+  BlockingTreeInput,
+  BlockingTreeNode,
+  BlockingTreeResult,
+  LockHolderSummary,
+} from './locks/blocking-tree';
 export { sampleStatements, StatementTracker } from './statements';
 export type { StatementDelta } from './statements';
 export { COLLECTORS, collectorsFor } from './collectors/index';
@@ -89,6 +98,8 @@ export { collectInventory } from './inventory';
 export type { InventorySnapshot, InventoryNote, InventoryDomain, EngineInfo, SettingRow, DiskObject, ReplicationRow, BackupRow, JobRow, LicensingRow } from './inventory';
 export { postgresClient } from './engine';
 export { auditSecurity, securityScore, CATEGORY_LABEL, SEVERITY_ORDER } from './security';
+export { captureDdlEvent, captureDdlEvents } from './ddl/capture';
+export type { NormalizedDdlEvent, RawDdlEvent } from './ddl/capture';
 export { discover, expandRange, isPrivateAddress, DEFAULT_PORTS } from './discovery';
 export { runExplain, analyzePlan, isReadOnly, statementKind, rewriteNormalizedPlaceholders } from './explain';
 export { sampleVacuum, vacuumSamples } from './vacuum';
@@ -148,6 +159,7 @@ export {
   sampleMssqlMissingIndexes,
   runMariadbExplain,
   runMssqlExplain,
+  runOracleExplain,
   ForeignProcedureTracker,
   sampleForeignProcedures,
   sampleMssqlCatalog,

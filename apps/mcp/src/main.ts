@@ -349,6 +349,143 @@ server.tool(
 );
 
 server.tool(
+  'buho_wait_blame',
+  'DPA wait → SQL blame for an alias: non-idle session samples joined to latest plan fingerprint (Store.listWaitSqlBlame).',
+  {
+    alias: z.string(),
+    minutes: z.number().int().min(5).max(10_080).optional().describe('Window in minutes (default 60)'),
+  },
+  async ({ alias, minutes }) => {
+    const hit = await resolveAlias(alias);
+    if (!hit) {
+      return { content: [{ type: 'text' as const, text: dumps({ error: 'not found', alias }) }], isError: true };
+    }
+    const store = new Store(STORE_URL!);
+    try {
+      const windowMinutes = minutes ?? 60;
+      const [classShare, blame] = await Promise.all([
+        store.listWaitClassShare(hit.instanceId, windowMinutes),
+        store.listWaitSqlBlame(hit.instanceId, windowMinutes),
+      ]);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: dumps({
+              alias,
+              instanceId: hit.instanceId,
+              windowMinutes,
+              waitClassShare: classShare,
+              blame,
+            }),
+          },
+        ],
+      };
+    } finally {
+      await store.close();
+    }
+  },
+);
+
+server.tool(
+  'buho_plan_fingerprints',
+  'Auto-plan fingerprint history for a queryid (Store.listPlanFingerprints).',
+  {
+    alias: z.string(),
+    queryid: z.number().int().positive(),
+    limit: z.number().int().min(1).max(50).optional(),
+  },
+  async ({ alias, queryid, limit }) => {
+    const hit = await resolveAlias(alias);
+    if (!hit) {
+      return { content: [{ type: 'text' as const, text: dumps({ error: 'not found', alias }) }], isError: true };
+    }
+    const store = new Store(STORE_URL!);
+    try {
+      const fingerprints = await store.listPlanFingerprints(hit.instanceId, queryid, limit ?? 20);
+      const distinctShapes = new Set(fingerprints.map((f) => f.fingerprint)).size;
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: dumps({
+              alias,
+              instanceId: hit.instanceId,
+              queryid,
+              distinctShapes,
+              count: fingerprints.length,
+              fingerprints,
+            }),
+          },
+        ],
+      };
+    } finally {
+      await store.close();
+    }
+  },
+);
+
+server.tool(
+  'buho_lock_episodes',
+  'Recent lock_episodes for an alias (blocker/waiter pairs, active flag).',
+  {
+    alias: z.string(),
+    hours: z.number().int().min(1).max(168).optional().describe('Lookback hours (default 24)'),
+    limit: z.number().int().min(1).max(200).optional(),
+  },
+  async ({ alias, hours, limit }) => {
+    const hit = await resolveAlias(alias);
+    if (!hit) {
+      return { content: [{ type: 'text' as const, text: dumps({ error: 'not found', alias }) }], isError: true };
+    }
+    const p = pool();
+    const lookback = hours ?? 24;
+    const cap = limit ?? 40;
+    try {
+      const [rows, counts] = await Promise.all([
+        p.query(
+          `select episode_id, waiter_pid, blocker_pid, blocker_pids, lock_object, lock_mode,
+                  wait_seconds, samples, first_seen_at, last_seen_at,
+                  waiter_query, blocker_query,
+                  last_seen_at > now() - interval '30 seconds' as active
+             from buho.lock_episodes
+            where instance_id = $1
+              and last_seen_at > now() - make_interval(hours => $2::int)
+            order by active desc, wait_seconds desc
+            limit $3`,
+          [hit.instanceId, lookback, cap],
+        ),
+        p.query<{ total: string; active: string }>(
+          `select count(*)::bigint as total,
+                  count(*) filter (where last_seen_at > now() - interval '30 seconds')::bigint as active
+             from buho.lock_episodes
+            where instance_id = $1
+              and last_seen_at > now() - make_interval(hours => $2::int)`,
+          [hit.instanceId, lookback],
+        ),
+      ]);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: dumps({
+              alias,
+              instanceId: hit.instanceId,
+              hours: lookback,
+              total: Number(counts.rows[0]?.total ?? 0),
+              active: Number(counts.rows[0]?.active ?? 0),
+              episodes: rows.rows,
+            }),
+          },
+        ],
+      };
+    } finally {
+      await p.end();
+    }
+  },
+);
+
+server.tool(
   'buho_run_compliance',
   'Run a CIS/STIG pack against an alias (WRITE). Needs BUHO_MCP_ALLOW_WRITE=true and BUHO_WEB_URL + BUHO_API_TOKEN.',
   {

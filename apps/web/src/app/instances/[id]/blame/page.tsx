@@ -11,11 +11,16 @@ import {
 } from '@/components/ProveRestore';
 import { StoreError } from '@/components/StoreError';
 import { Topbar } from '@/components/Topbar';
+import { BlamePlaybook } from '@/components/BlamePlaybook';
 import { BlockingChainLite } from '@/components/BlockingChainLite';
+import { BlockingTreePanel } from '@/components/BlockingTreePanel';
+import { WhoHoldsLocks } from '@/components/WhoHoldsLocks';
 import { IndexAdvisorLite } from '@/components/IndexAdvisorLite';
 import { PlanFingerprintHistory } from '@/components/PlanFingerprintHistory';
+import { HaSloPanel } from '@/components/HaSloPanel';
 import { VacuumRiskLite } from '@/components/VacuumRiskLite';
 import { WaitClassTimeline } from '@/components/WaitClassTimeline';
+import { DdlPlanCorrelate } from '@/components/DdlPlanCorrelate';
 import { WaitSqlPlanBlame } from '@/components/WaitSqlPlanBlame';
 import { ENGINE_LABEL, getInstanceEngine } from '@/lib/estate';
 import { getInstance } from '@/lib/queries';
@@ -100,6 +105,14 @@ export default async function BlamePage({
             windowMinutes={windowMinutes}
           />
 
+          <BlamePlaybook
+            instanceId={instanceId}
+            alias={instance.alias}
+            engine={motor}
+            windowMinutes={windowMinutes}
+            blockedSessions={instance.blockedSessions ?? 0}
+          />
+
           <WaitSqlPlanBlame instanceId={instanceId} windowMinutes={windowMinutes} />
 
           <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
@@ -113,14 +126,35 @@ export default async function BlamePage({
           </div>
 
           <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+            <BlockingTreePanel
+              instanceId={instanceId}
+              hours={Math.max(1, Math.round(windowMinutes / 60))}
+            />
+            <WhoHoldsLocks
+              instanceId={instanceId}
+              hours={Math.max(1, Math.round(windowMinutes / 60))}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
             <IndexAdvisorLite instanceId={instanceId} />
             <BaselineAnomalies instanceId={instanceId} />
           </div>
 
           <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
             <PlanFingerprintHistory instanceId={instanceId} windowMinutes={windowMinutes} />
-            {motor === 'postgres' ? <VacuumRiskLite instanceId={instanceId} /> : null}
+            <HaSloPanel instanceId={instanceId} windowMinutes={Math.min(windowMinutes, 60)} />
           </div>
+
+          {motor === 'postgres' ? (
+            <DdlPlanCorrelate instanceId={instanceId} windowMinutes={windowMinutes} />
+          ) : null}
+
+          {motor === 'postgres' ? (
+            <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+              <VacuumRiskLite instanceId={instanceId} />
+            </div>
+          ) : null}
 
           <DbaShield
             instanceId={instanceId}
@@ -132,7 +166,9 @@ export default async function BlamePage({
 
           <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
             <ChangeTimeline instanceId={instanceId} hours={24} limit={6} />
-            <ProveRestore items={instanceProveRestoreItems(instanceId)} compact />
+            <div id="prove-restore">
+              <ProveRestore items={instanceProveRestoreItems(instanceId)} compact />
+            </div>
           </div>
 
           <ApmBlameLite instanceId={instanceId} windowMinutes={windowMinutes} />
