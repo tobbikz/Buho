@@ -73,6 +73,19 @@ If the **collector container** reaches the lab over Docker DNS, set `"host": "ms
 
 **Windows / Docker:** use Docker Desktop with the **WSL2** backend and **Linux** containers; allocate at least ~2 GiB RAM to Docker. Port **1433** on `127.0.0.1` conflicts with a local SQL Server instance—stop the Windows service or change the host port mapping. Healthcheck uses `/opt/mssql-tools18/bin/sqlcmd` with `-C` (trust server cert). First boot can take 1–2 minutes before `healthy`.
 
+## Light platform lab (W1/W2)
+
+Redpanda (Kafka-compatible) + HTTP mocks for Airflow REST and DataSync health — no full Airflow/Kafka cluster.
+
+```bash
+docker network create buho_default   # once
+docker compose -f docker-compose.platform-lab.yml up -d
+npx tsx scripts/platform-lab-mocks.ts          # :18998 Airflow, :18999 DataSync health
+BUHO_CONFIG=config.platform-lab.json npx tsx scripts/platform-w12-smoke.ts
+```
+
+Collector: include those three instances in `BUHO_CONFIG` (or merge with `config.lab-core.json`). Kafka + CDC on the same brokers are both started (dedupe key is `engine:alias`).
+
 ## Console routes
 
 - `/platform/kafka` — Kafka/CDC fleet lag & under-replicated

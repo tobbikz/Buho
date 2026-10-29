@@ -1,0 +1,38 @@
+# Light Deep Platform lab: Redpanda (Kafka-compatible) on 127.0.0.1:19092.
+# Airflow + DataSync health mocks are Node processes — see scripts/platform-lab-mocks.ts.
+#
+#   docker network create buho_default   # once
+#   docker compose -f docker-compose.platform-lab.yml up -d
+#   npx tsx scripts/platform-lab-mocks.ts
+#   BUHO_CONFIG=config.platform-lab.json npx tsx scripts/platform-w12-smoke.ts
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.4
+    container_name: buho-redpanda
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 512M
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - INTERNAL://buho-redpanda:9092,EXTERNAL://127.0.0.1:19092
+    ports:
+      - "127.0.0.1:19092:19092"
+    networks:
+      - default
+
+networks:
+  default:
+    name: buho_default
+    external: true

@@ -1925,13 +1925,13 @@ async function ensureMonitors(): Promise<void> {
 
   for (const instance of byAlias.values()) {
     // Endpoints share host:port freely (many apps on :3100). Dedupe by alias.
+    // Kafka + CDC often share the same brokers — keep both (overlay vs cluster).
     // DB engines still dedupe by host:port/database (one collector per target DB).
+    const eng = engineOf(instance);
     const key =
-      engineOf(instance) === 'endpoint'
-        ? `endpoint:${instance.alias}`
-        : engineOf(instance) === 'infra'
-          ? `infra:${instance.alias}`
-          : instanceKey(instance);
+      eng === 'endpoint' || eng === 'infra' || eng === 'kafka' || eng === 'cdc' || eng === 'airflow'
+        ? `${eng}:${instance.alias}`
+        : instanceKey(instance);
     if (startedKeys.has(key)) continue;
     startedKeys.add(key);
     log('info', `${instance.alias}: starting monitor (${instance.engine ?? 'postgres'})`);
