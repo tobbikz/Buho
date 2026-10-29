@@ -50,7 +50,17 @@
       "database": "master",
       "user": "sa",
       "password": "Buho_Mssql_Lab1!"
+    },
+    {
+      "alias": "oracle-lab",
+      "engine": "oracle",
+      "host": "127.0.0.1",
+      "port": 1522,
+      "database": "FREEPDB1",
+      "user": "buho",
+      "password": "Buho_Oracle_Lab1!"
     }
   ],
-  "_comment_mssql_lab_password": "Match docker-compose.mssql-lab.yml: set MSSQL_SA_PASSWORD in the shell or use the default above; do not commit real passwords."
+  "_comment_mssql_lab_password": "Match docker-compose.mssql-lab.yml: set MSSQL_SA_PASSWORD in the shell or use the default above; do not commit real passwords.",
+  "_comment_oracle_lab": "docker compose -f docker-compose.oracle-lab.yml up -d — first start can take several minutes."
 }

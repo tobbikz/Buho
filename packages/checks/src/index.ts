@@ -155,6 +155,7 @@ export {
   INTEGRITY_INVALID_INDEX,
   INTEGRITY_FK_ORPHAN,
   fkOrphanProbeSql,
+  fkCatalogRowsToProbes,
   buildInvalidIndexFindings,
   buildFkOrphanFindings,
   integrityCheckResults,

@@ -129,7 +129,14 @@ docker compose -f docker-compose.mssql-lab.yml up -d
 
 ## Full DBA depth (10 aspects)
 
-Vacuum/wraparound SLA · capacity forecast · HA lag/slot SLO · backup RPO + physical drill stub · CIS drift · privilege sprawl · invalid indexes · DDL capture ↔ plan regression · blocking tree · Blame playbooks + MCP DPA tools.
+Vacuum/wraparound SLA · capacity forecast · HA lag/slot SLO · backup RPO + **physical heap filepath drill** · CIS drift · privilege sprawl · invalid indexes + **FK orphan probes** · DDL capture ↔ plan regression · blocking tree · Blame playbooks + MCP DPA tools.
+
+### Deeper drills
+
+- **Failover readiness** (`runFailoverDrill`): primary needs ≥1 streaming standby; standby checks replay pause/lag. Lab single-node correctly fails.
+- **Physical restore** (`runPhysicalRestoreDrill` + Pool): creates scratch heap and verifies `pg_relation_filepath`.
+- **Oracle auto-plans**: `EXPLAIN PLAN` + `DBMS_XPLAN.DISPLAY` (shape fallback). Lab: `docker compose -f docker-compose.oracle-lab.yml up -d`.
+- Smoke: `npx tsx scripts/dpa-deep-smoke.ts`
 
 ## Pricing units (Deep Platform)
 

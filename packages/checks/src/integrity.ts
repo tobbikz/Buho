@@ -18,6 +18,35 @@ export const INTEGRITY_PROBE_SQL = {
        and n.nspname not in ('pg_catalog', 'information_schema')
      order by pg_relation_size(i.oid) desc nulls last
      limit 50`,
+  /** Top FKs for orphan probing (user schemas only). */
+  fkCatalog: `
+    select con.conname as constraint_name,
+           nsf.nspname as schema_name,
+           cf.relname  as table_name,
+           nst.nspname as referenced_schema,
+           ct.relname  as referenced_table,
+           array(
+             select a.attname
+               from unnest(con.conkey) with ordinality as k(attnum, ord)
+               join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k.attnum
+              order by k.ord
+           ) as column_names,
+           array(
+             select a.attname
+               from unnest(con.confkey) with ordinality as k(attnum, ord)
+               join pg_attribute a on a.attrelid = con.confrelid and a.attnum = k.attnum
+              order by k.ord
+           ) as referenced_columns
+      from pg_constraint con
+      join pg_class cf on cf.oid = con.conrelid
+      join pg_namespace nsf on nsf.oid = cf.relnamespace
+      join pg_class ct on ct.oid = con.confrelid
+      join pg_namespace nst on nst.oid = ct.relnamespace
+     where con.contype = 'f'
+       and nsf.nspname not in ('pg_catalog', 'information_schema', 'pg_toast')
+       and nst.nspname not in ('pg_catalog', 'information_schema', 'pg_toast')
+     order by pg_total_relation_size(cf.oid) desc nulls last
+     limit 25`,
 } as const;
 
 export interface FkOrphanProbe {
@@ -29,6 +58,24 @@ export interface FkOrphanProbe {
   referencedSchema: string;
   referencedTable: string;
   referencedColumns: string[];
+}
+
+export function fkCatalogRowsToProbes(rows: Array<Record<string, unknown>>): FkOrphanProbe[] {
+  return rows
+    .map((row) => ({
+      constraintName: String(row['constraint_name'] ?? ''),
+      schemaName: String(row['schema_name'] ?? ''),
+      tableName: String(row['table_name'] ?? ''),
+      columnNames: Array.isArray(row['column_names'])
+        ? (row['column_names'] as unknown[]).map(String)
+        : [],
+      referencedSchema: String(row['referenced_schema'] ?? ''),
+      referencedTable: String(row['referenced_table'] ?? ''),
+      referencedColumns: Array.isArray(row['referenced_columns'])
+        ? (row['referenced_columns'] as unknown[]).map(String)
+        : [],
+    }))
+    .filter((p) => p.constraintName && p.columnNames.length > 0 && p.referencedColumns.length > 0);
 }
 
 function quoteIdent(name: string): string {

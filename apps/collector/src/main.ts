@@ -27,6 +27,8 @@ import {
   cisDriftCheckResults,
   INTEGRITY_PROBE_SQL,
   integrityCheckResults,
+  fkOrphanProbeSql,
+  fkCatalogRowsToProbes,
 } from '@buho/checks';
 import {
   capabilityWarnings,
@@ -96,6 +98,8 @@ import {
   detectPlanRegression,
   runRestoreDrill,
   runPhysicalRestoreDrill,
+  runFailoverDrill,
+  runOracleExplain,
   captureDdlEvents,
   suggestIndexes,
   statementKind,
@@ -411,26 +415,39 @@ function startRestoreDrillLoop(
       message: result.message,
     });
 
-    // Physical drill stub: validate latest artifact presence (no real restore).
+    // Physical drill: with PG pool → live heap filepath probe; else artifact path.
+    const poolForPhys =
+      conn && typeof conn === 'object' && 'connect' in conn ? (conn as Pool) : undefined;
     const arts = await store.listLatestBackupArtifacts(instanceId, 1);
-    if (arts[0]) {
-      const phys = await runPhysicalRestoreDrill({
+    const phys = await runPhysicalRestoreDrill(
+      {
         instanceAlias: instance.alias,
-        artifactPath: arts[0].path,
-        artifactKind: arts[0].kind,
-        artifactId: arts[0].artifactId,
+        artifactPath: arts[0]?.path,
+        artifactKind: arts[0]?.kind ?? 'heap_probe',
+        artifactId: arts[0]?.artifactId,
         validatePresence: true,
-      });
-      await store.saveRestoreDrill({
+      },
+      poolForPhys,
+    );
+    let physArtifactId = arts[0]?.artifactId ?? null;
+    if (phys.artifactPath) {
+      physArtifactId = await store.saveBackupArtifact({
         instanceId,
-        artifactId: arts[0].artifactId,
-        ok: phys.ok,
-        durationMs: phys.durationMs,
-        bytes: phys.bytes,
-        message: phys.message,
+        kind: phys.artifactKind ?? 'heap_probe',
+        target: instance.backup?.scratchDatabase || 'buho_drill',
+        path: phys.artifactPath,
+        sizeBytes: phys.bytes ?? null,
       });
-      log(phys.ok ? 'info' : 'warn', `${instance.alias}/physical-drill: ${phys.message}`);
     }
+    await store.saveRestoreDrill({
+      instanceId,
+      artifactId: physArtifactId,
+      ok: phys.ok,
+      durationMs: phys.durationMs,
+      bytes: phys.bytes,
+      message: phys.message,
+    });
+    log(phys.ok ? 'info' : 'warn', `${instance.alias}/physical-drill: ${phys.message}`);
 
     log(result.ok ? 'info' : 'warn', `${instance.alias}/restore-drill: ${result.message}`);
   });
@@ -446,7 +463,7 @@ function startAutoPlanLoop(
   instance: InstanceConfig,
   instanceId: number,
   conn: Pool | EngineClient,
-  engine: 'postgres' | 'mariadb' | 'mssql',
+  engine: 'postgres' | 'mariadb' | 'mssql' | 'oracle',
 ): void {
   startLoop(`${instance.alias}/auto-plans`, AUTO_PLAN_INTERVAL_MS, async () => {
     const candidates = await store.listAutoPlanCandidates(instanceId, {
@@ -503,6 +520,11 @@ function startAutoPlanLoop(
           planText = report.text || fingerprintPlanText(JSON.stringify(report.raw ?? {}));
           totalCost = report.totalCost;
           planTree = report.root;
+        } else if (engine === 'oracle') {
+          const report = await runOracleExplain(conn as EngineClient, cand.query);
+          fingerprint = report.fingerprint;
+          planText = report.planText;
+          totalCost = report.totalCost;
         } else {
           const report = await runMssqlExplain(conn as EngineClient, cand.query);
           fingerprint = report.fingerprint;
@@ -841,7 +863,7 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
 
   startRestoreDrillLoop(instance, instanceId, client);
   startBaselineAnomalyLoop(instance, instanceId);
-  if (engine === 'mariadb' || engine === 'mssql') {
+  if (engine === 'mariadb' || engine === 'mssql' || engine === 'oracle') {
     startAutoPlanLoop(instance, instanceId, client, engine);
   }
 
@@ -1421,6 +1443,27 @@ async function monitorInstance(instance: InstanceConfig): Promise<void> {
     startRestoreDrillLoop(instance, instanceId, pool);
     startBaselineAnomalyLoop(instance, instanceId);
     startAutoPlanLoop(instance, instanceId, pool, 'postgres');
+    startLoop(`${instance.alias}/failover-drill`, 6 * 60 * 60_000, async () => {
+      const drill = await runFailoverDrill(pool);
+      if (drill.checkSeverity) {
+        const findings = [
+          {
+            checkId: 'ha.failover_drill',
+            title: 'Failover readiness',
+            severity: drill.checkSeverity,
+            object: drill.inRecovery ? 'standby' : 'primary',
+            message: drill.message,
+            remediation: drill.inRecovery
+              ? 'Resume WAL replay or reduce lag before promoting this standby.'
+              : 'Configure streaming replication (or Always On / equivalent) before relying on failover.',
+            value: drill.streamingStandbys,
+          },
+        ];
+        await store.saveCheckResults(instanceId, findings, 100);
+        await store.reconcileAlerts(instanceId, findings);
+      }
+      log(drill.ok ? 'info' : 'warn', `${instance.alias}/failover-drill: ${drill.message}`);
+    });
 
     for (const tier of Object.keys(TIER_INTERVAL_MS) as Tier[]) {
       startLoop(`${instance.alias}/${tier}`, TIER_INTERVAL_MS[tier], async () => {
@@ -1590,6 +1633,29 @@ async function monitorInstance(instance: InstanceConfig): Promise<void> {
           'invalid_index',
           invalid.rows as Array<Record<string, unknown>>,
         );
+        const catalog = await pool.query(tagged(INTEGRITY_PROBE_SQL.fkCatalog));
+        const probes = fkCatalogRowsToProbes(catalog.rows as Array<Record<string, unknown>>).slice(
+          0,
+          8,
+        );
+        const orphanRows: Array<Record<string, unknown>> = [];
+        for (const probe of probes) {
+          try {
+            const r = await pool.query(tagged(fkOrphanProbeSql(probe)));
+            if (r.rows[0]) orphanRows.push(r.rows[0] as Record<string, unknown>);
+          } catch (err) {
+            log(
+              'warn',
+              `${instance.alias}/checks fk-orphan ${probe.constraintName}: ${
+                err instanceof Error ? err.message : err
+              }`,
+            );
+          }
+        }
+        integrityFindings = [
+          ...integrityFindings,
+          ...integrityCheckResults('fk_orphan', orphanRows),
+        ];
       } catch (error) {
         log(
           'warn',

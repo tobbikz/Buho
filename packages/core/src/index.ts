@@ -37,6 +37,8 @@ export type {
 } from './backup/monitor';
 export { runPhysicalRestoreDrill } from './backup/physical-drill';
 export type { PhysicalDrillSpec, PhysicalDrillResult } from './backup/physical-drill';
+export { runFailoverDrill } from './ha/failover-drill';
+export type { FailoverDrillResult } from './ha/failover-drill';
 export { waitClassOf, correlateWaitsWithSql } from './waits/taxonomy';
 export { fingerprintPlan, fingerprintPlanText } from './waits/fingerprint';
 export { detectPlanRegression } from './waits/plan-regression';
