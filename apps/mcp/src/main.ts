@@ -486,6 +486,185 @@ server.tool(
 );
 
 server.tool(
+  'buho_backup_status',
+  'Non-DPA backup posture for an alias: RPO exposure metric, recent jobs, artifacts, restore drills.',
+  {
+    alias: z.string(),
+    limit: z.number().int().min(1).max(50).optional(),
+  },
+  async ({ alias, limit }) => {
+    const hit = await resolveAlias(alias);
+    if (!hit) {
+      return { content: [{ type: 'text' as const, text: dumps({ error: 'not found', alias }) }], isError: true };
+    }
+    const store = new Store(STORE_URL!);
+    const p = pool();
+    const lim = limit ?? 10;
+    try {
+      const [jobs, artifacts, drills, rpo] = await Promise.all([
+        store.listBackupJobs(hit.instanceId, lim),
+        store.listLatestBackupArtifacts(hit.instanceId, lim),
+        p.query(
+          `select drill_id::text, ok, duration_ms, bytes, message, ran_at
+             from buho.restore_drills
+            where instance_id = $1
+            order by ran_at desc
+            limit $2`,
+          [hit.instanceId, lim],
+        ),
+        p.query(
+          `select value, ts
+             from buho.metric_samples
+            where instance_id = $1
+              and metric = 'rpo_exposure_seconds'
+              and ts > now() - interval '24 hours'
+            order by ts desc
+            limit 1`,
+          [hit.instanceId],
+        ),
+      ]);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: dumps({
+              alias,
+              engine: hit.engine,
+              rpoExposureSeconds: rpo.rows[0]
+                ? { value: Number(rpo.rows[0]['value']), ts: rpo.rows[0]['ts'] }
+                : null,
+              jobs,
+              artifacts,
+              restoreDrills: drills.rows,
+            }),
+          },
+        ],
+      };
+    } finally {
+      await store.close();
+      await p.end();
+    }
+  },
+);
+
+server.tool(
+  'buho_lineage_status',
+  'DataHub / lineage sync state for an alias (or fleet-wide when alias omitted).',
+  {
+    alias: z.string().optional(),
+  },
+  async ({ alias }) => {
+    const p = pool();
+    try {
+      const r = alias
+        ? await p.query(
+            `select i.alias, i.engine, l.last_ok_at, l.last_error, l.last_urn, l.updated_at
+               from buho.lineage_sync_state l
+               join buho.instances i using (instance_id)
+              where i.alias = $1`,
+            [alias],
+          )
+        : await p.query(
+            `select i.alias, i.engine, l.last_ok_at, l.last_error, l.last_urn, l.updated_at
+               from buho.lineage_sync_state l
+               join buho.instances i using (instance_id)
+              order by l.updated_at desc nulls last
+              limit 50`,
+          );
+      return {
+        content: [{ type: 'text' as const, text: dumps({ count: r.rows.length, lineage: r.rows }) }],
+      };
+    } finally {
+      await p.end();
+    }
+  },
+);
+
+server.tool(
+  'buho_platform_instance',
+  'Kafka/CDC/Airflow detail for one alias: health score + platform metrics (lag, under-replicated, DAG health, etc.).',
+  {
+    alias: z.string(),
+    minutes: z.number().int().min(5).max(1440).optional(),
+  },
+  async ({ alias, minutes }) => {
+    const hit = await resolveAlias(alias);
+    if (!hit) {
+      return { content: [{ type: 'text' as const, text: dumps({ error: 'not found', alias }) }], isError: true };
+    }
+    if (!['kafka', 'cdc', 'airflow'].includes(hit.engine)) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: dumps({
+              error: 'not a platform engine',
+              alias,
+              engine: hit.engine,
+              hint: 'Use kafka|cdc|airflow aliases, or buho_get_metrics for SQL engines',
+            }),
+          },
+        ],
+        isError: true,
+      };
+    }
+    const windowMin = minutes ?? 60;
+    const p = pool();
+    try {
+      const [score, metrics, checks] = await Promise.all([
+        p.query(
+          `select score, critical, warning, ts
+             from buho.health_scores
+            where instance_id = $1
+            order by ts desc
+            limit 1`,
+          [hit.instanceId],
+        ),
+        p.query(
+          `select distinct on (metric) metric, value, ts
+             from buho.metric_samples
+            where instance_id = $1
+              and ts > now() - ($2 || ' minutes')::interval
+              and metric ~ '^(kafka_|cdc_|airflow_)'
+            order by metric, ts desc`,
+          [hit.instanceId, windowMin],
+        ),
+        p.query(
+          `select check_id, title, severity, message, ts
+             from buho.check_results
+            where instance_id = $1
+              and ts > now() - ($2 || ' minutes')::interval
+            order by ts desc
+            limit 30`,
+          [hit.instanceId, windowMin],
+        ),
+      ]);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: dumps({
+              alias,
+              engine: hit.engine,
+              host: hit.host,
+              port: hit.port,
+              windowMinutes: windowMin,
+              health: score.rows[0] ?? null,
+              metrics: Object.fromEntries(
+                metrics.rows.map((row) => [String(row['metric']), Number(row['value'])]),
+              ),
+              recentChecks: checks.rows,
+            }),
+          },
+        ],
+      };
+    } finally {
+      await p.end();
+    }
+  },
+);
+
+server.tool(
   'buho_run_compliance',
   'Run a CIS/STIG pack against an alias (WRITE). Needs BUHO_MCP_ALLOW_WRITE=true and BUHO_WEB_URL + BUHO_API_TOKEN.',
   {

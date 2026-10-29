@@ -20,6 +20,9 @@ BUHO_STORE_URL=postgres://buho:buho@127.0.0.1:55432/buho npm run mcp
 | `buho_latest_checks` | read |
 | `buho_compliance_latest` | read |
 | `buho_platform_summary` | read |
+| `buho_platform_instance` | read (kafka/cdc/airflow detail) |
+| `buho_backup_status` | read (RPO / jobs / drills) |
+| `buho_lineage_status` | read (DataHub sync) |
 | `buho_wait_blame` | read |
 | `buho_plan_fingerprints` | read |
 | `buho_lock_episodes` | read |

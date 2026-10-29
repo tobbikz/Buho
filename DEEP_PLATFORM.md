@@ -98,7 +98,7 @@ Bearer token auth (`BUHO_API_TOKEN`, min 16 chars). Proxy skips cookie login for
 
 MCP package `@buho/mcp` (`npm run mcp` / `tsx apps/mcp/src/main.ts`):
 
-- Read (store): `buho_health`, `buho_list_fleet`, `buho_get_instance`, `buho_get_metrics`, `buho_list_alerts`, `buho_latest_checks`, `buho_compliance_latest`, `buho_platform_summary`, `buho_wait_blame`, `buho_plan_fingerprints`, `buho_lock_episodes`
+- Read (store): `buho_health`, `buho_list_fleet`, `buho_get_instance`, `buho_get_metrics`, `buho_list_alerts`, `buho_latest_checks`, `buho_compliance_latest`, `buho_platform_summary`, `buho_platform_instance`, `buho_backup_status`, `buho_lineage_status`, `buho_wait_blame`, `buho_plan_fingerprints`, `buho_lock_episodes`
 - Write (opt-in): `buho_run_compliance`, `buho_run_action` — need `BUHO_MCP_ALLOW_WRITE=true` + `BUHO_WEB_URL` + `BUHO_API_TOKEN`
 
 Cursor `mcp.json` example:
@@ -170,9 +170,9 @@ Use a dedicated action DB role — see `sql/monitor-user-notes-deep-platform.sql
 | W2 Airflow | Collectors + checks + UI + pause action |
 | W3 DPA depth | wait_class **% time** + timeline; dense bursts; auto-plans PG/Maria/MSSQL + regression; Blame: waits→SQL→plan, **Ops playbook** (`lock_waits`, `plan_regression`, `vacuum_risk`, `rpo`), blocking chain (+ cancel/kill), plan history, IndexAdvisorLite, vacuum risk (PG); Queries: **PlanFingerprintDiff**; MCP DPA reads: `buho_wait_blame`, `buho_plan_fingerprints`, `buho_lock_episodes`; MSSQL missing-index DMV; `scripts/dpa-lab-smoke.ts` |
 | W4 Actions | `runAction` + `/api/actions` + `action_audit` |
-| W5 Backups | RPO + **logical restore drill agent** (schema probe) + **physical drill stub** + `backup_jobs` RPO findings + HA/replication SLO checks from metrics |
+| W5 Backups | RPO + logical/physical restore drills + `backup_jobs` / artifacts; MCP `buho_backup_status` (storage agent still placeholder) |
 | W6 Compliance | CIS PG/MSSQL packs + API + UI |
-| W7 DataHub | Platform + dataset ingest; `lineage_sync_state` with URN |
+| W7 DataHub | Platform + dataset ingest; `lineage_sync_state` with URN; MCP `buho_lineage_status` |
 | Advisors / baselines | `suggestIndexes` on EXPLAIN **and estimate/generic auto-plans** (`recordAutoPlan`); anomaly loop vs `metric_baselines` p90 |
 
 ### DPA deep (collector)
