@@ -40,7 +40,20 @@ export function findingsFromSecuritySnapshot(snapshot: SecuritySnapshot): Findin
   const active = snapshot.principals.filter((principal) => !principal.disabled);
   const findings: Finding[] = [];
 
-  const superLogins = active.filter((principal) => principal.isSuperuser && principal.canLogin);
+  /** SQL Server install defaults — not "sprawl" the way extra human logins are. */
+  const MSSQL_SERVICE_SUPERUSERS = new Set([
+    String.raw`BUILTIN\Administrators`,
+    String.raw`NT AUTHORITY\SYSTEM`,
+    String.raw`NT AUTHORITY\NETWORK SERVICE`,
+    String.raw`NT SERVICE\MSSQLSERVER`,
+    String.raw`NT SERVICE\SQLSERVERAGENT`,
+  ]);
+  const superLogins = active.filter(
+    (principal) =>
+      principal.isSuperuser &&
+      principal.canLogin &&
+      !MSSQL_SERVICE_SUPERUSERS.has(principal.name),
+  );
   if (superLogins.length > 2) {
     findings.push({
       severity: 'warning',

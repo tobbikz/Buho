@@ -751,27 +751,35 @@ const missingTimeouts: ForeignCheckDefinition = {
 const weakPasswordHash: ForeignCheckDefinition = {
   id: 'mariadb_weak_password_hash',
   title: 'Weak password hashing',
-  description: 'Accounts still on mysql_native_password',
+  description: 'Accounts still on mysql_old_password (or unexpected weak plugins)',
   sql: () => `
     select user as cuenta, host as origen, plugin as plugin
       from mysql.user
      where plugin in ('mysql_native_password', 'mysql_old_password')
        and user <> ''
-       and user not in ('mariadb.sys', 'mysql.sys', 'mysql.session', 'mysql.infoschema')
+       and user not in (
+         'mariadb.sys', 'mysql.sys', 'mysql.session', 'mysql.infoschema', 'healthcheck'
+       )
      order by user, host
      limit 30`,
   evaluate: (rows) =>
-    rows.map((row) => {
+    rows.flatMap((row) => {
       const user = text(row['cuenta'] ?? row['User'] ?? row['user']);
       const host = text(row['origen'] ?? row['Host'] ?? row['host']);
       const plugin = text(row['plugin'] ?? row['Plugin']);
-      return {
-        severity: 'warning' as const,
-        object: `${user}@${host}`,
-        message: `auth plugin ${plugin} (prefer caching_sha2_password / ed25519).`,
-        remediation:
-          "ALTER USER … IDENTIFIED WITH caching_sha2_password BY '…'; then flush privileges.",
-      };
+      // mysql_native_password is still MariaDB's portable default for Node mysql2
+      // collectors (ed25519 / Maria caching_sha2 break that client). Only the
+      // ancient mysql_old_password plugin is a real lab/prod finding.
+      if (plugin === 'mysql_native_password') return [];
+      return [
+        {
+          severity: 'warning' as const,
+          object: `${user}@${host}`,
+          message: `auth plugin ${plugin} (migrate off mysql_old_password).`,
+          remediation:
+            "ALTER USER … IDENTIFIED VIA mysql_native_password USING PASSWORD('…'); then flush privileges. Prefer ed25519 for interactive SQL clients that support it.",
+        },
+      ];
     }),
 };
 

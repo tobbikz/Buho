@@ -56,6 +56,23 @@ async function main(): Promise<void> {
       },
     };
     const id = await store.upsertInstance(instance);
+    // Persist sensors on monitor_targets so the collector keeps probing after seed.
+    await store.upsertMonitorTarget({
+      alias: inst.alias,
+      engine: 'infra',
+      host: inst.host,
+      port: inst.port ?? 0,
+      database: '',
+      username: '',
+      password: '',
+      environment: 'LAB',
+      endpoint: {
+        role: inst.infra.role ?? 'server',
+        sensors: inst.infra.sensors,
+      },
+      enabled: true,
+      createdBy: 'seed-infra-lab',
+    });
     const target: TargetConfig = {
       id: inst.alias,
       host: inst.host,

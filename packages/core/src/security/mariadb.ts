@@ -23,15 +23,17 @@ async function tryQuery(
  * Plugins de autenticación, de peor a mejor.
  *
  * `mysql_old_password` es el hash previo a MySQL 4.1: 16 bytes y roto desde
- * hace dos décadas. `mysql_native_password` es SHA1 doble sin sal, así que dos
- * cuentas con la misma contraseña tienen el mismo hash y se ataca con tablas
- * precalculadas. `ed25519` es el bueno en MariaDB; `unix_socket` no usa
- * contraseña porque delega en el sistema operativo, y para cuentas locales de
- * mantenimiento es una opción sólida.
+ * hace dos décadas. `ed25519` es el bueno en MariaDB para clientes SQL
+ * interactivos; `unix_socket` no usa contraseña porque delega en el SO.
+ *
+ * `mysql_native_password` sigue siendo el default portable para colectores
+ * Node (`mysql2`): MariaDB `ed25519` / `caching_sha2_password` rompen ese
+ * cliente, así que no se clasifica como finding de lab/prod aquí.
  */
 const AUTH_RISK: Record<string, 'critica' | 'alta' | 'ok'> = {
   mysql_old_password: 'critica',
-  mysql_native_password: 'alta',
+  mysql_native_password: 'ok',
+  caching_sha2_password: 'ok',
   ed25519: 'ok',
   unix_socket: 'ok',
   gssapi: 'ok',
