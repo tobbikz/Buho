@@ -7,6 +7,7 @@ import { getNotes, getReplication, type ReplicationRow } from '@/lib/estate';
 import { getReplicationLagTrends } from '@/lib/replication';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'HA / Replication · Estate · Búho' };
 
 function isDangerous(row: ReplicationRow): boolean {
   if (row.role === 'subscription' && row.state === 'down') return true;
@@ -41,20 +42,17 @@ export default async function ReplicationPage() {
       row.role === 'replica' ||
       (row.role === 'availability_group' && row.peer !== ''),
   );
-  const alone = rows.filter((row) => {
-    if (row.role !== 'primary' && !(row.role === 'availability_group' && !row.peer)) return false;
-    // Posture-only rows still mean "no live replica peer".
-    return true;
-  }).filter((row) => {
-    // Don't double-count an instance that also has real replica peers.
-    return !withReplicas.some((peer) => peer.instanceId === row.instanceId);
-  });
+  const alone = rows
+    .filter((row) => {
+      if (row.role !== 'primary' && !(row.role === 'availability_group' && !row.peer)) return false;
+      return true;
+    })
+    .filter((row) => !withReplicas.some((peer) => peer.instanceId === row.instanceId));
   const danger = rows.filter(isDangerous);
   const retained = rows
     .filter((row) => row.role === 'slot')
     .reduce((sum, row) => sum + (row.lagBytes ?? 0), 0);
 
-  // Lag heat: peers with measurable lag, sorted worst-first.
   const lagHeat = withReplicas
     .filter((row) => row.lagSeconds !== null || (row.lagBytes ?? 0) > 0)
     .map((row) => ({
@@ -78,16 +76,31 @@ export default async function ReplicationPage() {
     streaming: streamingOk(row.state),
   }));
 
+  const standaloneOnly = alone.length > 0 && withReplicas.length === 0;
+
   return (
     <div className="flex flex-col gap-[0.875rem]">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-[1.1rem] font-semibold m-0">Cluster · HA / replication</h1>
+        <p className="text-[12px] text-foreground-secondary m-0 max-w-[62rem]">
+          Live topology from the active fleet only (retired Admin targets are hidden). A single
+          primary with no standbys is expected when you monitor one Postgres — not a missing
+          inventory.
+        </p>
+      </header>
+
       <div className="stat-grid">
         <StatCard
-          label="No high availability"
+          label="Standalone primaries"
           value={String(alone.length)}
-          hint="instances with neither replica nor group"
+          hint="no replica / AG peer attached"
           tone={alone.length > 0 ? 'warn' : 'ok'}
         />
-        <StatCard label="Connected replicas" value={String(withReplicas.length)} tone={withReplicas.length > 0 ? 'ok' : 'neutral'} />
+        <StatCard
+          label="Connected replicas"
+          value={String(withReplicas.length)}
+          tone={withReplicas.length > 0 ? 'ok' : 'neutral'}
+        />
         <StatCard
           label="Need attention"
           value={String(danger.length)}
@@ -101,6 +114,27 @@ export default async function ReplicationPage() {
           tone={retained > 10 * 1024 ** 3 ? 'error' : retained > 1024 ** 3 ? 'warn' : 'ok'}
         />
       </div>
+
+      {standaloneOnly ? (
+        <section className="panel">
+          <div className="panel-header">
+            <span className="panel-title">No high-availability peers</span>
+          </div>
+          <div className="panel-body text-[12px] text-foreground-secondary space-y-2">
+            <p className="m-0">
+              Active fleet shows {alone.length === 1 ? (
+                <>
+                  <span className="font-mono">{alone[0]?.alias}</span> as a standalone primary
+                </>
+              ) : (
+                <>{alone.length} standalone primaries</>
+              )}
+              — Búho found no streaming standbys, Always On peers, or MariaDB replicas. Add a standby
+              (or un-retire HA lab targets) when you want lag heat and peer health here.
+            </p>
+          </div>
+        </section>
+      ) : null}
 
       <NotesPanel notes={notes} title="What Búho reads from each engine" />
 
@@ -142,10 +176,14 @@ export default async function ReplicationPage() {
         <div className="panel-header">
           <span className="panel-title">Replication topology</span>
           <span className="font-mono text-[10px] text-foreground-muted">
-            trend = WAL pending (standby) or replay lag (primary view) · last 24 h · PostgreSQL · MariaDB · SQL Server
+            trend = WAL pending (standby) or replay lag · last 24 h · active instances only
           </span>
         </div>
-        <ReplicationTable rows={tableRows} trends={trends} />
+        {rows.length === 0 ? (
+          <div className="empty">No replication rows for the active fleet.</div>
+        ) : (
+          <ReplicationTable rows={tableRows} trends={trends} />
+        )}
       </section>
     </div>
   );

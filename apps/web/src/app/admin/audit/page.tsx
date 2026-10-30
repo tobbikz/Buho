@@ -27,8 +27,7 @@ export default async function AuditPage() {
       </div>
       {events.length === 0 ? (
         <div className="empty">
-          Sin registros. Se anotan los inicios de sesión con cuenta, los escaneos de red y todo cambio de cuentas o
-          retención.
+          No records yet. Sign-ins, network scans, and account or retention changes are logged here.
         </div>
       ) : (
         <table className="data-table">

@@ -18,6 +18,8 @@ import {
 } from '@/lib/disk-estate';
 import { getDiskUsage, getNotes, type DiskRow } from '@/lib/estate';
 
+export const metadata = { title: 'Disk · Estate · Búho' };
+
 export const dynamic = 'force-dynamic';
 
 const INSTANCE_COLORS = ['#1f5f8b', '#0a6e42', '#b45309', '#7c3aed', '#be123c'];

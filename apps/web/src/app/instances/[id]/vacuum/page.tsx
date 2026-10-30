@@ -267,7 +267,7 @@ export default async function VacuumPage({
           </div>
         )}
 
-        <div className="stat-grid">
+        <div className="stat-grid stat-grid--4">
           <StatCard
             label="Dead tuples"
             value={formatNumber(totals.deadTuples)}

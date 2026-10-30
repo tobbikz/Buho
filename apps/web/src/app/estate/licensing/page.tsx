@@ -6,6 +6,7 @@ import { formatBytes, formatNumber } from '@/lib/format';
 import { ENGINE_LABEL, getLicensing, getNotes, type LicensingRow } from '@/lib/estate';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Licensing · Estate · Búho' };
 
 /**
  * Licenciamiento, con el "si aplica" tomado en serio.

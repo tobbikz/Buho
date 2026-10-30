@@ -88,7 +88,7 @@ export default async function RetentionPage({
       <section className="panel">
         <div className="panel-header">
           <span className="panel-title">How many days each thing is kept</span>
-          {ok ? <span className="tag tag--ok">guardado</span> : null}
+          {ok ? <span className="tag tag--ok">saved</span> : null}
         </div>
         <form action={save} className="panel-body flex flex-col gap-3">
           <div className="flex flex-wrap gap-4">
@@ -162,15 +162,15 @@ export default async function RetentionPage({
       <section className="panel">
         <div className="panel-header">
           <span className="panel-title">What is using the space</span>
-          <span className="text-[11px] text-foreground-muted">incluye indexes y particiones</span>
+          <span className="text-[11px] text-foreground-muted">includes indexes and partitions</span>
         </div>
         <table className="data-table">
           <thead>
             <tr>
-              <th>Tabla</th>
+              <th>Table</th>
               <th className="text-right">Size</th>
-              <th className="text-right">Rows aproximadas</th>
-              <th className="text-right">Del total</th>
+              <th className="text-right">Approx. rows</th>
+              <th className="text-right">Of total</th>
             </tr>
           </thead>
           <tbody>

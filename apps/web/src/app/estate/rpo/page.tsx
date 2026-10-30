@@ -189,7 +189,7 @@ export default async function EstateRpoPage() {
 
       <ProveRestore items={fleetProveRestoreItems()} />
 
-      <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+      <div className="chart-grid chart-grid--2">
         {byEngine.map(({ engine, rows: engRows }) => (
           <section key={engine} className="panel">
             <div className="panel-header">

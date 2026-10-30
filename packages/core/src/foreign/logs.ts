@@ -98,7 +98,7 @@ function deadlockDeInnodb(texto: string, cursorPrevio: string | null): { entrada
       at: marca ? fecha(marca[1]) : new Date(),
       level: 'ERROR',
       kind: 'deadlock',
-      message: 'deadlock detectado por InnoDB',
+      message: 'InnoDB detected a deadlock',
       detail: bloque.slice(0, 6000),
       query: consultas.join('\n') || null,
       // La huella es fija a propósito: todos los deadlocks se agrupan juntos,
@@ -127,7 +127,7 @@ async function leerMariadb(client: EngineClient, cursor: string | null): Promise
     nuevoDeadlock = encontrado.cursor;
   } catch (error) {
     avisos.push(
-      `no se pudo leer SHOW ENGINE INNODB STATUS (hace falta el privilegio PROCESS): ${
+      `could not read SHOW ENGINE INNODB STATUS (PROCESS privilege required): ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
@@ -142,11 +142,10 @@ async function leerMariadb(client: EngineClient, cursor: string | null): Promise
     const encendido = num(config?.['encendido']) === 1;
 
     if (!encendido) {
-      avisos.push('slow_query_log está apagado: no hay registro de consultas lentas.');
+      avisos.push('slow_query_log is off: there is no slow-query history.');
     } else if (!salida.includes('TABLE')) {
       avisos.push(
-        `slow_query_log está encendido pero log_output es ${salida}: para leerlo sin entrar al ` +
-          'servidor hace falta log_output=TABLE (se cambia en caliente con SET GLOBAL log_output).',
+        `slow_query_log is on but log_output is ${salida}: to read it over SQL without shell access, set log_output=TABLE (hot: SET GLOBAL log_output).`,
       );
     } else {
       const desde = cursorLento ?? new Date(Date.now() - 30 * 60_000).toISOString().slice(0, 19).replace('T', ' ');
@@ -166,11 +165,11 @@ async function leerMariadb(client: EngineClient, cursor: string | null): Promise
             at: cuando,
             level: 'LOG',
             kind: 'other',
-            message: `consulta lenta: ${duracion} examinando ${num(fila['rows_examined'])} fila(s)`,
+            message: `slow query: ${duracion} examining ${num(fila['rows_examined'])} row(s)`,
             query: str(fila['sql_text'], '') || null,
             database: str(fila['db'], '') || null,
             username: str(fila['user_host'], '') || null,
-            fingerprint: huella(str(fila['sql_text'], 'lenta')),
+            fingerprint: huella(str(fila['sql_text'], 'slow')),
           }),
         );
         const marca = cuando.toISOString().slice(0, 19).replace('T', ' ');
@@ -179,16 +178,15 @@ async function leerMariadb(client: EngineClient, cursor: string | null): Promise
     }
   } catch (error) {
     avisos.push(
-      `no se pudo leer mysql.slow_log: ${error instanceof Error ? error.message : String(error)}`,
+      `could not read mysql.slow_log: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 
   avisos.push(
-    'el log de errores de MariaDB sólo existe como archivo en el servidor: lo que se ve acá ' +
-      'son los deadlocks de InnoDB y las consultas lentas, que sí se leen por SQL.',
+    'The MariaDB error log only exists as a file on the server: what you see here is InnoDB deadlocks and slow queries, which are read over SQL.',
   );
 
-  return vacia(entradas, 'InnoDB status y mysql.slow_log', `${nuevoDeadlock ?? ''}|${nuevoLento ?? ''}`, avisos);
+  return vacia(entradas, 'InnoDB status and mysql.slow_log', `${nuevoDeadlock ?? ''}|${nuevoLento ?? ''}`, avisos);
 }
 
 // ------------------------------------------------------------------ SQL Server
@@ -241,8 +239,8 @@ async function leerMssql(client: EngineClient, cursor: string | null): Promise<L
     }
   } catch (error) {
     avisos.push(
-      'no se pudo leer el errorlog con xp_readerrorlog: hace falte pertenecer a securityadmin ' +
-        `o tener permiso de ejecución sobre el procedimiento (${error instanceof Error ? error.message : String(error)}).`,
+      'could not read the errorlog via xp_readerrorlog: need securityadmin (or EXECUTE on the procedure) ' +
+        `(${error instanceof Error ? error.message : String(error)}).`,
     );
   }
 
@@ -280,7 +278,7 @@ async function leerMssql(client: EngineClient, cursor: string | null): Promise<L
           at: cuando,
           level: 'ERROR',
           kind: 'deadlock',
-          message: 'deadlock detectado (grafo de system_health)',
+          message: 'deadlock detected (system_health graph)',
           detail: grafo.slice(0, 6000),
           query: consultas.slice(0, 4000) || null,
           fingerprint: 'mssql-deadlock',
@@ -291,13 +289,13 @@ async function leerMssql(client: EngineClient, cursor: string | null): Promise<L
     }
   } catch (error) {
     avisos.push(
-      `no se pudieron leer los deadlocks de la sesión system_health: ${
+      `could not read deadlocks from the system_health session: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
   }
 
-  return vacia(entradas, 'errorlog y system_health', nuevoCursor, avisos);
+  return vacia(entradas, 'errorlog and system_health', nuevoCursor, avisos);
 }
 
 // ------------------------------------------------------------------------ Oracle
@@ -360,7 +358,7 @@ async function leerOracle(client: EngineClient, cursor: string | null): Promise<
     }
   } catch (error) {
     avisos.push(
-      `no se pudo leer V$DIAG_ALERT_EXT (alert log): hace falta SELECT sobre las vistas de diagnóstico ` +
+      `could not read V$DIAG_ALERT_EXT (alert log): need SELECT on diagnostic views ` +
         `(${error instanceof Error ? error.message : String(error)}).`,
     );
   }
@@ -383,7 +381,7 @@ export async function inspectForeignLogging(caps: ForeignCaps): Promise<{ limita
   const limitaciones: string[] = [];
   if (caps.engine === 'mariadb') {
     if (!caps.features.slowLog) {
-      limitaciones.push('slow_query_log apagado: sin registro de consultas lentas.');
+      limitaciones.push('slow_query_log is off: there is no slow-query history.');
     }
   }
   return { limitations: limitaciones };
@@ -397,5 +395,5 @@ export async function readForeignLog(
   if (caps.engine === 'mariadb') return leerMariadb(client, cursor);
   if (caps.engine === 'mssql') return leerMssql(client, cursor);
   if (caps.engine === 'oracle') return leerOracle(client, cursor);
-  return { entries: [], cursor, source: 'none', detail: 'motor sin lectura de log', warnings: [] };
+  return { entries: [], cursor, source: 'none', detail: 'engine without log reader', warnings: [] };
 }

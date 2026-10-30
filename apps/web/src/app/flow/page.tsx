@@ -36,15 +36,33 @@ const ENGINE_LABEL: Record<string, string> = {
 export default async function FleetFlowPage({
   searchParams,
 }: {
-  searchParams: Promise<{ peso?: string; v?: string; vista?: string; engine?: string; conn?: string }>;
+  searchParams: Promise<{
+    weight?: string;
+    peso?: string;
+    v?: string;
+    view?: string;
+    vista?: string;
+    engine?: string;
+    conn?: string;
+  }>;
 }) {
-  const { peso, v, vista, engine: engineParam, conn: connParam } = await searchParams;
+  const {
+    weight: weightParam,
+    peso,
+    v,
+    view,
+    vista,
+    engine: engineParam,
+    conn: connParam,
+  } = await searchParams;
   const engine = engineParam ?? '';
   const conn = connParam ?? '';
 
-  const weight = (WEIGHTS.find((entrada) => entrada.key === peso)?.key ?? 'rows') as FlowWeight;
+  const weightKey = weightParam ?? peso;
+  const viewKey = view ?? vista;
+  const weight = (WEIGHTS.find((entrada) => entrada.key === weightKey)?.key ?? 'rows') as FlowWeight;
   const window = WINDOWS.find((entrada) => entrada.key === v) ?? WINDOWS[2]!;
-  const enVivo = vista === 'vivo';
+  const enVivo = viewKey === 'live' || viewKey === 'vivo';
 
   let flow;
   let choices: Awaited<ReturnType<typeof listScopeChoices>> = [];
@@ -70,9 +88,9 @@ export default async function FleetFlowPage({
   const unidad: Unit = weight === 'time' ? 'ms' : 'count';
   const enlace = (cambios: Record<string, string>) => {
     const parametros = new URLSearchParams({
-      peso: weight,
+      weight,
       v: window.key,
-      vista: enVivo ? 'vivo' : 'acumulado',
+      view: enVivo ? 'live' : 'accumulated',
       ...(engine ? { engine } : {}),
       ...(conn ? { conn } : {}),
       ...cambios,
@@ -93,10 +111,10 @@ export default async function FleetFlowPage({
           <div>
             <h1 className="page-title">Estate flow</h1>
             <p className="page-sub">
-              Hot tables across the fleet. <strong>Writes</strong> and <strong>Reads</strong> are the two entry
-              points, then schema, then table. Attribution comes from reading each query&apos;s text — it is{' '}
-              <strong>approximate</strong>. Per-instance detail lives on each server&apos;s Flow screen; the full
-              catalog map is on the ORM tab (PostgreSQL).
+              Hot <strong>application</strong> tables across the fleet (writes / reads → schema → table).
+              Búho&apos;s own monitor SQL is tagged <span className="font-mono">/* buho */</span> and{' '}
+              <strong>excluded</strong> so this map shows workload, not the collector. Attribution from query
+              text is approximate. Digests including monitor traffic live under each instance → Queries.
             </p>
           </div>
         </header>
@@ -106,7 +124,7 @@ export default async function FleetFlowPage({
           instances={choices}
           engine={engine}
           conn={conn}
-          preserve={{ peso: weight, v: window.key, vista: enVivo ? 'vivo' : 'acumulado' }}
+          preserve={{ weight, v: window.key, view: enVivo ? 'live' : 'accumulated' }}
         />
 
         <div className="stat-grid">
@@ -140,14 +158,14 @@ export default async function FleetFlowPage({
             <span className="panel-title">Hot tables · writes &amp; reads</span>
             <div className="flex flex-wrap items-center gap-1">
               <Link
-                href={enlace({ vista: 'vivo' })}
+                href={enlace({ view: 'live' })}
                 className={`tag ${enVivo ? 'tag--ok' : 'tag--muted'}`}
                 title="what is moving now across the estate"
               >
                 Live
               </Link>
               <Link
-                href={enlace({ vista: 'acumulado' })}
+                href={enlace({ view: 'accumulated' })}
                 className={`tag ${enVivo ? 'tag--muted' : 'tag--info'}`}
               >
                 Accumulated
@@ -156,7 +174,7 @@ export default async function FleetFlowPage({
               {WEIGHTS.map((opcion) => (
                 <Link
                   key={opcion.key}
-                  href={enlace({ peso: opcion.key })}
+                  href={enlace({ weight: opcion.key })}
                   className={`tag ${opcion.key === weight ? 'tag--info' : 'tag--muted'}`}
                   title={opcion.hint}
                 >
@@ -192,17 +210,17 @@ export default async function FleetFlowPage({
                 links={flow.links}
                 unit={unidad}
                 height={460}
-                emptyMessage="No estate traffic could be attributed to a table in this window."
+                emptyMessage="No application table traffic attributed in this window. Monitor queries are filtered out — generate app workload or open instance → Queries."
               />
             )}
             <p className="mt-2 text-[11px] text-foreground-muted">
-              Green bands are writes, blue bands are reads. Schemas are qualified per instance — two servers can
-              each have their own <span className="font-mono">public</span>.
+              Green = writes, blue = reads. Empty here with an active collector usually means only catalog /
+              monitor SQL ran (excluded), not that the DB is unreachable.
             </p>
           </div>
         </section>
 
-        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-3">
+        <div className="chart-grid chart-grid--3">
           <section className="panel xl:col-span-2">
             <div className="panel-header">
               <span className="panel-title">Hottest tables in the estate</span>

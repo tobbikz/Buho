@@ -131,7 +131,7 @@ export function InventoryInstance({
               </thead>
               <tbody>
                 {inventory.backups.map((row, index) => (
-                  <tr key={`${row.database}-${row.kind}-${index}`}>
+                  <tr key={`${row.database}-${backupKindLabel(row)}-${index}`}>
                     <td className="font-mono text-[11px]">{row.database}</td>
                     <td>{backupKindLabel(row)}</td>
                     <td>
@@ -195,9 +195,9 @@ export function InventoryInstance({
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Tareas programadas</span>
+          <span className="panel-title">Scheduled jobs</span>
           <Link href="/estate/jobs" className="text-[11px] underline decoration-dotted">
-            ver todas
+            view all
           </Link>
         </div>
         {inventory.jobs.length === 0 ? (
@@ -206,7 +206,7 @@ export function InventoryInstance({
           <table className="data-table">
             <thead>
               <tr>
-                <th>Tarea</th>
+                <th>Job</th>
                 <th>Category</th>
                 <th>State</th>
                 <th>Last run</th>
@@ -255,8 +255,8 @@ export function InventoryInstance({
               <thead>
                 <tr>
                   <th>Parameter</th>
-                  <th>Valor</th>
-                  <th>Por defecto</th>
+                  <th>Value</th>
+                  <th>Default</th>
                   <th>Restart</th>
                 </tr>
               </thead>
@@ -279,7 +279,7 @@ export function InventoryInstance({
       </section>
 
       <div className="text-[11px] text-foreground-muted">
-        Instancia #{instanceId} · {alias}
+        Instance #{instanceId} · {alias}
       </div>
     </div>
   );

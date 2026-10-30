@@ -107,11 +107,19 @@ export default async function SessionsPage({
             <p className="page-sub">
               Where server time goes — CPU, disk, locks, network — and what was running at a given moment.
               It comes from a snapshot every ten seconds (
-              {instancia.engine === 'mariadb'
-                ? <span className="font-mono">PROCESSLIST</span>
-                : instancia.engine === 'mssql'
-                  ? <span className="font-mono">dm_exec_requests</span>
-                  : <span className="font-mono">pg_stat_activity</span>}
+              {instancia.engine === 'mariadb' ? (
+                <span className="font-mono">PROCESSLIST</span>
+              ) : instancia.engine === 'mssql' ? (
+                <span className="font-mono">dm_exec_requests</span>
+              ) : instancia.engine === 'oracle' ? (
+                <span className="font-mono">v$session</span>
+              ) : instancia.engine === 'mongodb' ? (
+                <span className="font-mono">currentOp</span>
+              ) : instancia.engine === 'redis' ? (
+                <span className="font-mono">CLIENT LIST</span>
+              ) : (
+                <span className="font-mono">pg_stat_activity</span>
+              )}
               ), so it is <strong>sampling</strong>: it measures what lasts and misses the instantaneous.
             </p>
           </div>
@@ -189,7 +197,7 @@ export default async function SessionsPage({
           </div>
         </section>
 
-        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+        <div className="chart-grid chart-grid--2">
           <LabeledBars
             title="Where waits go"
             footer={`${formatNumber(esperas.samples)} samples`}
@@ -267,7 +275,7 @@ export default async function SessionsPage({
             </span>
             {t && (
               <Link href={enlace({ t: new Date().toISOString() })} className="tag tag--muted">
-                volver a ahora
+                back to now
               </Link>
             )}
           </div>

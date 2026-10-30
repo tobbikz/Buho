@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { CatalogVistaTabs } from '@/components/CatalogVistaTabs';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StoreError } from '@/components/StoreError';
 import { OrmGraph } from '@/components/OrmGraph';
@@ -101,24 +102,30 @@ export default async function TopologyPage({
         <div className="page">
           <header className="page-header">
             <div>
-              <h1 className="page-title">Columns · {instance.alias}</h1>
+              <h1 className="page-title">Catalog · {instance.alias}</h1>
               <p className="page-sub">
                 Pick a schema. Its tables sit around the name. Open a table to read its columns and types.
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-1">
-              <Link href={`/instances/${instanceId}/topology`} className="tag tag--muted">
-                Traffic
-              </Link>
-              <Link href={`/instances/${instanceId}/topology?vista=estructura`} className="tag tag--muted">
-                Structure
-              </Link>
-              <span className="tag tag--info">Columns</span>
-            </div>
+            <CatalogVistaTabs instanceId={instanceId} active="detalle" />
           </header>
           <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
+          <div className="stat-grid catalog-stat-band">
+            <StatCard label="Schemas" value={formatNumber(schemaNames.length)} hint="in catalog" />
+            <StatCard label="Tables" value={formatNumber(tables.length)} hint={schemaName || 'selected schema'} />
+            <StatCard
+              label="Columns sampled"
+              value={formatNumber(
+                [...columnsByTable.values()].reduce((sum, cols) => sum + cols.length, 0),
+              )}
+              hint="types from last catalog sample"
+            />
+            <StatCard label="View" value="Columns" hint="schema map" tone="accent" />
+          </div>
           {catalog.length === 0 || !schemaName ? (
-            <div className="empty">The catalog is filled on the collector vacuum cycle, about every two minutes.</div>
+            <div className="empty">
+              The catalog is filled on the collector catalog cycle, about every two minutes.
+            </div>
           ) : (
             <SchemaColumnMap
               instanceId={instanceId}
@@ -217,18 +224,10 @@ export default async function TopologyPage({
                 Foreign keys and traffic on the same graph. Columns is the schema with its tables around it.
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-1">
-              <Link href={`/instances/${instanceId}/topology?vista=estructura`} className="tag tag--muted">
-                Structure
-              </Link>
-              <span className="tag tag--info">Traffic</span>
-              <Link href={`/instances/${instanceId}/topology?vista=detalle`} className="tag tag--muted">
-                Columns
-              </Link>
-            </div>
+            <CatalogVistaTabs instanceId={instanceId} active="trafico" />
           </header>
           <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
-          <div className="stat-grid">
+          <div className="stat-grid catalog-stat-band">
             <StatCard label="Schemas" value={formatNumber(model.schemas.length)} hint="in this view" />
             <StatCard label="Tables" value={formatNumber(model.totalTables)} hint="user tables" />
             <StatCard label="Foreign keys" value={formatNumber(model.foreignKeys)} hint="structural links" />
@@ -297,7 +296,7 @@ export default async function TopologyPage({
             </form>
             <div className="panel-body">
               {model.totalTables === 0 ? (
-                <div className="empty">No tables in the catalog yet. Wait for the collector vacuum scan.</div>
+                <div className="empty">No tables in the catalog yet. Wait for the collector catalog scan.</div>
               ) : (
                 <OrmGraph model={model} instanceId={instanceId} unit={unit} layer={layer} />
               )}
@@ -373,29 +372,18 @@ export default async function TopologyPage({
                 Every user schema and table, without traffic. Partitions are rolled into the parent.
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-1">
-              <Link href={`/instances/${instanceId}/topology`} className="tag tag--muted">
-                Traffic
-              </Link>
-              <span className="tag tag--info">Structure</span>
-              <Link href={`/instances/${instanceId}/topology?vista=detalle`} className="tag tag--muted">
-                Columns
-              </Link>
-            </div>
+            <CatalogVistaTabs instanceId={instanceId} active="estructura" />
           </header>
           <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
-          <div className="stat-grid">
-            <div className="stat">
-              <div className="stat__label">Schemas</div>
-              <div className="stat__value">{formatNumber(groups.size)}</div>
-            </div>
-            <div className="stat">
-              <div className="stat__label">Tables</div>
-              <div className="stat__value">{formatNumber(shown.length)}</div>
-              <div className="stat__hint">
-                {needle ? `${formatNumber(catalog.length)} in the catalog` : 'partitions included in the parent'}
-              </div>
-            </div>
+          <div className="stat-grid catalog-stat-band">
+            <StatCard label="Schemas" value={formatNumber(groups.size)} hint="in this view" />
+            <StatCard
+              label="Tables"
+              value={formatNumber(shown.length)}
+              hint={needle ? `${formatNumber(catalog.length)} in the catalog` : 'partitions included in the parent'}
+            />
+            <StatCard label="Foreign keys" value="—" hint="use Traffic for FK graph" />
+            <StatCard label="Tables with traffic" value="—" hint="structure only" />
           </div>
           <form action={`/instances/${instanceId}/topology`} className="panel">
             <div className="panel-body flex flex-wrap items-center gap-2">
@@ -431,7 +419,7 @@ export default async function TopologyPage({
           </form>
           {catalog.length === 0 ? (
             <div className="empty">
-              The catalog is filled on the collector vacuum cycle, about every two minutes.
+              The catalog is filled on the collector catalog cycle, about every two minutes.
             </div>
           ) : shown.length === 0 ? (
             <div className="empty">No schema or table matches that filter.</div>

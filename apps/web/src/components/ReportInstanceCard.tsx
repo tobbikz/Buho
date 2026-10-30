@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
+import { Modal } from '@/components/Modal';
 import type { ReportInstance, ReportMetric, ReportWaitShare } from '@/lib/report';
 import { formatBytes, formatNumber } from '@/lib/format';
 
@@ -126,11 +128,11 @@ function MetricTable({
 
 export function ReportInstanceCard({
   row,
-  defaultOpen = false,
 }: {
   row: ReportInstance;
   defaultOpen?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
   const growth =
     row.sizeStartBytes !== null && row.sizeEndBytes !== null
       ? row.sizeEndBytes - row.sizeStartBytes
@@ -165,34 +167,42 @@ export function ReportInstanceCard({
   }
 
   return (
-    <details className="report-instance" open={defaultOpen}>
-      <summary className="report-instance__head">
-        <span className="report-instance__chevron" aria-hidden />
-        <div className="report-instance__title">
-          <Link
-            href={`/instances/${row.instanceId}`}
-            className="report-instance__link"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {row.alias}
-          </Link>
-          <span className="report-instance__meta">
-            {row.environment} · {row.engine}
-            {row.coveragePct !== null ? ` · ${pct(row.coveragePct, 0)} coverage` : ''}
-          </span>
-        </div>
-        <div className="report-instance__badges">
-          {row.scoreEnd !== null ? (
-            <span className={`report-score ${scoreTone(row.scoreEnd)}`}>{row.scoreEnd}</span>
-          ) : null}
-          {chips.map((chip) => (
-            <span key={chip.label} className={`tag ${chip.tone}`}>
-              {chip.label}
+    <>
+      <button type="button" className="report-instance report-instance--button" onClick={() => setOpen(true)}>
+        <div className="report-instance__head">
+          <span className="report-instance__open-hint">Details</span>
+          <div className="report-instance__title">
+            <Link
+              href={`/instances/${row.instanceId}`}
+              className="report-instance__link"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {row.alias}
+            </Link>
+            <span className="report-instance__meta">
+              {row.environment} · {row.engine}
+              {row.coveragePct !== null ? ` · ${pct(row.coveragePct, 0)} coverage` : ''}
             </span>
-          ))}
+          </div>
+          <div className="report-instance__badges">
+            {row.scoreEnd !== null ? (
+              <span className={`report-score ${scoreTone(row.scoreEnd)}`}>{row.scoreEnd}</span>
+            ) : null}
+            {chips.map((chip) => (
+              <span key={chip.label} className={`tag ${chip.tone}`}>
+                {chip.label}
+              </span>
+            ))}
+          </div>
         </div>
-      </summary>
+      </button>
 
+      <Modal
+        open={open}
+        title={row.alias}
+        subtitle={`${row.environment} · ${row.engine}`}
+        onClose={() => setOpen(false)}
+      >
       <div className="report-instance__body">
         <div className="report-instance__nav">
           <Link href={`/instances/${row.instanceId}`} className="link">
@@ -390,6 +400,7 @@ export function ReportInstanceCard({
           </div>
         ) : null}
       </div>
-    </details>
+      </Modal>
+    </>
   );
 }

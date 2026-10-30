@@ -42,6 +42,36 @@ function defaultDatabase(engine: string): string {
 }
 
 export async function probeDatabase(input: TargetProbeInput): Promise<ProbeResult> {
+  if (input.engine === 'airflow') {
+    const proto = input.ssl ? 'https' : 'http';
+    const base = `${proto}://${input.host}:${input.port || 8080}`;
+    const auth =
+      input.username && input.password
+        ? `Basic ${Buffer.from(`${input.username}:${input.password}`).toString('base64')}`
+        : undefined;
+    try {
+      const ctrl = AbortSignal.timeout(8000);
+      for (const path of ['/api/v2/monitor/health', '/api/v1/health', '/health']) {
+        const res = await fetch(`${base}${path}`, {
+          signal: ctrl,
+          headers: {
+            Accept: 'application/json',
+            ...(auth ? { Authorization: auth } : {}),
+          },
+        });
+        if (res.ok) {
+          return { ok: true, message: `Airflow REST ok (${path})`, detail: base };
+        }
+      }
+      return { ok: false, message: `Airflow REST unreachable at ${base}` };
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   if (input.engine !== 'postgres') {
     return {
       ok: true,
@@ -207,7 +237,11 @@ export function probeInputFromForm(form: FormData): TargetProbeInput {
         ? 3306
         : engine === 'oracle'
           ? 1521
-          : 5432;
+          : engine === 'airflow'
+            ? 8080
+            : engine === 'kafka' || engine === 'cdc'
+              ? 9092
+              : 5432;
 
   return {
     engine,

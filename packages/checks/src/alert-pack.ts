@@ -155,7 +155,7 @@ export const ALERT_PACK_CATALOG: PackItemMeta[] = [
     direction: 'high',
     unit: 's',
     remediation:
-      'Open Estate → RPO. Fix archive_mode / log backups / binlog. Override instance target with tag rpo_seconds.',
+      'Open Estate → RPO. Restore the recovery chain (PostgreSQL archive_mode, MariaDB/MySQL binlog, or SQL Server full+log backups). Override with tag rpo_seconds.',
     defaults: { enabled: true, warning: 900, critical: 3600 },
   },
   {
@@ -166,7 +166,7 @@ export const ALERT_PACK_CATALOG: PackItemMeta[] = [
     direction: 'low',
     unit: '%',
     remediation:
-      'Grow the buffer pool / shared_buffers, or fix queries that scan cold data repeatedly.',
+      'Grow the engine buffer pool (InnoDB buffer pool on MariaDB/MySQL, shared_buffers on PostgreSQL), or fix queries that scan cold data repeatedly.',
     defaults: { enabled: true, warning: 95, critical: 90 },
   },
   {

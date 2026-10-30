@@ -19,7 +19,10 @@ export type TargetEngine =
   | 'redis'
   | 'oracle'
   | 'cassandra'
-  | 'elasticsearch';
+  | 'elasticsearch'
+  | 'airflow'
+  | 'kafka'
+  | 'cdc';
 
 export interface MonitorTarget {
   targetId: number;
@@ -33,6 +36,8 @@ export interface MonitorTarget {
   environment: string;
   ssl: boolean;
   tags: Record<string, string>;
+  /** Platform extras (airflow / kafka / cdc / endpoint probe). */
+  endpoint: Record<string, unknown>;
   enabled: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -51,6 +56,7 @@ export interface MonitorTargetInput {
   ssl: boolean;
   tags?: Record<string, string>;
   hostMetrics?: Record<string, unknown>;
+  endpoint?: Record<string, unknown>;
   enabled?: boolean;
   /** PostgreSQL: create one target per connectable database on the host. */
   expandAllDatabases?: boolean;
@@ -65,6 +71,9 @@ const ENGINES = new Set([
   'oracle',
   'cassandra',
   'elasticsearch',
+  'airflow',
+  'kafka',
+  'cdc',
 ]);
 
 const DEFAULT_PORTS: Record<TargetEngine, number> = {
@@ -76,7 +85,12 @@ const DEFAULT_PORTS: Record<TargetEngine, number> = {
   oracle: 1521,
   cassandra: 9042,
   elasticsearch: 9200,
+  airflow: 8080,
+  kafka: 9092,
+  cdc: 9092,
 };
+
+const NO_PASSWORD_OK = new Set(['cassandra', 'elasticsearch', 'airflow', 'kafka', 'cdc']);
 
 export function defaultPort(engine: TargetEngine): number {
   return DEFAULT_PORTS[engine];
@@ -85,7 +99,7 @@ export function defaultPort(engine: TargetEngine): number {
 export async function listMonitorTargets(): Promise<MonitorTarget[]> {
   const rows = await query<Record<string, unknown>>(
     `select target_id, alias, engine, host, port, database, username,
-            password <> '' as has_password, environment, ssl, tags, enabled,
+            password <> '' as has_password, environment, ssl, tags, endpoint, enabled,
             created_at, updated_at, created_by
        from buho.monitor_targets
       order by alias`,
@@ -104,6 +118,10 @@ export async function listMonitorTargets(): Promise<MonitorTarget[]> {
     tags:
       row['tags'] && typeof row['tags'] === 'object' && !Array.isArray(row['tags'])
         ? (row['tags'] as Record<string, string>)
+        : {},
+    endpoint:
+      row['endpoint'] && typeof row['endpoint'] === 'object' && !Array.isArray(row['endpoint'])
+        ? (row['endpoint'] as Record<string, unknown>)
         : {},
     enabled: Boolean(row['enabled']),
     createdAt: row['created_at'] as Date,
@@ -124,7 +142,9 @@ export function parseTargetForm(form: FormData): MonitorTargetInput {
     throw new Error('Alias may only contain letters, digits, dots, underscores and hyphens.');
   }
   if (!host) throw new Error('Host is required.');
-  if (!username) throw new Error('Username is required.');
+  if (!username && !NO_PASSWORD_OK.has(engine)) {
+    throw new Error('Username is required.');
+  }
 
   const portField = String(form.get('port') ?? '').trim();
   const portRaw = portField ? Number(portField) : defaultPort(engine);
@@ -136,6 +156,55 @@ export function parseTargetForm(form: FormData): MonitorTargetInput {
   const tagKey = String(form.get('tagKey') ?? '').trim().toUpperCase();
   const tagValue = String(form.get('tagValue') ?? '').trim();
   if (tagKey && tagValue) tags[tagKey] = tagValue;
+
+  const endpoint: Record<string, unknown> = {};
+  if (engine === 'airflow') {
+    const baseUrl = String(form.get('airflowBaseUrl') ?? '').trim();
+    const airflow: Record<string, unknown> = {
+      apiVersion: 'v2',
+      ...(baseUrl ? { baseUrl } : {}),
+      username: username || undefined,
+      password: String(form.get('password') ?? '') || undefined,
+    };
+    const metaHost = String(form.get('airflowMetaHost') ?? '').trim();
+    if (metaHost) {
+      airflow.metadata = {
+        host: metaHost,
+        port: Number(form.get('airflowMetaPort') ?? 5432) || 5432,
+        database: String(form.get('airflowMetaDatabase') ?? 'airflow').trim() || 'airflow',
+        user: String(form.get('airflowMetaUser') ?? '').trim(),
+        password: String(form.get('airflowMetaPassword') ?? ''),
+        ssl: form.get('airflowMetaSsl') === 'on',
+        engine: 'postgres',
+      };
+    }
+    endpoint.airflow = airflow;
+  }
+  if (engine === 'kafka' || engine === 'cdc') {
+    const brokers = String(form.get('kafkaBrokers') ?? '')
+      .split(/[\s,]+/)
+      .map((b) => b.trim())
+      .filter(Boolean);
+    const groups = String(form.get('kafkaGroups') ?? '')
+      .split(/[\s,]+/)
+      .map((g) => g.trim())
+      .filter(Boolean);
+    const kafka = {
+      ...(brokers.length ? { brokers } : {}),
+      ...(groups.length ? { consumerGroups: groups } : {}),
+    };
+    if (engine === 'kafka') endpoint.kafka = kafka;
+    else {
+      endpoint.cdc = {
+        kafka,
+        topics: String(form.get('cdcTopics') ?? '')
+          .split(/[\s,]+/)
+          .map((t) => t.trim())
+          .filter(Boolean),
+        applyGroups: groups,
+      };
+    }
+  }
 
   return {
     alias,
@@ -149,6 +218,7 @@ export function parseTargetForm(form: FormData): MonitorTargetInput {
     ssl: form.get('ssl') === 'on',
     tags,
     hostMetrics: hostMetricsFromForm(form),
+    endpoint,
     enabled: true,
     expandAllDatabases: form.get('expandAllDatabases') === 'on',
   };
@@ -174,7 +244,7 @@ async function keepStoredPassword(input: MonitorTargetInput): Promise<void> {
     [input.alias],
   );
   const kept = existing[0]?.password ?? '';
-  if (!kept && input.engine !== 'cassandra' && input.engine !== 'elasticsearch') {
+  if (!kept && !NO_PASSWORD_OK.has(input.engine)) {
     throw new Error('Password is required for a new target.');
   }
   input.password = kept;
@@ -194,7 +264,11 @@ export async function saveMonitorTarget(input: MonitorTargetInput): Promise<numb
           ? 'FREEPDB1'
           : input.engine === 'redis'
             ? '0'
-            : input.engine === 'cassandra' || input.engine === 'elasticsearch'
+            : input.engine === 'cassandra' ||
+                input.engine === 'elasticsearch' ||
+                input.engine === 'airflow' ||
+                input.engine === 'kafka' ||
+                input.engine === 'cdc'
               ? ''
               : 'postgres');
 
@@ -249,8 +323,8 @@ async function upsertOneTarget(
 ): Promise<number> {
   const rows = await query<{ target_id: string }>(
     `insert into buho.monitor_targets
-       (alias, engine, host, port, database, username, password, environment, ssl, tags, host_metrics, enabled, created_by)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb, true, $12)
+       (alias, engine, host, port, database, username, password, environment, ssl, tags, host_metrics, endpoint, enabled, created_by)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb, true, $13)
      on conflict (tenant, alias) do update set
        engine = excluded.engine,
        host = excluded.host,
@@ -262,6 +336,10 @@ async function upsertOneTarget(
        ssl = excluded.ssl,
        tags = excluded.tags,
        host_metrics = excluded.host_metrics,
+       endpoint = case
+         when excluded.endpoint = '{}'::jsonb then buho.monitor_targets.endpoint
+         else excluded.endpoint
+       end,
        enabled = true,
        updated_at = now()
      returning target_id`,
@@ -277,6 +355,7 @@ async function upsertOneTarget(
       input.ssl,
       JSON.stringify(input.tags ?? {}),
       JSON.stringify(input.hostMetrics ?? {}),
+      JSON.stringify(input.endpoint ?? {}),
       username,
     ],
   );

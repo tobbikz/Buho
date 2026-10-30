@@ -8,6 +8,7 @@ import { formatAgo, formatBytes } from '@/lib/format';
 import {
   ENGINE_LABEL,
   backupAgeHours,
+  backupKindLabel,
   backupState,
   backupStateHint,
   backupStateLabel,
@@ -29,7 +30,7 @@ const STATE_TAG: Record<string, string> = {
 const KIND_ORDER = ['full', 'differential', 'log'] as const;
 
 function backupTarget(database: string, host: string, port: number): string {
-  if (database === '(servidor)' || database === '') {
+  if (database === '(servidor)' || database === '(server)' || database === '') {
     return port > 0 ? `${host}:${port}` : host;
   }
   return database;
@@ -157,8 +158,14 @@ export default async function InstanceBackupsPage({ params }: { params: Promise<
           </div>
           {rows.length === 0 ? (
             <div className="panel-body empty">
-              No backup inventory yet. For SQL Server, grant access to msdb and wait for the hourly
-              inventory cycle — or open{' '}
+              {esMssql
+                ? 'No backup inventory yet. Grant access to msdb and wait for the hourly inventory cycle'
+                : motor === 'postgres'
+                  ? 'No backup inventory yet. Wait for the hourly inventory cycle (pg_stat / backup agent)'
+                  : motor === 'mariadb' || motor === 'oracle'
+                    ? 'No backup inventory yet. Wait for the hourly inventory cycle (binlog / RMAN posture)'
+                    : 'No backup inventory yet for this engine. Wait for the hourly inventory cycle'}{' '}
+              — or open{' '}
               <Link href={`/instances/${instanceId}/inventory`} className="underline decoration-dotted">
                 Inventory
               </Link>
@@ -202,7 +209,7 @@ export default async function InstanceBackupsPage({ params }: { params: Promise<
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>{rows.every((row) => row.database === '(servidor)' || row.database === '') ? 'Host' : 'Database'}</th>
+                  <th>{rows.every((row) => row.database === '(servidor)' || row.database === '(server)' || row.database === '') ? 'Host' : 'Database'}</th>
                   <th>Kind</th>
                   <th>State</th>
                   <th>Last</th>
@@ -215,11 +222,11 @@ export default async function InstanceBackupsPage({ params }: { params: Promise<
                   const state = backupState(row);
                   const age = backupAgeHours(row);
                   return (
-                    <tr key={`${row.database}-${row.kind}-${index}`}>
+                    <tr key={`${row.database}-${backupKindLabel(row)}-${index}`}>
                       <td className="font-mono text-[11px]">
                         {backupTarget(row.database, instance.host, instance.port)}
                       </td>
-                      <td>{row.kind}</td>
+                      <td>{backupKindLabel(row)}</td>
                       <td>
                         <span
                           className={`tag ${STATE_TAG[state] ?? 'tag--muted'}`}

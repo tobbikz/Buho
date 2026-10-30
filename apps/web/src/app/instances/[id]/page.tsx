@@ -1,23 +1,37 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import type { ReactNode } from 'react';
 import { AnomalyPanel } from '@/components/AnomalyPanel';
 import { FindingsPanel } from '@/components/FindingsPanel';
 import { InstanceEvents } from '@/components/InstanceEvents';
 import { SubscriptionTable } from '@/components/SubscriptionTable';
 import { IncidentPanel } from '@/components/IncidentPanel';
 import { InstanceTabs } from '@/components/InstanceTabs';
-import { ForeignSummary } from '@/components/ForeignSummary';
 import { MongoSummary } from '@/components/MongoSummary';
 import { RedisSummary } from '@/components/RedisSummary';
 import { OracleSummary } from '@/components/OracleSummary';
 import { CassandraSummary } from '@/components/CassandraSummary';
 import { ElasticsearchSummary } from '@/components/ElasticsearchSummary';
 import { LabeledBars, type BarRow } from '@/components/LabeledBars';
+import { ForeignOverviewKpis } from '@/components/ForeignOverviewKpis';
+import { OverviewCanvas } from '@/components/OverviewCanvas';
+import { OverviewSqlBars, OverviewSqlBigNumber } from '@/components/OverviewSqlExtras';
+import { OverviewSqlTable } from '@/components/OverviewSqlTable';
 import { StatCard, toneForMinimum, toneForPct, toneForScore } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { TimeseriesPanel } from '@/components/TimeseriesPanel';
 import { TimeoutScatter } from '@/components/TimeoutScatter';
 import { Topbar } from '@/components/Topbar';
+import { CATEGORY_LABEL, type SecurityCategory } from '@buho/core';
+
+function formatCollectorComponent(component: string): string {
+  if (component.startsWith('security:')) {
+    const category = component.slice('security:'.length) as SecurityCategory;
+    const label = CATEGORY_LABEL[category] ?? category;
+    return `SECURITY:${label.toUpperCase()}`;
+  }
+  return component;
+}
 import {
   formatAgo,
   formatBytes,
@@ -33,6 +47,13 @@ import { ENGINE_LABEL, getInstanceEngine } from '@/lib/estate';
 import { explainIncident } from '@/lib/incident';
 import { getTimeoutEvents } from '@/lib/logs';
 import { postureHint } from '@/lib/health-posture';
+import { describeMetric, SERIES_COLORS } from '@/lib/metrics';
+import {
+  defaultOverviewLayout,
+  getOverviewLayout,
+  type OverviewLayout,
+} from '@/lib/overview-layout';
+import { runOverviewSql } from '@/lib/overview-sql';
 import {
   getEvents,
   getFindings,
@@ -42,9 +63,11 @@ import {
   getHostSummary,
   getSeries,
   getSeriesByLabel,
+  listMetrics,
   seriesSource,
 } from '@/lib/queries';
 import { peakOf, peakOfDerived } from '@/lib/series-peak';
+import { currentSession } from '@/lib/session';
 
 /**
  * Old samples still name each partition, and a parent can appear twice while
@@ -142,9 +165,166 @@ export default async function InstancePage({
   // los indicadores que cada motor sí puede contestar. El inventario, que antes
   // era toda su pantalla, ahora es una pestaña más.
   const engine = await getInstanceEngine(instanceId);
+  if (engine === 'mariadb' || engine === 'mssql') {
+    const session = await currentSession();
+    const overviewLayout = session
+      ? await getOverviewLayout(session.username, instanceId, engine).catch(() =>
+          defaultOverviewLayout(engine),
+        )
+      : defaultOverviewLayout(engine);
+    const [availableMetrics, findings, events] = await Promise.all([
+      listMetrics(instanceId)
+        .then((rows) => rows.map((row) => row.metric))
+        .catch(() => [] as string[]),
+      getFindings(instanceId),
+      getEvents(instanceId, 12),
+    ]);
+    const overviewSlots: Record<string, ReactNode> = {};
+    const metricWidgets = overviewLayout.widgets.filter(
+      (widget) => !widget.hidden && widget.kind === 'metric' && (widget.metrics?.length ?? 0) > 0,
+    );
+    await Promise.all(
+      metricWidgets.map(async (widget) => {
+        try {
+          const cross = widget.unit === 'pct' ? ('min' as const) : ('sum' as const);
+          const seriesData = await getSeries(
+            instanceId,
+            widget.metrics!,
+            window.minutes,
+            window.bucketSeconds,
+            cross,
+          );
+          overviewSlots[widget.id] = (
+            <TimeseriesPanel
+              title={widget.title || widget.metrics!.join(' · ')}
+              hint={windowHint}
+              data={seriesData}
+              unit={widget.unit ?? 'count'}
+              series={widget.metrics!.map((metric, index) => ({
+                metric,
+                label: describeMetric(metric).label,
+                color: SERIES_COLORS[index % SERIES_COLORS.length] as string,
+              }))}
+            />
+          );
+        } catch (error) {
+          overviewSlots[widget.id] = (
+            <section className="panel">
+              <div className="panel-header">
+                <span className="panel-title">{widget.title || 'Metric widget'}</span>
+              </div>
+              <div className="panel-body text-[12px]" style={{ color: 'var(--error)' }}>
+                {error instanceof Error ? error.message : String(error)}
+              </div>
+            </section>
+          );
+        }
+      }),
+    );
+
+    return (
+      <>
+        <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: instance.alias }]} />
+        <div className="page">
+          <header className="page-header">
+            <div>
+              <h1 className="page-title">{instance.alias}</h1>
+              <p className="page-sub font-mono">
+                {instance.host}:{instance.port}
+                {instance.database ? `/${instance.database}` : ''}
+              </p>
+              <div className="mt-[0.375rem] flex flex-wrap items-center gap-1">
+                <span className="tag tag--muted">{instance.environment}</span>
+                <span className="tag tag--info">{ENGINE_LABEL[engine] ?? engine}</span>
+                <span className="font-mono text-[10px] text-foreground-muted">
+                  seen {formatAgo(instance.lastSeenAt)}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              {WINDOWS.map((candidate) => (
+                <Link
+                  key={candidate.key}
+                  href={`/instances/${instanceId}?w=${candidate.key}`}
+                  className={`tag ${candidate.key === window.key ? 'tag--info' : 'tag--muted'}`}
+                >
+                  {candidate.key}
+                </Link>
+              ))}
+            </div>
+          </header>
+          <InstanceTabs
+            instanceId={instanceId}
+            engine={engine}
+            blockedCount={instance.blockedSessions ?? 0}
+          />
+          <ForeignOverviewKpis
+            instanceId={instanceId}
+            engine={engine}
+            windowMinutes={window.minutes}
+            bucketSeconds={window.bucketSeconds}
+          />
+          <OverviewCanvas
+            instanceId={instanceId}
+            canEdit={session?.role === 'admin'}
+            initialLayout={overviewLayout}
+            availableMetrics={availableMetrics}
+            slots={overviewSlots}
+          />
+          <FindingsPanel
+            findings={findings.map((finding) => ({
+              checkId: finding.checkId,
+              title: finding.title,
+              severity: finding.severity,
+              object: finding.object,
+              message: finding.message,
+              remediation: finding.remediation,
+            }))}
+            checkedAt={findings[0] ? formatClock(findings[0].ts) : null}
+          />
+          <section className="panel">
+            <div className="panel-header">
+              <h2 className="panel-title">Collector events</h2>
+              <Link href={`/instances/${instanceId}/logs`} className="text-[11px] text-accent">
+                see the engine log →
+              </Link>
+            </div>
+            {events.length === 0 ? (
+              <div className="panel-body empty">No events.</div>
+            ) : (
+              <table className="data-table">
+                <tbody>
+                  {events.map((evento, index) => (
+                    <tr key={`${evento.ts.getTime()}-${index}`}>
+                      <td className="font-mono text-[11px] text-foreground-muted">
+                        {evento.ts.toLocaleTimeString('en')}
+                      </td>
+                      <td>
+                        <span
+                          className={`tag ${
+                            evento.level === 'error'
+                              ? 'tag--error'
+                              : evento.level === 'warn'
+                                ? 'tag--warn'
+                                : 'tag--muted'
+                          }`}
+                        >
+                          {formatCollectorComponent(evento.component)}
+                        </span>
+                      </td>
+                      <td className="text-[12px]">{evento.message}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+        </div>
+      </>
+    );
+  }
+
   if (
-    engine === 'mariadb' ||
-    engine === 'mssql' ||
     engine === 'mongodb' ||
     engine === 'redis' ||
     engine === 'oracle' ||
@@ -215,17 +395,9 @@ export default async function InstancePage({
               bucketSeconds={window.bucketSeconds}
               windowHint={windowHint}
             />
-          ) : engine === 'elasticsearch' ? (
+          ) : (
             <ElasticsearchSummary
               instanceId={instanceId}
-              windowMinutes={window.minutes}
-              bucketSeconds={window.bucketSeconds}
-              windowHint={windowHint}
-            />
-          ) : (
-            <ForeignSummary
-              instanceId={instanceId}
-              engine={engine}
               windowMinutes={window.minutes}
               bucketSeconds={window.bucketSeconds}
               windowHint={windowHint}
@@ -465,6 +637,259 @@ export default async function InstancePage({
 
   const inactiveSlots = data.slots.filter((slot) => slot.value === 0);
 
+  const session = await currentSession();
+  let overviewLayout: OverviewLayout =
+    session.role === 'admin'
+      ? await getOverviewLayout(session.username, instanceId, 'postgres').catch(() =>
+          defaultOverviewLayout('postgres'),
+        )
+      : defaultOverviewLayout('postgres');
+  const availableMetrics = await listMetrics(instanceId)
+    .then((rows) => rows.map((row) => row.metric))
+    .catch(() => [] as string[]);
+
+  const overviewSlots: Record<string, ReactNode> = {
+    host: data.host ? (
+      <TimeseriesPanel
+        title="Host CPU and memory"
+        hint={`${formatNumber(data.host.cores ?? 0)} cores · Host tab`}
+        data={data.hostCpu}
+        unit="pct"
+        series={[
+          { metric: 'host_cpu_pct', label: 'CPU', color: COLOR.accent },
+          { metric: 'host_cpu_iowait_pct', label: 'I/O wait', color: COLOR.warning },
+          { metric: 'host_mem_used_pct', label: 'Memory', color: COLOR.success },
+        ]}
+      />
+    ) : (
+      <section className="panel">
+        <div className="panel-header">
+          <span className="panel-title">Host CPU and memory</span>
+        </div>
+        <div className="panel-body text-[12px] text-foreground-secondary">
+          Needs <code>hostMetrics</code> — see the Host tab.
+        </div>
+      </section>
+    ),
+    connections: (
+      <TimeseriesPanel
+        title="Connections"
+        hint={windowHint}
+        data={data.connections}
+        unit="count"
+        series={[
+          { metric: 'connections_total', label: 'Total', color: COLOR.accent },
+          { metric: 'connections_active', label: 'Active', color: COLOR.success },
+          { metric: 'connections_idle_in_transaction', label: 'Idle in tx', color: COLOR.warning },
+        ]}
+      />
+    ),
+    wait_classes: (
+      <TimeseriesPanel
+        title="Active sessions by wait class"
+        hint="CPU = running, not waiting"
+        data={data.waitClasses.points}
+        unit="count"
+        series={data.waitClasses.keys.map((key, index) => ({
+          metric: key,
+          label: key,
+          color: WAIT_COLORS[index % WAIT_COLORS.length] as string,
+        }))}
+      />
+    ),
+    tps: (
+      <TimeseriesPanel
+        title="Transactions / s"
+        hint={windowHint}
+        data={data.throughput}
+        unit="rate"
+        series={[
+          { metric: 'db_xact_commit_per_sec', label: 'Commits', color: COLOR.accent },
+          { metric: 'db_xact_rollback_per_sec', label: 'Rollbacks', color: COLOR.error },
+        ]}
+      />
+    ),
+    dml: (
+      <TimeseriesPanel
+        title="DML tuples / s"
+        hint={windowHint}
+        data={data.dml}
+        unit="rate"
+        series={[
+          { metric: 'db_tup_inserted_per_sec', label: 'Insert', color: COLOR.success },
+          { metric: 'db_tup_updated_per_sec', label: 'Update', color: COLOR.accent },
+          { metric: 'db_tup_deleted_per_sec', label: 'Delete', color: COLOR.error },
+        ]}
+      />
+    ),
+    wal: (
+      <TimeseriesPanel
+        title="WAL / s"
+        hint={windowHint}
+        data={data.wal}
+        unit="bytes"
+        series={[{ metric: 'wal_bytes_per_sec', label: 'WAL/s', color: COLOR.accent }]}
+      />
+    ),
+    blocked: (
+      <TimeseriesPanel
+        title="Blocked sessions"
+        hint={windowHint}
+        data={data.blocking}
+        unit="count"
+        series={[{ metric: 'blocked_sessions', label: 'Blocked', color: COLOR.error }]}
+      />
+    ),
+    io: (
+      <TimeseriesPanel
+        title="I/O / s"
+        hint={windowHint}
+        data={data.io}
+        unit="rate"
+        series={[
+          { metric: 'io_reads_per_sec', label: 'Reads', color: COLOR.warning },
+          { metric: 'io_writes_per_sec', label: 'Writes', color: COLOR.accent },
+        ]}
+      />
+    ),
+    cache: (
+      <TimeseriesPanel
+        title="Cache hit"
+        hint="shared_buffers + OS cache"
+        data={data.cache}
+        unit="pct"
+        series={[{ metric: 'db_cache_hit_pct', label: 'Cache hit', color: COLOR.accent }]}
+      />
+    ),
+    checkpoints: (
+      <TimeseriesPanel
+        title="Checkpoints"
+        hint={`${windowHint} · timed vs requested`}
+        data={data.checkpoints}
+        unit="rate"
+        series={[
+          { metric: 'checkpoint_num_timed_per_sec', label: 'Timed', color: COLOR.accent },
+          { metric: 'checkpoint_num_requested_per_sec', label: 'Requested', color: COLOR.warning },
+          {
+            metric: 'checkpoint_buffers_written_per_sec',
+            label: 'Buffers written',
+            color: COLOR.muted,
+          },
+        ]}
+      />
+    ),
+    temp: (
+      <TimeseriesPanel
+        title="Temp spill"
+        hint="short work_mem symptom"
+        data={data.tempFiles}
+        unit="bytes"
+        series={[
+          { metric: 'db_temp_bytes_per_sec', label: 'Temp bytes/s', color: COLOR.error },
+          { metric: 'db_temp_files_per_sec', label: 'Temp files/s', color: COLOR.warning },
+        ]}
+      />
+    ),
+    timeouts: <TimeoutScatter points={data.timeouts} height={170} />,
+  };
+
+  const customWidgets = overviewLayout.widgets.filter(
+    (widget) => !widget.hidden && (widget.kind === 'metric' || widget.kind === 'sql'),
+  );
+  await Promise.all(
+    customWidgets.map(async (widget) => {
+      if (widget.kind === 'metric' && widget.metrics && widget.metrics.length > 0) {
+        try {
+          const cross =
+            widget.unit === 'pct' ? ('min' as const) : ('sum' as const);
+          const seriesData = await getSeries(
+            instanceId,
+            widget.metrics,
+            window.minutes,
+            window.bucketSeconds,
+            cross,
+          );
+          overviewSlots[widget.id] = (
+            <TimeseriesPanel
+              title={widget.title || widget.metrics.join(' · ')}
+              hint={`${windowHint} · custom`}
+              data={seriesData}
+              unit={widget.unit ?? 'count'}
+              series={widget.metrics.map((metric, index) => ({
+                metric,
+                label: describeMetric(metric).label,
+                color: SERIES_COLORS[index % SERIES_COLORS.length] as string,
+              }))}
+            />
+          );
+        } catch (error) {
+          overviewSlots[widget.id] = (
+            <section className="panel">
+              <div className="panel-header">
+                <span className="panel-title">{widget.title || 'Metric widget'}</span>
+              </div>
+              <div className="panel-body text-[12px]" style={{ color: 'var(--error)' }}>
+                {error instanceof Error ? error.message : String(error)}
+              </div>
+            </section>
+          );
+        }
+        return;
+      }
+      if (widget.kind === 'sql' && widget.sql) {
+        try {
+          const result = await runOverviewSql(instanceId, widget.sql, widget.sqlMode ?? 'timeseries');
+          if (result.mode === 'table') {
+            overviewSlots[widget.id] = (
+              <OverviewSqlTable
+                title={widget.title || 'Custom SQL'}
+                columns={result.columns}
+                rows={result.rows}
+              />
+            );
+          } else if (result.mode === 'big_number') {
+            overviewSlots[widget.id] = (
+              <OverviewSqlBigNumber
+                title={widget.title || 'Custom SQL'}
+                label={result.label}
+                display={result.display}
+              />
+            );
+          } else if (result.mode === 'bar') {
+            overviewSlots[widget.id] = (
+              <OverviewSqlBars title={widget.title || 'Custom SQL'} rows={result.rows} />
+            );
+          } else {
+            overviewSlots[widget.id] = (
+              <TimeseriesPanel
+                title={widget.title || 'Custom SQL'}
+                hint="custom SQL · target"
+                data={result.points}
+                unit="count"
+                series={result.seriesKeys.map((key, index) => ({
+                  metric: key,
+                  label: key,
+                  color: SERIES_COLORS[index % SERIES_COLORS.length] as string,
+                }))}
+              />
+            );
+          }
+        } catch (error) {
+          overviewSlots[widget.id] = (
+            <section className="panel">
+              <div className="panel-header">
+                <span className="panel-title">{widget.title || 'Custom SQL'}</span>
+              </div>
+              <div className="panel-body text-[12px]" style={{ color: 'var(--error)' }}>
+                {error instanceof Error ? error.message : String(error)}
+              </div>
+            </section>
+          );
+        }
+      }
+    }),
+  );
+
   return (
     <>
       <Topbar crumbs={[{ label: 'Fleet', href: '/' }, { label: instance.alias }]} />
@@ -520,29 +945,6 @@ export default async function InstancePage({
                 : 'Adding pg_stat_statements to shared_preload_libraries requires a server restart.'}
             </div>
           </div>
-        )}
-
-        {data.host ? (
-          <div className="chart-panel--full">
-            <TimeseriesPanel
-              title="Host CPU and memory"
-              hint={`${formatNumber(data.host.cores ?? 0)} cores · ${formatBytes(data.host.memAvailableBytes ?? 0)} available · detail on Host tab`}
-              data={data.hostCpu}
-              unit="pct"
-              height={220}
-              series={[
-                { metric: 'host_cpu_pct', label: 'CPU', color: COLOR.accent },
-                { metric: 'host_cpu_iowait_pct', label: 'I/O wait', color: COLOR.warning },
-                { metric: 'host_mem_used_pct', label: 'Memory', color: COLOR.success },
-              ]}
-            />
-          </div>
-        ) : (
-          <section className="panel">
-            <div className="panel-body text-[12px] text-foreground-secondary">
-              Host CPU and memory require <code>hostMetrics</code> in the collector config — see the Host tab.
-            </div>
-          </section>
         )}
 
         <div className="stat-grid stat-grid--5">
@@ -687,141 +1089,37 @@ export default async function InstancePage({
           href={`/instances/${instanceId}/sessions`}
         />
 
-        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
-          <TimeseriesPanel
-            title="Connections"
-            hint={windowHint}
-            data={data.connections}
-            unit="count"
-            series={[
-              { metric: 'connections_total', label: 'Total', color: COLOR.accent },
-              { metric: 'connections_active', label: 'Active', color: COLOR.success },
-              { metric: 'connections_idle_in_transaction', label: 'Idle in tx', color: COLOR.warning },
-            ]}
-          />
-          <TimeseriesPanel
-            title="Transactions per second"
-            hint={windowHint}
-            data={data.throughput}
-            unit="rate"
-            series={[
-              { metric: 'db_xact_commit_per_sec', label: 'Commits', color: COLOR.accent },
-              { metric: 'db_xact_rollback_per_sec', label: 'Rollbacks', color: COLOR.error },
-            ]}
-          />
-        </div>
-
-        <div className="chart-panel--full">
-          <TimeseriesPanel
-            title="DML throughput (tuples per second)"
-            hint={windowHint}
-            data={data.dml}
-            unit="rate"
-            height={220}
-            series={[
-              { metric: 'db_tup_inserted_per_sec', label: 'Insert', color: COLOR.success },
-              { metric: 'db_tup_updated_per_sec', label: 'Update', color: COLOR.accent },
-              { metric: 'db_tup_deleted_per_sec', label: 'Delete', color: COLOR.error },
-            ]}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
-          <TimeseriesPanel
-            title="WAL generated per second"
-            hint={windowHint}
-            data={data.wal}
-            unit="bytes"
-            series={[{ metric: 'wal_bytes_per_sec', label: 'WAL/s', color: COLOR.accent }]}
-          />
-          <TimeseriesPanel
-            title="Blocked sessions"
-            hint={windowHint}
-            data={data.blocking}
-            unit="count"
-            series={[{ metric: 'blocked_sessions', label: 'Blocked', color: COLOR.error }]}
-          />
-        </div>
-
-        <div className="chart-panel--full">
-          <TimeseriesPanel
-            title="I/O per second"
-            hint={windowHint}
-            data={data.io}
-            unit="rate"
-            height={260}
-            series={[
-              { metric: 'io_reads_per_sec', label: 'Reads', color: COLOR.warning },
-              { metric: 'io_writes_per_sec', label: 'Writes', color: COLOR.accent },
-            ]}
-          />
-        </div>
-
-        <div className="chart-panel--full">
-          <TimeoutScatter points={data.timeouts} height={240} />
-        </div>
-
-        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
-          <TimeseriesPanel
-            title="Active sessions by wait class"
-            hint="CPU = running, not waiting"
-            data={data.waitClasses.points}
-            unit="count"
-            series={data.waitClasses.keys.map((key, index) => ({
-              metric: key,
-              label: key,
-              color: WAIT_COLORS[index % WAIT_COLORS.length] as string,
-            }))}
-          />
-          <TimeseriesPanel
-            title="Cache hit"
-            hint="effective memory: shared_buffers + OS cache"
-            data={data.cache}
-            unit="pct"
-            series={[{ metric: 'db_cache_hit_pct', label: 'Cache hit', color: COLOR.accent }]}
-          />
-          <TimeseriesPanel
-            title="Checkpoints"
-            hint={`${windowHint} · timed vs requested`}
-            data={data.checkpoints}
-            unit="rate"
-            series={[
-              { metric: 'checkpoint_num_timed_per_sec', label: 'Timed', color: COLOR.accent },
-              { metric: 'checkpoint_num_requested_per_sec', label: 'Requested', color: COLOR.warning },
-              {
-                metric: 'checkpoint_buffers_written_per_sec',
-                label: 'Buffers written',
-                color: COLOR.muted,
-              },
-            ]}
-          />
-          <TimeseriesPanel
-            title="Spill to temporary files"
-            hint="symptom of short work_mem — bytes and file creation rate"
-            data={data.tempFiles}
-            unit="bytes"
-            series={[
-              { metric: 'db_temp_bytes_per_sec', label: 'Temp bytes/s', color: COLOR.error },
-              { metric: 'db_temp_files_per_sec', label: 'Temp files/s', color: COLOR.warning },
-            ]}
-          />
-        </div>
+        <OverviewCanvas
+          instanceId={instanceId}
+          canEdit={session.role === 'admin'}
+          initialLayout={overviewLayout}
+          availableMetrics={availableMetrics}
+          slots={overviewSlots}
+        />
 
         {healthPosture ? <div className="notice">{healthPosture}</div> : null}
 
-        <FindingsPanel
-          findings={findings.map((finding) => ({
-            checkId: finding.checkId,
-            title: finding.title,
-            severity: finding.severity,
-            object: finding.object,
-            message: finding.message,
-            remediation: finding.remediation,
-          }))}
-          checkedAt={findings[0] ? formatClock(findings[0].ts) : null}
-        />
+        <div className="panel-grid panel-grid--2">
+          <FindingsPanel
+            findings={findings.map((finding) => ({
+              checkId: finding.checkId,
+              title: finding.title,
+              severity: finding.severity,
+              object: finding.object,
+              message: finding.message,
+              remediation: finding.remediation,
+            }))}
+            checkedAt={findings[0] ? formatClock(findings[0].ts) : null}
+          />
 
-        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-3">
+          <AnomalyPanel
+            instanceId={instanceId}
+            anomalies={data.anomalies}
+            coverage={data.baselineCoverage}
+          />
+        </div>
+
+        <div className="chart-grid chart-grid--3">
           <LabeledBars
             title="Wait events"
             rows={waitRows}
@@ -842,13 +1140,7 @@ export default async function InstancePage({
           />
         </div>
 
-        <AnomalyPanel
-          instanceId={instanceId}
-          anomalies={data.anomalies}
-          coverage={data.baselineCoverage}
-        />
-
-        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+        <div className="chart-grid chart-grid--2">
           <section className="panel">
             <div className="panel-header">
               <span className="panel-title">Replication</span>

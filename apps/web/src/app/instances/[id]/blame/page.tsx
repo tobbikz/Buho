@@ -115,7 +115,7 @@ export default async function BlamePage({
 
           <WaitSqlPlanBlame instanceId={instanceId} windowMinutes={windowMinutes} />
 
-          <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+          <div className="chart-grid chart-grid--2">
             <WaitClassTimeline instanceId={instanceId} windowMinutes={windowMinutes} />
             <BlockingChainLite
               instanceId={instanceId}
@@ -125,7 +125,7 @@ export default async function BlamePage({
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+          <div className="chart-grid chart-grid--2">
             <BlockingTreePanel
               instanceId={instanceId}
               hours={Math.max(1, Math.round(windowMinutes / 60))}
@@ -136,12 +136,12 @@ export default async function BlamePage({
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+          <div className="chart-grid chart-grid--2">
             <IndexAdvisorLite instanceId={instanceId} />
             <BaselineAnomalies instanceId={instanceId} />
           </div>
 
-          <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+          <div className="chart-grid chart-grid--2">
             <PlanFingerprintHistory instanceId={instanceId} windowMinutes={windowMinutes} />
             <HaSloPanel instanceId={instanceId} windowMinutes={Math.min(windowMinutes, 60)} />
           </div>
@@ -151,7 +151,7 @@ export default async function BlamePage({
           ) : null}
 
           {motor === 'postgres' ? (
-            <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+            <div className="chart-grid chart-grid--2">
               <VacuumRiskLite instanceId={instanceId} />
             </div>
           ) : null}
@@ -164,7 +164,7 @@ export default async function BlamePage({
             windowMinutes={windowMinutes}
           />
 
-          <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+          <div className="chart-grid chart-grid--2">
             <ChangeTimeline instanceId={instanceId} hours={24} limit={6} />
             <div id="prove-restore">
               <ProveRestore items={instanceProveRestoreItems(instanceId)} compact />

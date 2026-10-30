@@ -125,25 +125,37 @@ export async function RedisSummary({
         />
       </div>
 
-      <TimeseriesPanel
-        title="Clients & blocked"
-        hint={windowHint}
-        data={connections}
-        series={[
-          { metric: 'connections_total', label: 'Clients', color: COLOR.accent },
-          { metric: 'redis_blocked_clients', label: 'Blocked', color: COLOR.warning },
-        ]}
-      />
-      <TimeseriesPanel
-        title="Throughput"
-        hint={windowHint}
-        data={ops}
-        series={[
-          { metric: 'redis_instantaneous_ops', label: 'Instant ops/s', color: COLOR.accent },
-          { metric: 'redis_total_commands_per_sec', label: 'Commands/s', color: COLOR.success },
-        ]}
-      />
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="chart-grid chart-grid--3">
+        <TimeseriesPanel
+          title="Clients & blocked"
+          hint={windowHint}
+          data={connections}
+          series={[
+            { metric: 'connections_total', label: 'Clients', color: COLOR.accent },
+            { metric: 'redis_blocked_clients', label: 'Blocked', color: COLOR.warning },
+          ]}
+        />
+        <TimeseriesPanel
+          title="Throughput"
+          hint={windowHint}
+          data={ops}
+          series={[
+            { metric: 'redis_instantaneous_ops', label: 'Instant ops/s', color: COLOR.accent },
+            { metric: 'redis_total_commands_per_sec', label: 'Commands/s', color: COLOR.success },
+          ]}
+        />
+        <TimeseriesPanel
+          title="Keyspace"
+          hint={windowHint}
+          data={keys}
+          series={[
+            { metric: 'redis_keys_total', label: 'Keys', color: COLOR.accent },
+            { metric: 'redis_evicted_keys_per_sec', label: 'Evicted/s', color: COLOR.error },
+            { metric: 'redis_expired_keys_per_sec', label: 'Expired/s', color: COLOR.muted },
+          ]}
+        />
+      </div>
+      <div className="chart-grid chart-grid--2">
         <TimeseriesPanel
           title="Memory"
           hint={windowHint}
@@ -172,17 +184,7 @@ export async function RedisSummary({
           ]}
         />
       </div>
-      <TimeseriesPanel
-        title="Keyspace"
-        hint={windowHint}
-        data={keys}
-        series={[
-          { metric: 'redis_keys_total', label: 'Keys', color: COLOR.accent },
-          { metric: 'redis_evicted_keys_per_sec', label: 'Evicted/s', color: COLOR.error },
-          { metric: 'redis_expired_keys_per_sec', label: 'Expired/s', color: COLOR.muted },
-        ]}
-      />
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="chart-grid chart-grid--2">
         <TimeseriesPanel
           title="Persistence & replicas"
           hint={windowHint}

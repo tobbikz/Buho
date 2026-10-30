@@ -254,18 +254,18 @@ export async function ElasticsearchSummary({
         checkedAt={findings[0] ? formatClock(findings[0].ts) : null}
       />
 
-      <TimeseriesPanel
-        title="Cluster health"
-        hint={windowHint}
-        data={health}
-        series={[
-          { metric: 'es_cluster_status', label: 'Status (0=g/1=y/2=r)', color: COLOR.accent },
-          { metric: 'es_unassigned_shards', label: 'Unassigned', color: COLOR.error },
-          { metric: 'es_active_shards_pct', label: 'Active %', color: COLOR.success },
-          { metric: 'es_pending_tasks', label: 'Pending tasks', color: COLOR.warning },
-        ]}
-      />
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="chart-grid chart-grid--3">
+        <TimeseriesPanel
+          title="Cluster health"
+          hint={windowHint}
+          data={health}
+          series={[
+            { metric: 'es_cluster_status', label: 'Status (0=g/1=y/2=r)', color: COLOR.accent },
+            { metric: 'es_unassigned_shards', label: 'Unassigned', color: COLOR.error },
+            { metric: 'es_active_shards_pct', label: 'Active %', color: COLOR.success },
+            { metric: 'es_pending_tasks', label: 'Pending tasks', color: COLOR.warning },
+          ]}
+        />
         <TimeseriesPanel
           title="JVM / CPU / disk"
           hint={windowHint}

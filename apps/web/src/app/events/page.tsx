@@ -54,8 +54,11 @@ export default async function EventsPage({
       getFleetLogLevelCounts(24),
       listScopeChoices(),
     ]);
+    const activeAliases = new Set(choices.map((row) => row.alias));
     const engineOf = new Map(choices.map((row) => [row.alias, row.engine]));
     const inScope = (alias: string | null, rowEngine: string | null) => {
+      // Active fleet only (retired Admin targets never appear in choices).
+      if (alias && !activeAliases.has(alias)) return false;
       const resolved = rowEngine || (alias ? engineOf.get(alias) : '') || '';
       if (!alias && (engine || conn)) return false;
       return matchesScope({ alias: alias ?? '', engine: resolved }, engine, conn);
@@ -85,8 +88,8 @@ export default async function EventsPage({
             <h1 className="page-title">Collector events</h1>
             <p className="page-sub">
               {view === 'open'
-                ? `${openCount ?? events.length} open group(s) — click a row to expand details. Acknowledge to triage; History keeps the full log.`
-                : `Full event log (${events.length} entries). Click any row for message and detail.`}
+                ? `${openCount ?? events.length} open group(s) — click a row for details. Acknowledge to triage; History keeps the full log.`
+                : `Full event log (${events.length} entries). Click a row for message and detail.`}
             </p>
           </div>
         </header>

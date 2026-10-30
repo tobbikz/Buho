@@ -278,7 +278,7 @@ export default async function LocksPage({
         </div>
 
         {/* Dos paneles y no uno: sessions y segundos no comparten eje. */}
-        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+        <div className="chart-grid chart-grid--2">
           <TimeseriesPanel
             title="Blocked sessions"
             hint="window 6 h"
@@ -297,7 +297,7 @@ export default async function LocksPage({
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+        <div className="chart-grid chart-grid--2">
           <BlockingTreePanel instanceId={instanceId} hours={24} />
           <WhoHoldsLocks instanceId={instanceId} hours={24} />
         </div>

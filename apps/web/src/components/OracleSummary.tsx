@@ -116,29 +116,31 @@ export async function OracleSummary({
         />
       </div>
 
-      <TimeseriesPanel
-        title="Sessions"
-        hint={windowHint}
-        data={connections}
-        series={[
-          { metric: 'connections_total', label: 'Total', color: COLOR.accent },
-          { metric: 'connections_active', label: 'Active', color: COLOR.success },
-          { metric: 'blocked_sessions', label: 'Blocked', color: COLOR.error },
-        ]}
-      />
-      <TimeseriesPanel
-        title="Activity"
-        hint={windowHint}
-        data={activity}
-        series={[
-          { metric: 'oracle_execute_count_per_sec', label: 'Executes/s', color: COLOR.accent },
-          { metric: 'oracle_user_commits_per_sec', label: 'Commits/s', color: COLOR.success },
-          { metric: 'oracle_parse_count_per_sec', label: 'Parses/s', color: COLOR.warning },
-          { metric: 'oracle_hard_parse_count_per_sec', label: 'Hard parses/s', color: COLOR.error },
-          { metric: 'oracle_physical_reads_per_sec', label: 'Phys reads/s', color: COLOR.muted },
-        ]}
-      />
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="chart-grid chart-grid--2">
+        <TimeseriesPanel
+          title="Sessions"
+          hint={windowHint}
+          data={connections}
+          series={[
+            { metric: 'connections_total', label: 'Total', color: COLOR.accent },
+            { metric: 'connections_active', label: 'Active', color: COLOR.success },
+            { metric: 'blocked_sessions', label: 'Blocked', color: COLOR.error },
+          ]}
+        />
+        <TimeseriesPanel
+          title="Activity"
+          hint={windowHint}
+          data={activity}
+          series={[
+            { metric: 'oracle_execute_count_per_sec', label: 'Executes/s', color: COLOR.accent },
+            { metric: 'oracle_user_commits_per_sec', label: 'Commits/s', color: COLOR.success },
+            { metric: 'oracle_parse_count_per_sec', label: 'Parses/s', color: COLOR.warning },
+            { metric: 'oracle_hard_parse_count_per_sec', label: 'Hard parses/s', color: COLOR.error },
+            { metric: 'oracle_physical_reads_per_sec', label: 'Phys reads/s', color: COLOR.muted },
+          ]}
+        />
+      </div>
+      <div className="chart-grid chart-grid--2">
         <TimeseriesPanel
           title="Memory & library cache"
           hint={windowHint}

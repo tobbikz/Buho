@@ -60,7 +60,7 @@ export async function sampleOracleSessions(client: EngineClient): Promise<Sessio
       waitEventType: waitClass && waitClass !== 'Idle' ? waitClass : null,
       waitEvent: waitEvent && waitEvent !== 'null event' ? waitEvent : null,
       backendType: 'client',
-      application: str(fila['application'], '(sin nombre)').slice(0, 120),
+      application: str(fila['application'], '(unnamed)').slice(0, 120),
       username: str(fila['username'], '(sin rol)'),
       database: str(fila['database_name'], '(sin esquema)'),
       queryid: null,

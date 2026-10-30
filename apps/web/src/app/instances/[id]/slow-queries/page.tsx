@@ -158,11 +158,17 @@ export default async function SlowQueriesPage({
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+        <div className="chart-grid chart-grid--2">
           <LabeledBars
             title="Top slow by max duration"
             rows={bars}
-            emptyMessage="No slow events yet — enable slow_query_log or wait for digests ≥1s."
+            emptyMessage={
+              engine === 'oracle'
+                ? 'No slow events yet — wait for v$sql averages ≥1s.'
+                : engine === 'redis'
+                  ? 'No slow events yet — check SLOWLOG or wait for samples ≥1s.'
+                  : 'No slow events yet — enable slow_query_log or wait for digests ≥1s.'
+            }
             footer="statement_slow_events"
           />
           <TimeseriesPanel

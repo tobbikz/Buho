@@ -89,26 +89,28 @@ export async function CassandraSummary({
         />
       </div>
 
-      <TimeseriesPanel
-        title="Clients"
-        hint={windowHint}
-        data={clients}
-        series={[
-          { metric: 'connections_total', label: 'Native clients', color: COLOR.accent },
-          { metric: 'cassandra_clients', label: 'Clients (gauge)', color: COLOR.success },
-        ]}
-      />
-      <TimeseriesPanel
-        title="Thread pools"
-        hint={windowHint}
-        data={pools}
-        series={[
-          { metric: 'cassandra_pools_active', label: 'Active', color: COLOR.accent },
-          { metric: 'cassandra_pools_pending', label: 'Pending', color: COLOR.warning },
-          { metric: 'blocked_sessions', label: 'Blocked', color: COLOR.error },
-        ]}
-      />
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="chart-grid chart-grid--2">
+        <TimeseriesPanel
+          title="Clients"
+          hint={windowHint}
+          data={clients}
+          series={[
+            { metric: 'connections_total', label: 'Native clients', color: COLOR.accent },
+            { metric: 'cassandra_clients', label: 'Clients (gauge)', color: COLOR.success },
+          ]}
+        />
+        <TimeseriesPanel
+          title="Thread pools"
+          hint={windowHint}
+          data={pools}
+          series={[
+            { metric: 'cassandra_pools_active', label: 'Active', color: COLOR.accent },
+            { metric: 'cassandra_pools_pending', label: 'Pending', color: COLOR.warning },
+            { metric: 'blocked_sessions', label: 'Blocked', color: COLOR.error },
+          ]}
+        />
+      </div>
+      <div className="chart-grid chart-grid--2">
         <TimeseriesPanel
           title="Cluster"
           hint={windowHint}

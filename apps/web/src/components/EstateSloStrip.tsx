@@ -24,7 +24,7 @@ export async function EstateSloStrip() {
   const ok = rows.filter((r) => r.tone === 'ok').length;
 
   return (
-    <section className="panel" style={{ borderLeft: '3px solid var(--accent)' }}>
+    <section className="panel estate-accent-panel">
       <div className="panel-header">
         <span className="panel-title">Recovery SLO · fleet</span>
         <span className="font-mono text-[10px] text-foreground-muted">

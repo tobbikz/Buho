@@ -19,6 +19,7 @@ import {
 import { listScopeChoices, matchesScope, scopeEngines } from '@/lib/fleet-scope';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Security · Búho' };
 
 export default async function SecurityPage({
   searchParams,

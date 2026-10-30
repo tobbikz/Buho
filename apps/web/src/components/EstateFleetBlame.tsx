@@ -12,8 +12,15 @@ function tag(tone: ShieldTone): string {
         : 'tag--muted';
 }
 
+function shortRisk(label: string): string {
+  const one = label.replace(/\s+/g, ' ').trim();
+  if (one.length <= 42) return one;
+  return `${one.slice(0, 41)}…`;
+}
+
 /**
  * Fleet dual-lane Blame chips on Estate — pain now vs DBA risk at a glance.
+ * Both can disagree on purpose: live traffic calm while recovery (RPO) is red.
  */
 export async function EstateFleetBlame() {
   const chips = await getFleetBlameChips().catch(() => []);
@@ -24,21 +31,26 @@ export async function EstateFleetBlame() {
   ).length;
 
   return (
-    <section className="panel" style={{ borderLeft: '3px solid var(--accent)' }}>
+    <section className="panel estate-accent-panel">
       <div className="panel-header">
         <span className="panel-title">Fleet Blame</span>
         <span className="font-mono text-[10px] text-foreground-muted">
-          pain now ≠ DBA risk · {hot} hot · {chips.length} SQL
+          live ≠ recovery · {hot} hot · {chips.length} SQL
         </span>
       </div>
-      <div className="panel-body">
+      <div className="panel-body space-y-2">
+        <p className="m-0 text-[11px] text-foreground-secondary max-w-[52rem]">
+          Two independent signals: <strong>Live</strong> is on-call pain right now (locks, conn pressure).{' '}
+          <strong>Recovery</strong> is RPO / archive posture — it can be red while live is calm (e.g. archive
+          off). That is expected, not a contradiction.
+        </p>
         <div className="flex flex-wrap gap-2">
           {chips.map((c) => (
             <Link
               key={c.instanceId}
               href={c.href}
-              className="inline-flex flex-col gap-1 rounded border border-border px-2.5 py-1.5 hover:border-[var(--accent)] min-w-[10rem]"
-              title={`${c.painLabel} · ${c.riskLabel}`}
+              className="inline-flex flex-col gap-1 rounded border border-border px-2.5 py-1.5 hover:border-[var(--accent)] min-w-[12rem]"
+              title={`Live: ${c.painLabel} · Recovery: ${c.riskLabel}`}
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[12px] font-medium">{c.alias}</span>
@@ -47,11 +59,11 @@ export async function EstateFleetBlame() {
                 </span>
               </div>
               <div className="flex flex-wrap gap-1">
-                <span className={`tag ${tag(c.painTone)}`} title="Pain now">
-                  pain · {c.painLabel}
+                <span className={`tag ${tag(c.painTone)}`} title="Live / on-call pain">
+                  Live · {c.painLabel}
                 </span>
-                <span className={`tag ${tag(c.riskTone)}`} title="DBA risk">
-                  risk · {c.riskTone === 'ok' ? 'ok' : c.riskTone}
+                <span className={`tag ${tag(c.riskTone)}`} title={c.riskLabel}>
+                  Recovery · {shortRisk(c.riskLabel)}
                 </span>
               </div>
             </Link>

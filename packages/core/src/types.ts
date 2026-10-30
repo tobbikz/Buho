@@ -80,6 +80,18 @@ export interface KafkaInstanceConfig {
   metricsUrl?: string;
 }
 
+/** Optional Airflow metadata DB (same tables Superset Airflow Monitor reads). */
+export interface AirflowMetadataConfig {
+  host: string;
+  port?: number;
+  database: string;
+  user: string;
+  password?: string;
+  ssl?: boolean;
+  /** Postgres today; MySQL metadata later. */
+  engine?: 'postgres';
+}
+
 export interface AirflowInstanceConfig {
   /** Base URL e.g. https://airflow.example — falls back to http(s)://host:port */
   baseUrl?: string;
@@ -89,6 +101,11 @@ export interface AirflowInstanceConfig {
   password?: string;
   /** DAG ids to focus; empty = fleet summary only. */
   dagIds?: string[];
+  /**
+   * Link the Airflow metadata database for Superset-parity KPIs
+   * (failed/open runs, failed tasks, pools, DAG inventory).
+   */
+  metadata?: AirflowMetadataConfig;
 }
 
 export interface CdcInstanceConfig {

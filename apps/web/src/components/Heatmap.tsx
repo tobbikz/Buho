@@ -5,33 +5,24 @@ import { WEEKDAY_LABEL, type HeatCell } from '@/lib/heat-types';
 import { formatUnit, type Unit } from '@/lib/units';
 
 /**
- * Rejilla de uso: 7 días por 24 horas.
+ * Rejilla de uso: 7 días por 24 horas (calendario semanal).
  *
- * Decisiones que importan para que se pueda leer:
- *
- * - **Los huecos se dibujan como huecos**, no como cero. Una celda no data y
- *   una celda con carga cero son cosas distintas: la primera dice "no estaba
- *   mirando" y la segunda "no pasaba nada". Confundirlas hace que un servidor
- *   recién instalado parezca tranquilo a las horas que nadie midió.
- * - **La escala es relativa a la propia rejilla**, así que el color no compara
- *   entre instancias. El número absoluto va en el tooltip y en los extremos.
- * - Se usa una escala secuencial de un solo tono. Las de arcoíris inventan
- *   fronteras donde el dato es continuo: el salto de verde a amarillo se lee
- *   como un umbral que no existe.
+ * - Huecos = sin dato (rayado), no cero.
+ * - Escala relativa a la propia rejilla; tooltip lleva el valor absoluto.
+ * - Un solo tono: el arcoíris inventa umbrales que no existen.
  */
 
-/** Azul de la casa, de claro a oscuro. Cinco pasos: más no se distinguen. */
 const ESCALA = ['#eaf2fb', '#c3daf2', '#8ab8e4', '#4a8ccf', '#005eb8'];
 
 function colorFor(value: number, max: number): string {
   if (max <= 0) return ESCALA[0] ?? '#eaf2fb';
-  // Raíz cuadrada en vez de lineal: la carga suele tener un pico que aplasta
-  // todo lo demás, y con escala lineal la rejilla queda casi toda del color más
-  // claro y no se ve la forma de la semana.
   const proporcion = Math.sqrt(Math.min(value / max, 1));
   const indice = Math.min(ESCALA.length - 1, Math.floor(proporcion * ESCALA.length));
   return ESCALA[indice] ?? ESCALA[0] ?? '#eaf2fb';
 }
+
+const NO_DATA_BG =
+  'repeating-linear-gradient(45deg, transparent, transparent 2px, var(--border, #e5e7eb) 2px, var(--border, #e5e7eb) 3px)';
 
 export function Heatmap({
   cells,
@@ -43,9 +34,7 @@ export function Heatmap({
   cells: HeatCell[];
   max: number;
   unit: Unit;
-  /** Debajo de esto la celda se marca como poco fiable. */
   minSamples?: number;
-  /** Stretch the grid to the height of the panel beside it. */
   fill?: boolean;
 }) {
   const porClave = useMemo(() => {
@@ -70,20 +59,16 @@ export function Heatmap({
   }, [pantallaCompleta]);
 
   const horas = Array.from({ length: 24 }, (_, hora) => hora);
-  // Lunes primero: la semana laboral se lee mejor junta, y el fin de semana
-  // abajo es donde uno busca la window de mantenimiento.
   const dias = [1, 2, 3, 4, 5, 6, 0];
-
-  const cellStyle = fill ? { width: '100%', height: '100%' } : { width: 20, height: 16 };
 
   return (
     <div
       className={
         pantallaCompleta
-          ? 'fixed inset-0 z-[200] flex flex-col overflow-auto bg-[var(--surface)] p-4'
+          ? 'heat-calendar fixed inset-0 z-[200] overflow-auto bg-[var(--surface)] p-4'
           : fill
-            ? 'relative flex h-full min-h-0 flex-1 flex-col overflow-x-auto'
-            : 'relative overflow-x-auto'
+            ? 'heat-calendar relative h-full min-h-0 flex-1'
+            : 'heat-calendar relative'
       }
     >
       <div className={pantallaCompleta ? 'mb-2 flex justify-end' : 'absolute right-0 top-0 z-10'}>
@@ -95,16 +80,13 @@ export function Heatmap({
           {pantallaCompleta ? 'Exit fullscreen' : 'Fullscreen'}
         </button>
       </div>
-      <table className={`border-separate ${fill ? 'h-full w-full flex-1' : ''}`} style={{ borderSpacing: '2px' }}>
+
+      <table className="heat-calendar__table" aria-label="Weekly usage calendar">
         <thead>
           <tr>
-            <th />
+            <th className="heat-calendar__corner" scope="col" />
             {horas.map((hora) => (
-              <th
-                key={hora}
-                className="font-mono text-[9px] font-normal text-foreground-muted"
-                style={{ width: 20 }}
-              >
+              <th key={hora} className="heat-calendar__hour" scope="col">
                 {hora % 3 === 0 ? String(hora).padStart(2, '0') : ''}
               </th>
             ))}
@@ -112,24 +94,19 @@ export function Heatmap({
         </thead>
         <tbody>
           {dias.map((dia) => (
-            <tr key={dia} style={fill ? { height: `${100 / dias.length}%` } : undefined}>
-              <td className="pr-1 text-right font-mono text-[10px] text-foreground-muted">
+            <tr key={dia}>
+              <th className="heat-calendar__day" scope="row">
                 {WEEKDAY_LABEL[dia]}
-              </td>
+              </th>
               {horas.map((hora) => {
                 const celda = porClave.get(`${dia}-${hora}`);
                 if (!celda) {
                   return (
                     <td key={hora}>
-                      {/* Hueco: sin dato, no cero. El rayado lo distingue del
-                          color más claro de la escala. */}
                       <div
+                        className="heat-calendar__cell"
                         title={`${WEEKDAY_LABEL[dia]} ${String(hora).padStart(2, '0')}:00 · no data`}
-                        style={{
-                          ...cellStyle,
-                          background:
-                            'repeating-linear-gradient(45deg, transparent, transparent 2px, var(--border, #e5e7eb) 2px, var(--border, #e5e7eb) 3px)',
-                        }}
+                        style={{ background: NO_DATA_BG }}
                       />
                     </td>
                   );
@@ -138,13 +115,13 @@ export function Heatmap({
                 return (
                   <td key={hora}>
                     <div
+                      className="heat-calendar__cell"
                       title={
                         `${WEEKDAY_LABEL[dia]} ${String(hora).padStart(2, '0')}:00 · ${formatUnit(celda.value, unit)}` +
                         ` · ${celda.samples} measured hour${celda.samples === 1 ? '' : 's'}` +
                         (pocoFiable ? ' · sparse data' : '')
                       }
                       style={{
-                        ...cellStyle,
                         background: colorFor(celda.value, max),
                         opacity: pocoFiable ? 0.45 : 1,
                       }}
@@ -157,21 +134,20 @@ export function Heatmap({
         </tbody>
       </table>
 
-      <div className="mt-2 flex items-center gap-2 text-[10px] text-foreground-muted">
+      <div className="heat-calendar__legend">
         <span>0</span>
         {ESCALA.map((color) => (
-          <span key={color} className="inline-block" style={{ width: 20, height: 8, background: color }} />
+          <span
+            key={color}
+            className="inline-block rounded-[2px]"
+            style={{ width: 18, height: 8, background: color }}
+          />
         ))}
         <span>{formatUnit(max, unit)}</span>
-        <span className="ml-3 inline-flex items-center gap-1">
+        <span className="ml-2 inline-flex items-center gap-1">
           <span
-            className="inline-block"
-            style={{
-              width: 20,
-              height: 8,
-              background:
-                'repeating-linear-gradient(45deg, transparent, transparent 2px, var(--border, #e5e7eb) 2px, var(--border, #e5e7eb) 3px)',
-            }}
+            className="inline-block rounded-[2px]"
+            style={{ width: 18, height: 8, background: NO_DATA_BG }}
           />
           no data
         </span>

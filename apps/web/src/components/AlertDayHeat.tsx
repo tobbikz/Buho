@@ -14,7 +14,7 @@ function colorFor(value: number, max: number): string {
 export function AlertDayHeat({ data }: { data: AlertDayHeatmap }) {
   if (data.checks.length === 0) {
     return (
-      <div className="panel-body empty">
+      <div className="empty">
         No alert fires in this window — heatmap fills as deliveries accumulate.
       </div>
     );
@@ -23,20 +23,13 @@ export function AlertDayHeat({ data }: { data: AlertDayHeatmap }) {
   const lookup = new Map(data.cells.map((c) => [`${c.checkId}|${c.day}`, c.count]));
 
   return (
-    <div className="overflow-x-auto">
-      <table className="border-separate" style={{ borderSpacing: '2px' }}>
+    <div className="alert-heat">
+      <table className="alert-heat__table">
         <thead>
           <tr>
-            <th className="pr-2 text-left font-mono text-[10px] font-normal text-foreground-muted">
-              check
-            </th>
+            <th className="alert-heat__label">check</th>
             {data.days.map((day) => (
-              <th
-                key={day}
-                className="font-mono text-[9px] font-normal text-foreground-muted"
-                style={{ width: 22 }}
-                title={day}
-              >
+              <th key={day} className="alert-heat__day" title={day}>
                 {day.slice(8)}
               </th>
             ))}
@@ -45,22 +38,17 @@ export function AlertDayHeat({ data }: { data: AlertDayHeatmap }) {
         <tbody>
           {data.checks.map((checkId) => (
             <tr key={checkId}>
-              <td
-                className="max-w-[14rem] truncate pr-2 text-right font-mono text-[10px] text-foreground-muted"
-                title={checkId}
-              >
+              <td className="alert-heat__label" title={checkId}>
                 {checkId}
               </td>
               {data.days.map((day) => {
                 const count = lookup.get(`${checkId}|${day}`) ?? 0;
                 return (
-                  <td key={day}>
+                  <td key={day} className="alert-heat__cell">
                     <div
+                      className="alert-heat__swatch"
                       title={`${checkId} · ${day} · ${count} fire(s)`}
                       style={{
-                        width: 18,
-                        height: 14,
-                        borderRadius: 2,
                         background: colorFor(count, data.max),
                         border: count === 0 ? '1px solid var(--border)' : undefined,
                       }}
@@ -72,7 +60,7 @@ export function AlertDayHeat({ data }: { data: AlertDayHeatmap }) {
           ))}
         </tbody>
       </table>
-      <p className="mt-2 font-mono text-[10px] text-foreground-muted">
+      <p className="alert-heat__footer">
         {data.totalFires} fire event(s) · top {data.checks.length} checks · day columns = last{' '}
         {data.days.length}d
       </p>

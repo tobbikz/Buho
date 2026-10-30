@@ -9,6 +9,9 @@ const ENGINE_LABEL: Record<string, string> = {
   oracle: 'Oracle',
   cassandra: 'Cassandra',
   elasticsearch: 'Elasticsearch',
+  kafka: 'Kafka',
+  cdc: 'CDC',
+  airflow: 'Airflow',
 };
 
 export function FleetScopeFilters({
@@ -44,7 +47,7 @@ export function FleetScopeFilters({
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Connection
-        <select name="conn" defaultValue={conn} className="input min-w-[12rem] font-mono">
+        <select name="conn" defaultValue={conn} className="input min-w-[18rem] max-w-[28rem] font-mono">
           <option value="">All connections</option>
           {instances.map((row) => (
             <option key={row.alias} value={row.alias}>

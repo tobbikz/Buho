@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition } from 'react';
+import { Modal } from '@/components/Modal';
 import { formatClock } from '@/lib/format';
 import type { CollectorEvent, EventFeedView } from '@/lib/queries';
 
@@ -41,7 +42,7 @@ function formatWhen(at: Date | string | null): string {
   });
 }
 
-function previewMessage(message: string, max = 140): string {
+function previewMessage(message: string, max = 120): string {
   const oneLine = message.replace(/\s+/g, ' ').trim();
   if (oneLine.length <= max) return oneLine;
   return `${oneLine.slice(0, max - 1)}…`;
@@ -72,7 +73,7 @@ export function EventsFeed({
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState<LevelFilter>('all');
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [selected, setSelected] = useState<CollectorEvent | null>(null);
   const [pending, startTransition] = useTransition();
 
   const visible = useMemo(() => {
@@ -94,14 +95,10 @@ export function EventsFeed({
     router.push(query ? `/events?${query}` : '/events');
   }
 
-  function toggle(eventId: number) {
-    setExpandedId((current) => (current === eventId ? null : eventId));
-  }
-
   function ack(eventId: number) {
     startTransition(async () => {
       await onAcknowledge([eventId]);
-      if (expandedId === eventId) setExpandedId(null);
+      if (selected?.eventId === eventId) setSelected(null);
       router.refresh();
     });
   }
@@ -109,7 +106,7 @@ export function EventsFeed({
   function ackAll() {
     startTransition(async () => {
       await onAcknowledgeAll();
-      setExpandedId(null);
+      setSelected(null);
       router.refresh();
     });
   }
@@ -176,30 +173,17 @@ export function EventsFeed({
       ) : (
         <div className="events-list">
           {visible.map((event) => {
-            const open = expandedId === event.eventId;
-            const detailText = formatDetail(event.detail);
             const occurrences = event.occurrences ?? 1;
-
             return (
               <article
                 key={`${view}:${event.eventId}`}
-                className={`event-card ${LEVEL_STRIPE[event.level]} ${open ? 'is-open' : ''}`}
+                className={`event-card event-card--compact ${LEVEL_STRIPE[event.level]}`}
               >
                 <div className="event-card__head">
                   <button
                     type="button"
-                    className="event-card__toggle"
-                    aria-expanded={open}
-                    aria-label={open ? 'Collapse details' : 'Expand details'}
-                    onClick={() => toggle(event.eventId)}
-                  >
-                    <span className="event-card__chevron" aria-hidden />
-                  </button>
-
-                  <button
-                    type="button"
                     className="event-card__summary"
-                    onClick={() => toggle(event.eventId)}
+                    onClick={() => setSelected(event)}
                   >
                     <div className="event-card__meta">
                       <time className="event-card__time" dateTime={new Date(event.ts).toISOString()}>
@@ -240,68 +224,73 @@ export function EventsFeed({
                     </button>
                   ) : null}
                 </div>
-
-                {open ? (
-                  <div className="event-card__body">
-                    <dl className="event-card__facts">
-                      <div>
-                        <dt>Last seen</dt>
-                        <dd>{formatWhen(event.ts)}</dd>
-                      </div>
-                      {view === 'open' && event.firstTs && occurrences > 1 ? (
-                        <div>
-                          <dt>First seen</dt>
-                          <dd>{formatWhen(event.firstTs)}</dd>
-                        </div>
-                      ) : null}
-                      {view === 'open' && occurrences > 1 ? (
-                        <div>
-                          <dt>Occurrences</dt>
-                          <dd>{occurrences}</dd>
-                        </div>
-                      ) : null}
-                      <div>
-                        <dt>Event ID</dt>
-                        <dd className="font-mono">{event.eventId}</dd>
-                      </div>
-                      {view === 'history' && event.ackedBy ? (
-                        <div>
-                          <dt>Acknowledged</dt>
-                          <dd>
-                            {event.ackedBy} · {formatWhen(event.ackedAt)}
-                          </dd>
-                        </div>
-                      ) : null}
-                    </dl>
-
-                    <div className="event-card__section">
-                      <span className="event-card__section-label">Message</span>
-                      <p className="event-card__message">{event.message}</p>
-                    </div>
-
-                    {detailText ? (
-                      <div className="event-card__section">
-                        <span className="event-card__section-label">Detail</span>
-                        <pre className="event-card__detail">{detailText}</pre>
-                      </div>
-                    ) : (
-                      <p className="event-card__nodetail">No additional detail recorded for this event.</p>
-                    )}
-
-                    {event.instanceId ? (
-                      <div className="event-card__links">
-                        <Link href={`/instances/${event.instanceId}`} className="link">
-                          Open instance · {event.instanceAlias ?? event.instanceId}
-                        </Link>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
               </article>
             );
           })}
         </div>
       )}
+
+      <Modal
+        open={selected !== null}
+        title={selected?.component ?? 'Event'}
+        subtitle={
+          selected
+            ? `${selected.level} · ${selected.instanceAlias ?? 'fleet'} · ${formatWhen(selected.ts)}`
+            : undefined
+        }
+        onClose={() => setSelected(null)}
+      >
+        {selected ? (
+          <div className="flex flex-col gap-3 text-[12px]">
+            <div className="flex flex-wrap gap-2">
+              <span className={`tag ${LEVEL_TAG[selected.level]}`}>{selected.level}</span>
+              {view === 'history' ? (
+                <span className="tag tag--muted">{STATUS_LABEL[selected.status]}</span>
+              ) : null}
+              {(selected.occurrences ?? 1) > 1 ? (
+                <span className="font-mono text-[10px] text-foreground-muted">
+                  ×{selected.occurrences} occurrences
+                </span>
+              ) : null}
+            </div>
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-foreground-muted mb-1">
+                Message
+              </div>
+              <p className="m-0 text-foreground-secondary leading-snug whitespace-pre-wrap">
+                {selected.message}
+              </p>
+            </div>
+            {formatDetail(selected.detail) ? (
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-foreground-muted mb-1">
+                  Detail
+                </div>
+                <pre className="m-0 text-[11px] whitespace-pre-wrap break-words text-foreground-secondary">
+                  {formatDetail(selected.detail)}
+                </pre>
+              </div>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {selected.instanceId ? (
+                <Link href={`/instances/${selected.instanceId}`} className="btn text-[11px]">
+                  Open instance
+                </Link>
+              ) : null}
+              {view === 'open' && canAcknowledge ? (
+                <button
+                  type="button"
+                  className="btn text-[11px]"
+                  disabled={pending}
+                  onClick={() => ack(selected.eventId)}
+                >
+                  Acknowledge
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     </>
   );
 }

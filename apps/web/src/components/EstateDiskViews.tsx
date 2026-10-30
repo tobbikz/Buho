@@ -157,25 +157,31 @@ export function EstateDiskViews({
 
       {tab === 'overview' ? (
         <>
-          <TimeseriesPanel
-            title="Estate data size over time"
-            hint="deduped by server and database · daily rollup"
-            data={fleetHistory}
-            unit="bytes"
-            height={200}
-            series={[{ metric: 'total', label: 'Total data', color: '#1f5f8b' }]}
-          />
-
-          {instanceSeries.keys.length > 0 ? (
+          <div
+            className={
+              instanceSeries.keys.length > 0 ? 'chart-grid chart-grid--2' : undefined
+            }
+          >
             <TimeseriesPanel
-              title="Largest instances"
-              hint={`top ${instanceSeries.keys.length} by current size`}
-              data={instanceSeries.points}
+              title="Estate data size over time"
+              hint="deduped by server and database · daily rollup"
+              data={fleetHistory}
               unit="bytes"
               height={200}
-              series={instanceSeriesSpec}
+              series={[{ metric: 'total', label: 'Total data', color: '#1f5f8b' }]}
             />
-          ) : null}
+
+            {instanceSeries.keys.length > 0 ? (
+              <TimeseriesPanel
+                title="Largest instances"
+                hint={`top ${instanceSeries.keys.length} by current size`}
+                data={instanceSeries.points}
+                unit="bytes"
+                height={200}
+                series={instanceSeriesSpec}
+              />
+            ) : null}
+          </div>
 
           {fleetForecast ? (
             <section className="panel">

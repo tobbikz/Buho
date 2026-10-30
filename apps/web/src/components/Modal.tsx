@@ -13,8 +13,8 @@ export function Modal({
   open: boolean;
   title: string;
   subtitle?: string;
-  /** Compact = narrow card for short copy (extension blurbs, confirms). */
-  size?: 'default' | 'compact';
+  /** Compact = narrow card; wide = SQL / chart editors. */
+  size?: 'default' | 'compact' | 'wide';
   onClose: () => void;
   children: React.ReactNode;
 }) {
@@ -38,7 +38,7 @@ export function Modal({
   return (
     <div className="modal-backdrop" onClick={onClose} role="presentation">
       <div
-        className={`modal ${size === 'compact' ? 'modal--compact' : ''}`}
+        className={`modal${size === 'compact' ? ' modal--compact' : ''}${size === 'wide' ? ' modal--wide' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

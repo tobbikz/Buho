@@ -6,12 +6,18 @@ type TargetProbeResult = {
   host: { ok?: boolean; message: string; detail?: string };
 };
 
-/** Product scope: relational engines only. PostgreSQL is the deepest surface. */
 const ENGINE_OPTIONS = [
   { value: 'postgres', label: 'PostgreSQL' },
   { value: 'mssql', label: 'SQL Server' },
   { value: 'mariadb', label: 'MariaDB / MySQL' },
   { value: 'oracle', label: 'Oracle' },
+  { value: 'mongodb', label: 'MongoDB' },
+  { value: 'redis', label: 'Redis' },
+  { value: 'cassandra', label: 'Cassandra' },
+  { value: 'elasticsearch', label: 'Elasticsearch' },
+  { value: 'airflow', label: 'Airflow' },
+  { value: 'kafka', label: 'Kafka' },
+  { value: 'cdc', label: 'CDC / DataSync' },
 ] as const;
 
 const HOST_SOURCE_OPTIONS = [
@@ -45,6 +51,14 @@ export type AddDatabaseDefaults = {
   hostMetricsSource?: string;
   dataDirectory?: string;
   expandAllDatabases?: boolean;
+  airflowBaseUrl?: string;
+  airflowMetaHost?: string;
+  airflowMetaPort?: number | string;
+  airflowMetaDatabase?: string;
+  airflowMetaUser?: string;
+  kafkaBrokers?: string;
+  kafkaGroups?: string;
+  cdcTopics?: string;
 };
 
 export function AddDatabaseForm({
@@ -85,6 +99,9 @@ export function AddDatabaseForm({
   }
 
   const showHostMetrics = engine === 'postgres' || engine === 'mariadb' || engine === 'mssql';
+  const isPlatform = engine === 'airflow' || engine === 'kafka' || engine === 'cdc';
+  const portPlaceholder =
+    engine === 'airflow' ? '8080' : engine === 'kafka' || engine === 'cdc' ? '9092' : '5432';
 
   return (
     <form action={action} className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -94,7 +111,7 @@ export function AddDatabaseForm({
           name="alias"
           required
           className="input font-mono"
-          placeholder="orders-prod"
+          placeholder={engine === 'airflow' ? 'airflow-prod' : 'orders-prod'}
           defaultValue={defaults?.alias}
         />
       </label>
@@ -121,6 +138,12 @@ export function AddDatabaseForm({
           grants under Security → Findings — never a green empty pack.
         </div>
       ) : null}
+      {engine === 'airflow' ? (
+        <div className="notice md:col-span-2 xl:col-span-3 text-[12px] font-normal normal-case tracking-normal">
+          Host/port (or Base URL) reach the Airflow REST API. Optional metadata Postgres unlocks the
+          same KPI plane as Superset Airflow Monitor (failed/open runs, tasks, pools).
+        </div>
+      ) : null}
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Environment
         <input
@@ -138,7 +161,7 @@ export function AddDatabaseForm({
           name="host"
           required
           className="input font-mono"
-          placeholder="10.0.0.10"
+          placeholder={engine === 'airflow' ? 'airflow.example.com' : '10.0.0.10'}
           defaultValue={defaults?.host}
         />
       </label>
@@ -148,29 +171,33 @@ export function AddDatabaseForm({
           name="port"
           type="number"
           className="input font-mono"
-          placeholder="5432"
+          placeholder={portPlaceholder}
           defaultValue={defaults?.port ?? ''}
         />
       </label>
-      <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-        Database
-        <input
-          name="database"
-          className="input font-mono"
-          defaultValue={defaults?.database}
-          placeholder={
-            engine === 'mssql' ? 'master' : engine === 'oracle' ? 'FREEPDB1' : 'postgres'
-          }
-        />
-      </label>
+      {!isPlatform ? (
+        <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
+          Database
+          <input
+            name="database"
+            className="input font-mono"
+            defaultValue={defaults?.database}
+            placeholder={
+              engine === 'mssql' ? 'master' : engine === 'oracle' ? 'FREEPDB1' : 'postgres'
+            }
+          />
+        </label>
+      ) : (
+        <input type="hidden" name="database" value="" />
+      )}
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
         Username
         <input
           name="username"
-          required
+          required={!isPlatform}
           className="input font-mono"
           defaultValue={defaults?.username}
-          placeholder="buho_monitor"
+          placeholder={engine === 'airflow' ? 'airflow_monitor' : 'buho_monitor'}
         />
       </label>
       <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
@@ -178,7 +205,7 @@ export function AddDatabaseForm({
         <input
           name="password"
           type="password"
-          required={!defaults}
+          required={!defaults && !isPlatform}
           className="input font-mono"
           autoComplete="new-password"
           placeholder={defaults ? 'leave blank to keep current password' : undefined}
@@ -207,6 +234,110 @@ export function AddDatabaseForm({
         />
         Use TLS / SSL
       </label>
+
+      {engine === 'airflow' ? (
+        <div className="md:col-span-2 xl:col-span-3 rounded border border-[var(--border)] p-3 space-y-3">
+          <p className="m-0 text-[12px] font-semibold text-foreground">Airflow REST</p>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted md:col-span-2">
+              Base URL (optional)
+              <input
+                name="airflowBaseUrl"
+                className="input font-mono"
+                placeholder="https://airflow.example.com"
+                defaultValue={defaults?.airflowBaseUrl}
+              />
+            </label>
+          </div>
+          <p className="m-0 text-[12px] font-semibold text-foreground">Metadata database (optional)</p>
+          <p className="m-0 text-[11px] text-foreground-secondary">
+            Read-only Postgres that backs Airflow (`dag_run`, `task_instance`, …).
+          </p>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
+              Meta host
+              <input
+                name="airflowMetaHost"
+                className="input font-mono"
+                placeholder="airflow-meta.example"
+                defaultValue={defaults?.airflowMetaHost}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
+              Meta port
+              <input
+                name="airflowMetaPort"
+                type="number"
+                className="input font-mono"
+                placeholder="5432"
+                defaultValue={defaults?.airflowMetaPort ?? ''}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
+              Meta database
+              <input
+                name="airflowMetaDatabase"
+                className="input font-mono"
+                placeholder="airflow"
+                defaultValue={defaults?.airflowMetaDatabase ?? 'airflow'}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
+              Meta user
+              <input
+                name="airflowMetaUser"
+                className="input font-mono"
+                placeholder="buho_ro"
+                defaultValue={defaults?.airflowMetaUser}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
+              Meta password
+              <input name="airflowMetaPassword" type="password" className="input font-mono" />
+            </label>
+            <label className="flex items-center gap-2 text-[12px] text-foreground-secondary">
+              <input type="checkbox" name="airflowMetaSsl" className="accent-[var(--accent)]" />
+              Meta TLS
+            </label>
+          </div>
+        </div>
+      ) : null}
+
+      {engine === 'kafka' || engine === 'cdc' ? (
+        <div className="md:col-span-2 xl:col-span-3 rounded border border-[var(--border)] p-3 space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted md:col-span-2">
+              Brokers (comma-separated)
+              <input
+                name="kafkaBrokers"
+                className="input font-mono"
+                placeholder="broker1:9092,broker2:9092"
+                defaultValue={defaults?.kafkaBrokers}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted md:col-span-2">
+              Consumer groups
+              <input
+                name="kafkaGroups"
+                className="input font-mono"
+                placeholder="datasync-apply"
+                defaultValue={defaults?.kafkaGroups}
+              />
+            </label>
+            {engine === 'cdc' ? (
+              <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted md:col-span-2">
+                CDC topics
+                <input
+                  name="cdcTopics"
+                  className="input font-mono"
+                  placeholder="dbserver.public.orders"
+                  defaultValue={defaults?.cdcTopics}
+                />
+              </label>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {engine === 'postgres' ? (
         <label className="flex items-start gap-2 text-[12px] text-foreground-secondary md:col-span-2 xl:col-span-3">

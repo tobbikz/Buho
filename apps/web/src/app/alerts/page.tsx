@@ -1,10 +1,10 @@
 import Link from 'next/link';
 import { AlertDayHeat } from '@/components/AlertDayHeat';
+import { AlertsTable } from '@/components/AlertsTable';
 import { FleetScopeFilters } from '@/components/FleetScopeFilters';
 import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { Topbar } from '@/components/Topbar';
-import { formatAgo } from '@/lib/format';
 import {
   countOpenAlerts,
   getAlertDayHeatmap,
@@ -14,45 +14,7 @@ import {
 import { listScopeChoices, scopeEngines } from '@/lib/fleet-scope';
 
 export const dynamic = 'force-dynamic';
-
-function severityClass(severity: string): string {
-  if (severity === 'critical') return 'tag tag--error';
-  if (severity === 'warning') return 'tag tag--warn';
-  return 'tag';
-}
-
-function AlertRow({ alert }: { alert: FleetAlert }) {
-  return (
-    <tr>
-      <td>
-        <span className={severityClass(alert.severity)}>{alert.severity}</span>
-      </td>
-      <td>
-        <span className="tag">{alert.status}</span>
-        {alert.status === 'pending' ? (
-          <span className="ml-1 text-[10px] text-foreground-muted">×{alert.pendingCount}</span>
-        ) : null}
-      </td>
-      <td>
-        <Link href={`/instances/${alert.instanceId}`} className="check-score__instance">
-          {alert.alias}
-        </Link>
-        <div className="text-[10px] text-foreground-muted">{alert.engine}</div>
-      </td>
-      <td>
-        <div className="text-[12px] font-medium leading-snug">{alert.title}</div>
-        <div className="font-mono text-[10px] text-foreground-muted break-all">
-          {alert.checkId}
-          {alert.object ? ` · ${alert.object}` : ''}
-        </div>
-      </td>
-      <td className="alerts-table__detail">{alert.message}</td>
-      <td className="num font-mono text-[10px] text-foreground-muted whitespace-nowrap">
-        {formatAgo(alert.lastSeenAt)}
-      </td>
-    </tr>
-  );
-}
+export const metadata = { title: 'Alerts · Búho' };
 
 export default async function AlertsPage({
   searchParams,
@@ -159,33 +121,7 @@ export default async function AlertsPage({
                 : 'No open alerts. Critical findings fire on the first check cycle; warnings need two.'}
             </p>
           ) : (
-            <div className="table-scroll" style={{ maxHeight: 'none' }}>
-              <table className="data-table data-table--alerts">
-                <colgroup>
-                  <col className="alerts-col--sev" />
-                  <col className="alerts-col--status" />
-                  <col className="alerts-col--instance" />
-                  <col className="alerts-col--check" />
-                  <col className="alerts-col--detail" />
-                  <col className="alerts-col--seen" />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th>Severity</th>
-                    <th>Status</th>
-                    <th>Instance</th>
-                    <th>Check</th>
-                    <th>Detail</th>
-                    <th className="num">Seen</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {alerts.map((alert) => (
-                    <AlertRow key={alert.alertId} alert={alert} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <AlertsTable alerts={alerts} />
           )}
         </section>
       </div>

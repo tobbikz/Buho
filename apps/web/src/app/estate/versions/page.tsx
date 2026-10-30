@@ -5,6 +5,7 @@ import { formatAgo, formatBytes } from '@/lib/format';
 import { ENGINE_LABEL, getEngineVersions, type EngineRow } from '@/lib/estate';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Versions · Estate · Búho' };
 
 const DAY_MS = 86_400_000;
 

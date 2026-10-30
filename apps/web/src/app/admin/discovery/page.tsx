@@ -7,6 +7,7 @@ import { getDiscovered, runDiscovery, setDiscoveredNote, type DiscoveredRow } fr
 import { requireAdmin } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Discovery · Admin · Búho' };
 
 async function scan(formData: FormData) {
   'use server';
@@ -41,7 +42,7 @@ async function annotate(formData: FormData) {
 }
 
 function engineTag(engine: string): string {
-  if (engine === 'desconocido') return 'tag tag--muted';
+  if (engine === 'desconocido' || engine === 'unknown') return 'tag tag--muted';
   return 'tag tag--info';
 }
 
@@ -59,13 +60,15 @@ export default async function DiscoveryPage({
     return <StoreError message={storeError instanceof Error ? storeError.message : String(storeError)} />;
   }
 
-  const unmonitored = rows.filter((row) => !row.monitored && !row.ignored && row.engine !== 'desconocido');
+  const unmonitored = rows.filter(
+    (row) => !row.monitored && !row.ignored && row.engine !== 'desconocido' && row.engine !== 'unknown',
+  );
   const gone = rows.filter((row) => Date.now() - row.lastSeenAt.getTime() > 7 * 86_400_000);
 
   return (
     <div className="flex flex-col gap-[0.875rem]">
       <div className="stat-grid">
-        <StatCard label="Encontradas" value={String(rows.length)} hint="host:puerto vistos alguna vez" />
+        <StatCard label="Found" value={String(rows.length)} hint="host:port seen at least once" />
         <StatCard
           label="Not monitored"
           value={String(unmonitored.length)}
@@ -75,20 +78,20 @@ export default async function DiscoveryPage({
         <StatCard
           label="No response for 7 days"
           value={String(gone.length)}
-          hint="apagadas, movidas o cambiadas de puerto"
+          hint="powered off, moved, or port changed"
           tone={gone.length > 0 ? 'warn' : 'ok'}
         />
       </div>
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Escanear una red</span>
+          <span className="panel-title">Scan a network</span>
         </div>
         <form action={scan} className="panel-body flex flex-col gap-2">
           <div className="flex flex-wrap items-end gap-3">
             <label className="flex flex-col gap-1">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-                Rangos
+                Ranges
               </span>
               <input
                 name="ranges"
@@ -99,7 +102,7 @@ export default async function DiscoveryPage({
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-                Puertos
+                Ports
               </span>
               <input
                 name="ports"
@@ -109,7 +112,7 @@ export default async function DiscoveryPage({
             </label>
             <label className="flex items-center gap-1.5 text-[11.5px] text-foreground-secondary">
               <input type="checkbox" name="allowPublic" />
-              permitir direcciones públicas
+              allow public addresses
             </label>
             <button type="submit" className="btn btn--primary">
               Scan
@@ -120,17 +123,17 @@ export default async function DiscoveryPage({
           {ok ? <p className="text-[12px] text-success">{decodeURIComponent(ok)}</p> : null}
 
           <p className="text-[11.5px] text-foreground-muted">
-            No se envían credenciales ni se intenta iniciar sesión: Búho lee el saludo del protocolo y cierra la
-            conexión. MariaDB y SQL Server entregan su versión así; PostgreSQL no la dice sin autenticar y queda en
-            blank on purpose. Cap is 1024 addresses per scan and public networks must be enabled
-            a mano.
+            No credentials are sent and no login is attempted: Búho reads the protocol greeting and closes
+            the connection. MariaDB and SQL Server reveal their version that way; PostgreSQL does not
+            without auth, so version stays blank on purpose. Cap is 1024 addresses per scan; public
+            networks must be enabled explicitly.
           </p>
         </form>
       </section>
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">Bases encontradas</span>
+          <span className="panel-title">Discovered databases</span>
           <span className="text-[11px] text-foreground-muted">those not in config come first</span>
         </div>
         {rows.length === 0 ? (
@@ -139,14 +142,14 @@ export default async function DiscoveryPage({
           <table className="data-table">
             <thead>
               <tr>
-                <th>Destino</th>
+                <th>Target</th>
                 <th>Engine</th>
                 <th>Version</th>
                 <th>State</th>
-                <th className="text-right">Latencia</th>
-                <th>Visto por primera vez</th>
+                <th className="text-right">Latency</th>
+                <th>First seen</th>
                 <th>Last seen</th>
-                <th>Nota</th>
+                <th>Note</th>
               </tr>
             </thead>
             <tbody>
@@ -165,11 +168,11 @@ export default async function DiscoveryPage({
                   </td>
                   <td>
                     {row.monitored ? (
-                      <span className="tag tag--ok">monitoreada</span>
+                      <span className="tag tag--ok">monitored</span>
                     ) : row.ignored ? (
-                      <span className="tag tag--muted">ignorada</span>
+                      <span className="tag tag--muted">ignored</span>
                     ) : (
-                      <span className="tag tag--warn">fuera del config</span>
+                      <span className="tag tag--warn">not in config</span>
                     )}
                   </td>
                   <td className="num">{row.latencyMs === null ? '—' : `${row.latencyMs} ms`}</td>
@@ -182,12 +185,12 @@ export default async function DiscoveryPage({
                       <input
                         name="note"
                         defaultValue={row.note ?? ''}
-                        placeholder="pruebas de Juan…"
+                        placeholder="lab note…"
                         className="w-[11rem] border border-border bg-surface px-1.5 py-0.5 text-[11px] outline-none focus:border-accent"
                       />
                       <label className="flex items-center gap-1 text-[10.5px] text-foreground-muted">
                         <input type="checkbox" name="ignored" defaultChecked={row.ignored} />
-                        ignorar
+                        ignore
                       </label>
                       <button type="submit" className="btn">
                         Save
@@ -199,19 +202,6 @@ export default async function DiscoveryPage({
             </tbody>
           </table>
         )}
-      </section>
-
-      <section className="panel">
-        <div className="panel-header">
-          <span className="panel-title">What to do with findings</span>
-        </div>
-        <div className="panel-body text-[12px] text-foreground-secondary">
-          El descubrimiento <strong>does not add instances to monitoring</strong>: para eso hacen falta credenciales, y
-          pedirlas en un formulario web significaría guardarlas en la base del store. Las instancias se declaran en{' '}
-          <span className="font-mono">config.json</span>, que es lo que se respalda y se versiona. Esta pantalla
-          responde la otra pregunta, la que nadie puede contestar de memoria: qué bases hay en la red que nadie está
-          vigilando.
-        </div>
       </section>
     </div>
   );

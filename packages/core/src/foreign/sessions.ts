@@ -146,7 +146,7 @@ const MSSQL_SQL = `
          r.wait_type                                           as wait_type,
          r.blocking_session_id                                 as blocked_by,
          s.login_name                                          as username,
-         coalesce(nullif(s.program_name, N''), N'(sin nombre)') as application,
+         coalesce(nullif(s.program_name, N''), N'(unnamed)') as application,
          coalesce(db_name(r.database_id), N'(sin base)')       as database_name,
          r.total_elapsed_time                                  as query_ms,
          -- No hay un start_time fiable de la transacción abierta en todas las
@@ -189,7 +189,7 @@ export async function sampleForeignSessions(
         waitEvent,
         backendType: 'client',
         // PROCESSLIST no expone application_name: no se inventa.
-        application: '(sin nombre)',
+        application: '(unnamed)',
         username: str(fila['username'], '(sin rol)'),
         database: str(fila['database_name'], '(sin base)'),
         queryid: null,
@@ -219,7 +219,7 @@ export async function sampleForeignSessions(
         waitEventType: waitType,
         waitEvent,
         backendType: 'client',
-        application: str(fila['application'], '(sin nombre)'),
+        application: str(fila['application'], '(unnamed)'),
         username: str(fila['username'], '(sin rol)'),
         database: str(fila['database_name'], '(sin base)'),
         queryid: null,

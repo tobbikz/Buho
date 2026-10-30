@@ -23,10 +23,19 @@ export const ENGINE_LABEL: Record<string, string> = {
   mssql: 'SQL Server',
   mariadb: 'MariaDB',
   oracle: 'Oracle',
+  mongodb: 'MongoDB',
+  redis: 'Redis',
+  cassandra: 'Cassandra',
+  elasticsearch: 'Elasticsearch',
+  kafka: 'Kafka',
+  cdc: 'CDC',
+  airflow: 'Airflow',
   endpoint: 'Endpoint',
 };
 
-export const NO_GROUP = 'sin-agrupar';
+/** URL/query value for “No grouping” (legacy `sin-agrupar` still accepted). */
+export const NO_GROUP = 'ungrouped';
+const NO_GROUP_LEGACY = 'sin-agrupar';
 
 /** Etiqueta preferida para agrupar cuando nadie eligió: la más usada del parque. */
 export function defaultGroupKey(instances: FleetInstance[]): string {
@@ -77,7 +86,7 @@ export interface Group<T> {
  * está roto, esa es la razón por la que alguien abrió la pantalla.
  */
 export function groupInstances<T extends FleetInstance>(instances: T[], key: string): Group<T>[] {
-  if (key === NO_GROUP) return [{ value: '', instances }];
+  if (key === NO_GROUP || key === NO_GROUP_LEGACY) return [{ value: '', instances }];
 
   const groups = new Map<string, T[]>();
   for (const instance of instances) {

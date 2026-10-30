@@ -60,7 +60,7 @@ const SESSIONS_SQL = `
          wait_event_type                                          as wait_event_type,
          wait_event                                               as wait_event,
          backend_type                                             as backend_type,
-         coalesce(nullif(application_name, ''), '(sin nombre)')   as application,
+         coalesce(nullif(application_name, ''), '(unnamed)')   as application,
          coalesce(usename, '(sin rol)')                           as username,
          coalesce(datname, '(sin base)')                          as database,
          query_id::text                                           as queryid,
@@ -161,7 +161,17 @@ export function summarizeSessions(samples: SessionSample[], at = new Date()): Se
       state === 'running' ||
       state === 'runnable' ||
       state === 'suspended' ||
-      state === 'rollback';
+      state === 'rollback' ||
+      // Mongo currentOp op names (and lock waiters).
+      state === 'insert' ||
+      state === 'update' ||
+      state === 'delete' ||
+      state === 'remove' ||
+      state === 'getmore' ||
+      state === 'command' ||
+      state === 'find' ||
+      state === 'aggregate' ||
+      state === 'waitingforlock';
     if (running || idleInTx) activas += 1;
     if (muestra.waitEventType === 'Lock' || (muestra.blockedBy ?? 0) > 0) bloqueadas += 1;
 
@@ -197,6 +207,15 @@ export function summarizeSessions(samples: SessionSample[], at = new Date()): Se
         state === 'runnable' ||
         state === 'suspended' ||
         state === 'rollback' ||
+        state === 'insert' ||
+        state === 'update' ||
+        state === 'delete' ||
+        state === 'remove' ||
+        state === 'getmore' ||
+        state === 'command' ||
+        state === 'find' ||
+        state === 'aggregate' ||
+        state === 'waitingforlock' ||
         state.startsWith('idle in transaction') ||
         (muestra.queryMs ?? 0) > 1000 ||
         (muestra.xactMs ?? 0) > 60_000

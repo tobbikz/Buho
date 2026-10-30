@@ -12,6 +12,7 @@ import {
   parseFilter,
 } from '@/lib/grouping';
 import { getFleetFindings, listInstances, type FleetInstance } from '@/lib/queries';
+import { currentRole } from '@/lib/session';
 
 export const metadata = { title: 'Fleet · Búho' };
 
@@ -30,6 +31,8 @@ export default async function FleetPage({
   searchParams: Promise<{ agrupar?: string; filtro?: string; denegado?: string }>;
 }) {
   const { agrupar, filtro, denegado } = await searchParams;
+  const role = await currentRole();
+  const isAdmin = role === 'admin';
 
   let instances: FleetInstance[];
   let findings;
@@ -88,16 +91,17 @@ export default async function FleetPage({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {visible.length === 0 ? (
+            {isAdmin && visible.length === 0 ? (
               <Link href="/get-started" className="btn btn--primary">
                 Get started
               </Link>
-            ) : (
+            ) : null}
+            {isAdmin && visible.length > 0 ? (
               <Link href="/admin/targets" className="btn btn--primary">
                 Add database
               </Link>
-            )}
-            {visible.length === 0 ? (
+            ) : null}
+            {isAdmin && visible.length === 0 ? (
               <Link href="/admin/targets" className="btn">
                 Add database
               </Link>
@@ -122,12 +126,18 @@ export default async function FleetPage({
           <div className="panel">
             <div className="empty">
               No instances yet.{' '}
-              <Link href="/admin/targets" className="link">
-                Add database
-              </Link>{' '}
-              from the console (targets persist in the store volume — do not use{' '}
-              <code>docker compose down -v</code>), or bootstrap from{' '}
-              <code>config.json</code> for labs.
+              {isAdmin ? (
+                <>
+                  <Link href="/admin/targets" className="link">
+                    Add database
+                  </Link>{' '}
+                  from the console (targets persist in the store volume — do not use{' '}
+                  <code>docker compose down -v</code>), or bootstrap from{' '}
+                  <code>config.json</code> for labs.
+                </>
+              ) : (
+                <>Ask an administrator to add a target, or bootstrap from <code>config.json</code>.</>
+              )}
             </div>
           </div>
         ) : (

@@ -605,6 +605,7 @@ export async function getWeeklyReport(weeksAgo = 0): Promise<WeeklyReport> {
     }>(
       `select instance_id, alias, engine, environment
          from buho.instances
+        where coalesce(retired, false) = false
         order by environment, alias`,
     ),
     metricSummaries(w),

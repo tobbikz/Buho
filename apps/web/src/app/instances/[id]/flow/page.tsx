@@ -339,7 +339,7 @@ export default async function FlowPage({
         </section>
         </div>
 
-        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-3">
+        <div className="chart-grid chart-grid--3">
           {/* ------------------------------------------------- por operación */}
           <section className="panel xl:col-span-1">
             <div className="panel-header">
@@ -374,7 +374,14 @@ export default async function FlowPage({
             <div className="panel-body">
               {engine !== 'postgres' ? (
                 <div className="empty">
-                  {engine === 'mariadb' ? 'MariaDB' : 'SQL Server'} does not expose per-table row counters like{' '}
+                  {engine === 'mariadb'
+                    ? 'MariaDB'
+                    : engine === 'mssql'
+                      ? 'SQL Server'
+                      : engine === 'oracle'
+                        ? 'Oracle'
+                        : 'This engine'}{' '}
+                  does not expose per-table row counters like{' '}
                   <span className="font-mono">pg_stat_user_tables</span>, so there is nothing here to contrast: on
                   this engine the diagram is the only source and its attribution is approximate.
                 </div>

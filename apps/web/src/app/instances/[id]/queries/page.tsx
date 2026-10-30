@@ -54,9 +54,9 @@ const WINDOWS = [
 ] as const;
 
 const ORDERS: Array<{ key: StatementOrder; label: string }> = [
-  { key: 'time', label: 'Tiempo total' },
+  { key: 'time', label: 'Total time' },
   { key: 'calls', label: 'Calls' },
-  { key: 'mean', label: 'Media' },
+  { key: 'mean', label: 'Avg' },
   { key: 'rows', label: 'Rows' },
 ];
 
@@ -78,7 +78,7 @@ function ActivationAssistant({ state }: { state: string | null }) {
     <section className="panel" style={{ borderLeft: '3px solid var(--warning)' }}>
       <div className="panel-header">
         <span className="panel-title">pg_stat_statements is not active</span>
-        <span className="tag tag--warn">{state ?? 'desconocido'}</span>
+        <span className="tag tag--warn">{state ?? 'unknown'}</span>
       </div>
       <div className="panel-body">
         <p className="text-[12.5px]">
@@ -88,7 +88,7 @@ function ActivationAssistant({ state }: { state: string | null }) {
         </p>
 
         <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-          {preloaded ? 'Un solo paso' : 'Step 1 — preload the library (requires restart)'}
+          {preloaded ? 'One step' : 'Step 1 — preload the library (requires restart)'}
         </p>
         <pre className="mt-1 border border-border bg-surface-muted p-2 font-mono text-[11px]">
           {preloaded
@@ -97,17 +97,17 @@ function ActivationAssistant({ state }: { state: string | null }) {
         </pre>
 
         <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-          Costo real de tenerlo activo
+          Real cost of leaving it on
         </p>
         <p className="mt-1 text-[12px] text-foreground-secondary">
-          Un arreglo en memoria compartida de tamaño fijo (<span className="font-mono">pg_stat_statements.max</span>,
-          5.000 entradas por defecto) y unos pocos porcentajes de overhead por sentencia. Guarda el texto{' '}
-          <strong>normalized</strong>: without literals, so it does not expose business data.
+          A fixed shared-memory array (<span className="font-mono">pg_stat_statements.max</span>, 5,000 entries by
+          default) and a few percent of overhead per statement. It stores{' '}
+          <strong>normalized</strong> text without literals, so it does not expose business data.
         </p>
 
         <p className="mt-3 text-[12px] text-foreground-secondary">
-          Búho detecta el cambio en el siguiente reprobe (una hora como max) y empieza a guardar los deltas por
-          <span className="font-mono"> queryid</span> sin reiniciar nada.
+          Búho picks up the change on the next reprobe (within about an hour) and starts storing deltas by{' '}
+          <span className="font-mono">queryid</span> with no further restart.
         </p>
       </div>
     </section>
@@ -308,7 +308,7 @@ export default async function QueriesPage({
             <p className="page-sub">
               {live
                 ? 'What is running in the latest session snapshot. Analytical is the retained window of normalized statements.'
-                : 'Actividad por consulta normalizada, sumada por intervalos. No es el contador acumulado desde el último reset del servidor: es lo que pasó en la window elegida.'}
+                : 'Normalized statement activity, summed by interval. Not the cumulative counter since the last server reset — it is what ran in the selected window.'}
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -384,16 +384,12 @@ export default async function QueriesPage({
 
               <span>
 
-                Filtering by <span className="font-mono">{filtro}</span>. Only queries whose text,
-
-                rol o base lo contienen.
-
+                Filtering by <span className="font-mono">{filtro}</span>. Only queries whose text, role, or
+                database contain it.
               </span>
 
               <Link href={`/instances/${instanceId}/queries?w=${window.key}&order=${selectedOrder}`} className="tag tag--muted">
-
-                quitar filtro
-
+                clear filter
               </Link>
 
             </div>
@@ -428,7 +424,7 @@ export default async function QueriesPage({
               />
             </div>
 
-            <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+            <div className="chart-grid chart-grid--2">
               <TimeseriesPanel
                 title="DB time (equivalent sessions)"
                 hint="load approximation: PostgreSQL does not expose host CPU"
@@ -449,7 +445,7 @@ export default async function QueriesPage({
 
             {engine === 'mariadb' ? (
               <>
-                <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+                <div className="chart-grid chart-grid--2">
                   <TimeseriesPanel
                     title="Slow queries /s"
                     hint={`${window.key} · SLOW_QUERIES counter (long_query_time)`}
@@ -500,13 +496,14 @@ export default async function QueriesPage({
                     <div className="panel-body empty text-[12px]">
                       No digests with mean ≥ 500 ms in this window. Lower{' '}
                       <span className="font-mono">long_query_time</span> or wait for slower traffic. Without
-                      performance_schema, sort Top queries by Media after PROCESSLIST sampling catches a long
+                      performance_schema, sort Top queries by Avg after PROCESSLIST sampling catches a long
                       statement.
                     </div>
                   ) : (
                     <StatementsTable
                       instanceId={instanceId}
                       explainable={true}
+                      showWal={false}
                       totalExecMs={slow.reduce((sum, row) => sum + row.execMs, 0)}
                       rows={slow.map((row) => ({
                         queryid: row.queryid,
@@ -556,6 +553,7 @@ export default async function QueriesPage({
               <StatementsTable
                 instanceId={instanceId}
                 explainable={engine === 'postgres' || engine === 'mariadb'}
+                showWal={engine === 'postgres'}
                 totalExecMs={totalExecMs}
                 rows={statements.map((row) => {
                   const points = trends.get(row.queryid) ?? [];

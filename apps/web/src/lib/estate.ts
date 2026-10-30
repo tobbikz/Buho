@@ -26,6 +26,13 @@ export const ENGINE_LABEL: Record<string, string> = {
   mssql: 'SQL Server',
   mariadb: 'MariaDB',
   oracle: 'Oracle',
+  mongodb: 'MongoDB',
+  redis: 'Redis',
+  cassandra: 'Cassandra',
+  elasticsearch: 'Elasticsearch',
+  kafka: 'Kafka',
+  cdc: 'CDC',
+  airflow: 'Airflow',
   endpoint: 'Endpoint',
 };
 
@@ -95,6 +102,9 @@ function dateOnly(value: unknown): string | null {
 
 // ------------------------------------------------------------------ versiones
 
+/** Active fleet only — retired Admin → Databases rows must not pollute estate screens. */
+const ACTIVE = 'coalesce(i.retired, false) = false';
+
 export async function getEngineVersions(): Promise<EngineRow[]> {
   const rows = await query<Record<string, unknown>>(
     `select distinct on (i.host, i.port)
@@ -103,6 +113,7 @@ export async function getEngineVersions(): Promise<EngineRow[]> {
             e.server_collation, e.started_at, e.cores, e.memory_bytes, e.eol_date, e.captured_at
        from buho.instances i
        left join buho.engine_info e using (instance_id)
+      where ${ACTIVE}
       order by i.host, i.port, i.instance_id`,
   );
 
@@ -140,6 +151,7 @@ export async function getBackups(): Promise<BackupRow[]> {
             b.database, b.kind, b.finished_at, b.size_bytes, b.source, b.detail
        from buho.instances i
        join buho.backup_state b using (instance_id)
+      where ${ACTIVE}
       order by i.host, i.port, b.database, b.kind, i.instance_id`,
   );
 
@@ -225,10 +237,12 @@ export function backupState(row: BackupRow): BackupState {
   return 'ok';
 }
 
-/** Display name for backup kind — binlog must not read as PostgreSQL WAL. */
+/** Display name for backup kind — binlog / Oracle archivelog must not read as PostgreSQL WAL. */
 export function backupKindLabel(row: BackupRow): string {
   if (row.kind === 'wal_archive') {
-    return row.source === 'binlog' ? 'Binlog' : 'WAL archive';
+    if (row.source === 'binlog') return 'Binlog';
+    if (row.source === 'v$archived_log' || row.source === 'v$backup_set') return 'Archivelog';
+    return 'WAL archive';
   }
   if (row.kind === 'full') return 'Full';
   if (row.kind === 'differential') return 'Diff';
@@ -310,7 +324,8 @@ export async function getDiskUsage(kinds: string[] = []): Promise<DiskRow[]> {
             d.max_bytes, d.location, d.detail
        from buho.instances i
        join buho.disk_objects d using (instance_id)
-      where cardinality($1::text[]) = 0 or d.kind = any ($1::text[])
+      where ${ACTIVE}
+        and (cardinality($1::text[]) = 0 or d.kind = any ($1::text[]))
       order by i.host, i.port, d.kind, d.container, d.name, i.instance_id`,
     [kinds],
   );
@@ -349,6 +364,7 @@ export async function getJobs(): Promise<JobRow[]> {
             j.last_duration_ms, j.next_run_at, j.detail
        from buho.instances i
        join buho.jobs j using (instance_id)
+      where ${ACTIVE}
       order by (j.last_status in ('failed', 'falló')) desc nulls last, i.alias, j.name`,
   );
 
@@ -383,6 +399,7 @@ export async function getReplication(): Promise<ReplicationRow[]> {
             r.role, r.peer, r.state, r.lag_bytes, r.lag_seconds, r.detail
        from buho.instances i
        join buho.replication_state r using (instance_id)
+      where ${ACTIVE}
       order by i.host, i.port, r.role, r.peer, i.instance_id`,
   );
 
@@ -419,6 +436,7 @@ export async function getLicensing(): Promise<LicensingRow[]> {
             l.memory_limit_bytes, l.production_ok, l.note, l.detail
        from buho.instances i
        left join buho.licensing l using (instance_id)
+      where ${ACTIVE}
       order by i.host, i.port, i.instance_id`,
   );
 
@@ -454,6 +472,7 @@ export async function getSettings(): Promise<SettingRow[]> {
             s.name, s.value, s.unit, s.category, s.is_default, s.requires_restart
        from buho.instances i
        join buho.server_settings s using (instance_id)
+      where ${ACTIVE}
       order by i.host, i.port, s.name, i.instance_id`,
   );
 
@@ -489,7 +508,8 @@ export async function getNotes(domain?: string): Promise<NoteRow[]> {
     `select i.instance_id, i.alias, i.engine, n.domain, n.level, n.message
        from buho.instances i
        join buho.inventory_notes n using (instance_id)
-      where $1::text is null or n.domain = $1
+      where ${ACTIVE}
+        and ($1::text is null or n.domain = $1)
       order by case n.level when 'error' then 0 when 'warn' then 1 else 2 end, i.alias`,
     [domain ?? null],
   );
@@ -560,7 +580,9 @@ export async function getInstanceInventory(instanceId: number): Promise<Instance
 /** Cuántas instancias hay por motor, para el encabezado del parque. */
 export async function getEngineCounts(): Promise<{ engine: string; count: number }[]> {
   const rows = await query<Record<string, unknown>>(
-    `select engine, count(*) as count from buho.instances group by engine order by 2 desc`,
+    `select engine, count(*) as count from buho.instances i
+      where ${ACTIVE}
+      group by engine order by 2 desc`,
   );
   return rows.map((row) => ({ engine: String(row['engine']), count: Number(row['count']) }));
 }

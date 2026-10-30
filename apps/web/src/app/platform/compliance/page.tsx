@@ -1,10 +1,20 @@
 import Link from 'next/link';
-import { ComplianceRunButton } from '@/components/ComplianceRunButton';
+import { CompliancePackList } from '@/components/CompliancePackList';
+import { StatCard } from '@/components/StatCard';
 import { StoreError } from '@/components/StoreError';
 import { query } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Compliance · Búho' };
+
+type Control = {
+  id: string;
+  title: string;
+  verdict: string;
+  severity?: string;
+  evidence?: string;
+  remediation?: string;
+};
 
 type RunRow = {
   alias: string;
@@ -12,26 +22,13 @@ type RunRow = {
   pack: string;
   score: number;
   ran_at: Date;
-  results: Array<{
-    id: string;
-    title: string;
-    verdict: string;
-    severity?: string;
-    evidence?: string;
-    remediation?: string;
-  }> | null;
+  results: Control[] | null;
 };
 
-function scoreClass(score: number): string {
-  if (score >= 90) return 'text-success';
-  if (score >= 70) return 'text-warning';
-  return 'text-danger';
-}
-
-function verdictClass(verdict: string): string {
-  if (verdict === 'pass') return 'text-success';
-  if (verdict === 'fail') return 'text-danger';
-  return 'text-foreground-muted';
+function scoreTone(score: number): 'ok' | 'warn' | 'error' {
+  if (score >= 90) return 'ok';
+  if (score >= 70) return 'warn';
+  return 'error';
 }
 
 export default async function CompliancePage() {
@@ -42,92 +39,80 @@ export default async function CompliancePage() {
               i.alias, i.engine, r.pack, r.score, r.ran_at, r.results
          from buho.compliance_runs r
          join buho.instances i on i.instance_id = r.instance_id
+        where coalesce(i.retired, false) = false
         order by i.alias, r.pack, r.ran_at desc`,
     );
   } catch (error) {
     return <StoreError message={error instanceof Error ? error.message : String(error)} />;
   }
 
+  const avg =
+    rows.length === 0 ? null : Math.round(rows.reduce((s, r) => s + Number(r.score), 0) / rows.length);
+  const failControls = rows.reduce((n, r) => {
+    const controls = Array.isArray(r.results) ? r.results : [];
+    return n + controls.filter((c) => c.verdict === 'fail').length;
+  }, 0);
+  const passControls = rows.reduce((n, r) => {
+    const controls = Array.isArray(r.results) ? r.results : [];
+    return n + controls.filter((c) => c.verdict === 'pass').length;
+  }, 0);
+
+  const clientRows = rows.map((r) => ({
+    alias: r.alias,
+    engine: r.engine,
+    pack: r.pack,
+    score: Number(r.score),
+    ran_at: String(r.ran_at),
+    results: Array.isArray(r.results) ? r.results : [],
+  }));
+
   return (
-    <section className="panel">
-      <div className="panel-header">
-        <span className="panel-title">Compliance packs</span>
-        <span className="text-[11px] text-foreground-muted">
-          CIS PostgreSQL / SQL Server · control detail + re-run
-        </span>
+    <div className="flex flex-col gap-[1.25rem]">
+      <header className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <h1 className="text-[1.1rem] font-semibold m-0">Compliance</h1>
+          <Link className="btn text-[11px]" href="/estate/rpo">
+            Estate RPO
+          </Link>
+        </div>
+        <p className="text-[12px] text-foreground-secondary m-0 max-w-[62rem]">
+          Latest CIS / STIG pack scores for active instances. Click a control for evidence and
+          remediation.
+        </p>
+      </header>
+
+      <div className="stat-grid">
+        <StatCard label="Packs" value={String(rows.length)} tone="neutral" />
+        <StatCard
+          label="Avg score"
+          value={avg == null ? '—' : `${avg}`}
+          hint="/100"
+          tone={avg == null ? 'neutral' : scoreTone(avg)}
+        />
+        <StatCard label="Controls pass" value={String(passControls)} tone="ok" />
+        <StatCard
+          label="Controls fail"
+          value={String(failControls)}
+          tone={failControls > 0 ? 'error' : 'ok'}
+        />
       </div>
+
       {rows.length === 0 ? (
-        <div className="empty">
-          No compliance runs yet. From an instance with credentials in Admin → Databases, use{' '}
-          <code>POST /api/compliance/run</code> with{' '}
-          <code>{`{ "alias": "pg-lab", "pack": "cis-postgres" }`}</code>, or open this page after the
-          first run.
-        </div>
+        <section className="panel">
+          <div className="panel-header">
+            <span className="panel-title">No runs yet</span>
+          </div>
+          <div className="panel-body text-[12px] text-foreground-secondary">
+            <p className="m-0">
+              Run a pack from Admin credentials via{' '}
+              <code>POST /api/compliance/run</code>{' '}
+              <code>{`{ "alias": "pg-lab", "pack": "cis-postgres" }`}</code>.
+            </p>
+          </div>
+        </section>
       ) : (
-        <div className="flex flex-col gap-6">
-          {rows.map((r) => {
-            const controls = Array.isArray(r.results) ? r.results : [];
-            const pack = r.pack as 'cis-postgres' | 'cis-mssql' | 'stig-postgres';
-            const failed = controls.filter((c) => c.verdict === 'fail');
-            return (
-              <div key={`${r.alias}-${r.pack}`} className="border-t border-border pt-4 first:border-0 first:pt-0">
-                <div className="flex flex-wrap items-baseline justify-between gap-3 mb-2">
-                  <div>
-                    <div className="font-medium">
-                      {r.alias}{' '}
-                      <span className="text-[11px] text-foreground-muted">
-                        {r.engine} · {r.pack}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-foreground-muted">
-                      Ran {String(r.ran_at)} · {controls.length} controls · {failed.length} fail
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-lg font-semibold ${scoreClass(r.score)}`}>{r.score}/100</span>
-                    <ComplianceRunButton alias={r.alias} pack={pack} />
-                  </div>
-                </div>
-                {controls.length === 0 ? (
-                  <div className="text-[11px] text-foreground-muted">No per-control payload stored.</div>
-                ) : (
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Control</th>
-                        <th>Verdict</th>
-                        <th>Evidence</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {controls.map((c) => (
-                        <tr key={c.id}>
-                          <td>
-                            <div className="font-medium text-[12px]">{c.title}</div>
-                            <div className="text-[10px] text-foreground-muted">{c.id}</div>
-                            {c.verdict === 'fail' && c.remediation ? (
-                              <div className="text-[10px] text-foreground-muted mt-1">{c.remediation}</div>
-                            ) : null}
-                          </td>
-                          <td className={verdictClass(c.verdict)}>
-                            {c.verdict}
-                            {c.severity ? ` · ${c.severity}` : ''}
-                          </td>
-                          <td className="text-[11px]">{c.evidence ?? '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <CompliancePackList rows={clientRows} />
       )}
-      <p className="text-[11px] text-foreground-muted" style={{ marginTop: '1rem' }}>
-        Backup posture: <Link href="/estate/rpo">Estate RPO</Link>. Storage agent:{' '}
-        <code>npm run backup-agent</code>.
-      </p>
-    </section>
+    </div>
   );
 }

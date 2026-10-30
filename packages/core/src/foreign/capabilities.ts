@@ -74,17 +74,15 @@ async function probeMariadb(client: EngineClient): Promise<ForeignCaps> {
   }
   if (!seesAllSessions) {
     limitations.push(
-      'el usuario de monitoreo no tiene PROCESS: sólo ve sus propias sesiones, ' +
-        'así que las conexiones y los bloqueos van a salir en cero.',
+      'the monitor account lacks PROCESS: it only sees its own sessions, so connections and locks will read as zero.',
     );
   }
   if (!lockWaits) {
-    limitations.push('no se puede leer information_schema.innodb_trx: no habrá detalle de bloqueos.');
+    limitations.push('cannot read information_schema.innodb_trx: lock detail will be missing.');
   }
   if (num(info?.['log_bin']) !== 1) {
     limitations.push(
-      'log_bin está apagado: no hay binlog, así que no hay métricas de replicación ' +
-        'ni recuperación a un punto en el tiempo. Se enciende con log_bin=ON y requiere reiniciar.',
+      'log_bin is off: there is no binlog, so there are no replication metrics and no point-in-time recovery. Turn on log_bin=ON (requires restart).',
     );
   }
 
@@ -96,7 +94,7 @@ async function probeMariadb(client: EngineClient): Promise<ForeignCaps> {
     versionNum: parseVersion(versionText),
     flavor: str(info?.['flavor'], 'MariaDB'),
     startedAt: uptime > 0 ? new Date(Date.now() - uptime * 1000) : null,
-    serverName: str(info?.['server_name'], 'desconocido'),
+    serverName: str(info?.['server_name'], 'unknown'),
     role,
     features: {
       statementDigests: performanceSchema,
@@ -167,14 +165,12 @@ async function probeMssql(client: EngineClient): Promise<ForeignCaps> {
   const limitations: string[] = [];
   if (!seesAllSessions) {
     limitations.push(
-      'el login de monitoreo no tiene VIEW SERVER STATE: las DMV devuelven sólo ' +
-        'la sesión propia, así que las esperas y las sesiones activas van a salir en cero.',
+      'the monitor login lacks VIEW SERVER STATE: DMVs only return this session, so waits and active sessions will read as zero.',
     );
   }
   if (!queryStore) {
     limitations.push(
-      'ninguna base tiene Query Store activo: la analítica de consultas sale de ' +
-        'sys.dm_exec_query_stats, que se vacía al reiniciar y al recompilar el plan.',
+      'no database has Query Store on: query analytics fall back to sys.dm_exec_query_stats, which clears on restart and plan recompile.',
     );
   }
 
@@ -186,7 +182,7 @@ async function probeMssql(client: EngineClient): Promise<ForeignCaps> {
     versionNum: parseVersion(versionText),
     flavor: str(info?.['flavor'], 'SQL Server'),
     startedAt: startedAt instanceof Date ? startedAt : startedAt ? new Date(String(startedAt)) : null,
-    serverName: str(info?.['server_name'], 'desconocido'),
+    serverName: str(info?.['server_name'], 'unknown'),
     role,
     features: {
       statementDigests: true,
@@ -307,7 +303,7 @@ async function probeMongodb(client: EngineClient): Promise<ForeignCaps> {
     versionNum: parseVersion(versionText),
     flavor: 'MongoDB',
     startedAt: uptime > 0 ? new Date(Date.now() - uptime * 1000) : null,
-    serverName: str(status['host'], 'desconocido'),
+    serverName: str(status['host'], 'unknown'),
     role: isRepl ? (isPrimary ? 'primary' : 'replica') : 'primary',
     features: {
       statementDigests: false,

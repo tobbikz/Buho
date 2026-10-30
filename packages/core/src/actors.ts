@@ -38,7 +38,7 @@ export interface ActorObservation {
  * monitor, y `query_id` nulo significa que la consulta no llegó a identificarse.
  */
 const ACTORS_SQL = `
-  select coalesce(nullif(application_name, ''), '(sin nombre)') as application,
+  select coalesce(nullif(application_name, ''), '(unnamed)') as application,
          coalesce(usename, '(sin rol)')                         as username,
          coalesce(datname, '(sin base)')                        as database,
          query_id::text                                         as queryid,

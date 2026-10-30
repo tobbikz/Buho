@@ -257,20 +257,22 @@ export async function EndpointSummary({
         </div>
       </section>
 
-      <TimeseriesPanel
-        title="HTTP latency"
-        hint={windowHint}
-        data={httpSeries}
-        unit="ms"
-        series={[{ metric: 'endpoint_http_ms', label: 'HTTP ms', color: COLOR.accent }]}
-      />
-      <TimeseriesPanel
-        title="Availability"
-        hint={windowHint}
-        data={httpSeries}
-        unit="count"
-        series={[{ metric: 'endpoint_up', label: 'Up (0/1)', color: COLOR.success }]}
-      />
+      <div className="chart-grid chart-grid--2">
+        <TimeseriesPanel
+          title="HTTP latency"
+          hint={windowHint}
+          data={httpSeries}
+          unit="ms"
+          series={[{ metric: 'endpoint_http_ms', label: 'HTTP ms', color: COLOR.accent }]}
+        />
+        <TimeseriesPanel
+          title="Availability"
+          hint={windowHint}
+          data={httpSeries}
+          unit="count"
+          series={[{ metric: 'endpoint_up', label: 'Up (0/1)', color: COLOR.success }]}
+        />
+      </div>
 
       {findings.length > 0 && (
         <section className="panel">

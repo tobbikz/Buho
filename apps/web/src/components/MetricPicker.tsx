@@ -103,7 +103,7 @@ export function MetricPicker({
         )}
       </div>
 
-      <div className="table-scroll" style={{ maxHeight: '32rem' }}>
+      <div className="table-scroll analysis-metric-list">
         {groups.length === 0 ? (
           <div className="empty">No metrics match.</div>
         ) : (

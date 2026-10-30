@@ -867,7 +867,7 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
   log(
     'info',
     `${instance.alias} (${ENGINE_LABEL[engine]}): ${caps.versionText}, ${caps.role}, ` +
-      `consultas=${caps.features.statementDigests ? 'sí' : 'no'}`,
+      `queries=${caps.features.statementDigests ? 'yes' : 'no'}`,
   );
   for (const limite of caps.limitations) {
     log('warn', `${instance.alias}: ${limite}`);
@@ -1266,10 +1266,21 @@ async function monitorForeign(instance: InstanceConfig): Promise<void> {
       const capacityFindings = evaluateCapacityGrowth(
         await store.metricSeries(instanceId, ['connections_used_pct', 'database_size_bytes'], 14),
       );
-      const rpoFindings = evaluateBackupRpoFindings(
-        await store.listBackupJobs(instanceId, 30),
-        instance.backup?.rpoSeconds ?? 86_400,
-      );
+      // backup.rpo is RDBMS-oriented; skip for brokers/platform/caches/search.
+      const skipBackupRpo = new Set([
+        'kafka',
+        'cdc',
+        'airflow',
+        'redis',
+        'elasticsearch',
+        'cassandra',
+      ]);
+      const rpoFindings = skipBackupRpo.has(caps.engine)
+        ? []
+        : evaluateBackupRpoFindings(
+            await store.listBackupJobs(instanceId, 30),
+            instance.backup?.rpoSeconds ?? 86_400,
+          );
       const cisPack = caps.engine === 'mssql' ? 'cis-mssql' : '';
       const complianceRuns = cisPack
         ? await store.listComplianceRuns(instanceId, cisPack, 2)
@@ -1844,7 +1855,38 @@ function targetToInstance(target: Awaited<ReturnType<typeof store.listMonitorTar
       : undefined;
 
   const endpoint =
-    !isInfra && endpointRaw ? (endpointRaw as InstanceConfig['endpoint']) : undefined;
+    !isInfra &&
+    endpointRaw &&
+    target.engine === 'endpoint'
+      ? (endpointRaw as InstanceConfig['endpoint'])
+      : undefined;
+
+  // Platform extras are stored under monitor_targets.endpoint jsonb
+  // (same blob used when syncing from config.json).
+  const airflow =
+    endpointRaw && typeof endpointRaw['airflow'] === 'object' && endpointRaw['airflow']
+      ? (endpointRaw['airflow'] as InstanceConfig['airflow'])
+      : undefined;
+  const kafka =
+    endpointRaw && typeof endpointRaw['kafka'] === 'object' && endpointRaw['kafka']
+      ? (endpointRaw['kafka'] as InstanceConfig['kafka'])
+      : undefined;
+  const cdc =
+    endpointRaw && typeof endpointRaw['cdc'] === 'object' && endpointRaw['cdc']
+      ? (endpointRaw['cdc'] as InstanceConfig['cdc'])
+      : undefined;
+  const actions =
+    endpointRaw && typeof endpointRaw['actions'] === 'object' && endpointRaw['actions']
+      ? (endpointRaw['actions'] as InstanceConfig['actions'])
+      : undefined;
+  const backup =
+    endpointRaw && typeof endpointRaw['backup'] === 'object' && endpointRaw['backup']
+      ? (endpointRaw['backup'] as InstanceConfig['backup'])
+      : undefined;
+  const datahub =
+    endpointRaw && typeof endpointRaw['datahub'] === 'object' && endpointRaw['datahub']
+      ? (endpointRaw['datahub'] as InstanceConfig['datahub'])
+      : undefined;
 
   return {
     alias: target.alias,
@@ -1861,6 +1903,12 @@ function targetToInstance(target: Awaited<ReturnType<typeof store.listMonitorTar
     hostMetrics: hasHostMetrics ? (hostMetrics as InstanceConfig['hostMetrics']) : undefined,
     endpoint,
     infra,
+    airflow,
+    kafka,
+    cdc,
+    actions,
+    backup,
+    datahub,
     // Console-added Postgres: prefer journald (typical when logging_collector=off
     // under systemd). File/sql needs logging_collector=on.
     // Endpoint / infra have no SQL log extractor.

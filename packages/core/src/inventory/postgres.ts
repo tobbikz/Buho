@@ -200,7 +200,7 @@ export async function collectPostgres(client: EngineClient): Promise<InventorySn
       const clientHostname = text(row['client_hostname']);
       // Prefer a stable human name over the generic walreceiver label.
       const peer =
-        (application && !['walreceiver', 'postgres', '(sin nombre)'].includes(application)
+        (application && !['walreceiver', 'postgres', '(unnamed)', '(sin nombre)'].includes(application)
           ? application
           : null) ??
         clientHostname ??
@@ -301,7 +301,7 @@ export async function collectPostgres(client: EngineClient): Promise<InventorySn
   // se lee como una instancia sana. Si el servidor no tiene forma de recuperarse
   // tiene que estar en la lista, en rojo, no ausente.
   snapshot.backups.push({
-    database: '(servidor)',
+    database: '(server)',
     kind: 'wal_archive',
     finishedAt: archiveMode === 'off' ? null : date(archiver?.['last_archived_time']),
     source: 'pg_stat_archiver',

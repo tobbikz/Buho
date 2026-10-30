@@ -25,7 +25,12 @@ const FLEET_LINKS_BASE = [
   {
     href: '/platform/kafka',
     label: 'Kafka',
-    match: (path: string) => path.startsWith('/platform/kafka') || path.startsWith('/platform/cdc'),
+    match: (path: string) => path.startsWith('/platform/kafka'),
+  },
+  {
+    href: '/platform/cdc',
+    label: 'CDC',
+    match: (path: string) => path.startsWith('/platform/cdc'),
   },
   {
     href: '/platform/airflow',

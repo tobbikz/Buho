@@ -29,12 +29,19 @@ function rpoExposureSecondsFromBackups(backups: BackupRow[]): number | null {
     if (row.source === 'binlog' && detail['log_bin'] !== true) return BROKEN;
   }
 
+  const systemDb = new Set(['master', 'model', 'msdb', 'tempdb']);
   let best: number | null = null;
   for (const row of backups) {
     if (!row.finishedAt) {
       if (row.kind === 'log' || row.kind === 'wal_archive') {
         // Catalog present but never finished → treat as broken for FULL/archive chain.
-        if (row.source === 'msdb' || row.source === 'v$backup_set') return BROKEN;
+        // Skip SQL Server system DBs — their recovery model is not the app RPO chain.
+        if (row.source === 'msdb') {
+          const db = String(row.database ?? '').toLowerCase();
+          if (systemDb.has(db)) continue;
+          return BROKEN;
+        }
+        if (row.source === 'v$backup_set') return BROKEN;
       }
       continue;
     }
@@ -1327,8 +1334,10 @@ export class Store {
   ): Promise<number> {
     // Idle cycles still need a wait tick — otherwise Live keeps replaying the last
     // busy snapshot (frozen durations) until the age gate eventually kicks in.
+    // Never use an empty waits array even when detail is non-empty (Mongo/Redis
+    // op states often don't roll into wait buckets) — `values ` alone is invalid SQL.
     const waits =
-      snapshot.waits.length > 0 || snapshot.detail.length > 0
+      snapshot.waits.length > 0
         ? snapshot.waits
         : [{ waitType: 'Idle', waitEvent: null as string | null, sessions: 0 }];
 

@@ -671,6 +671,13 @@ export default async function AdminAlertsPage({
                 <option value="mssql">mssql</option>
                 <option value="mariadb">mariadb</option>
                 <option value="oracle">oracle</option>
+                <option value="mongodb">mongodb</option>
+                <option value="redis">redis</option>
+                <option value="cassandra">cassandra</option>
+                <option value="elasticsearch">elasticsearch</option>
+                <option value="kafka">kafka</option>
+                <option value="cdc">cdc</option>
+                <option value="airflow">airflow</option>
               </select>
             </label>
             <label className="text-[12px] text-foreground-muted">
@@ -806,6 +813,14 @@ export default async function AdminAlertsPage({
                 <option value="postgres">postgres</option>
                 <option value="mariadb">mariadb</option>
                 <option value="mssql">mssql</option>
+                <option value="oracle">oracle</option>
+                <option value="mongodb">mongodb</option>
+                <option value="redis">redis</option>
+                <option value="cassandra">cassandra</option>
+                <option value="elasticsearch">elasticsearch</option>
+                <option value="kafka">kafka</option>
+                <option value="cdc">cdc</option>
+                <option value="airflow">airflow</option>
               </select>
             </label>
             <label className="text-[12px] text-foreground-muted">

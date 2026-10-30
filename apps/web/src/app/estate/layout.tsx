@@ -29,8 +29,8 @@ export default async function EstateLayout({ children }: { children: React.React
           <div>
             <h1 className="page-title">Estate</h1>
             <p className="page-sub">
-              Fleet inventory: backups, disk, jobs, replication, configuration, licenses, and versions.
-              Refreshed once an hour — these change month to month. HA lag and data growth also live under{' '}
+              Recovery first (Backups → RPO → Replication), then capacity and inventory. Refreshed
+              hourly. HA lag / growth also under{' '}
               <Link href="/cluster" className="underline decoration-dotted">
                 Cluster
               </Link>

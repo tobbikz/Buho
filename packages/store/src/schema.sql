@@ -1062,6 +1062,15 @@ create table if not exists buho.settings (
   updated_by text
 );
 
+-- Per-user Overview layout (reorder / span / custom metric+SQL widgets).
+create table if not exists buho.overview_layouts (
+  username    text        not null,
+  instance_id bigint      not null references buho.instances (instance_id) on delete cascade,
+  layout      jsonb       not null,
+  updated_at  timestamptz not null default now(),
+  primary key (username, instance_id)
+);
+
 -- Resultado del descubrimiento de red. Acumula: lo que se vio una vez sigue
 -- listado con su last_seen_at, porque "esto apareció el martes y ya no está" es
 -- justo la clase de cosa que interesa de un parque.

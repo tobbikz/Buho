@@ -992,6 +992,10 @@ export async function getEvents(
          left join buho.instances i on i.instance_id = e.instance_id
         where e.status = 'open'
           and ($1::bigint is null or e.instance_id = $1)
+          and (
+            e.instance_id is null
+            or (i.instance_id is not null and coalesce(i.retired, false) = false)
+          )
         group by e.instance_id, i.alias, e.level, e.component, e.message
         order by max(e.ts) desc
         limit $2`,
@@ -1020,6 +1024,10 @@ export async function getEvents(
        from buho.collector_events e
        left join buho.instances i on i.instance_id = e.instance_id
       where ($1::bigint is null or e.instance_id = $1)
+        and (
+          e.instance_id is null
+          or (i.instance_id is not null and coalesce(i.retired, false) = false)
+        )
       order by e.ts desc
       limit $2`,
     [instanceId, limit],

@@ -8,7 +8,7 @@ Expands Búho beyond SQL + probes into **Kafka/CDC**, **Airflow**, **DPA-depth w
 |--------|--------------|---------------|
 | `kafka` | 9092 | `kafka.brokers`, `kafka.consumerGroups`, optional SASL |
 | `cdc` | 9092 | `cdc.topics`, `cdc.applyGroups`, `cdc.datasyncHealthUrl` |
-| `airflow` | 8080 | `airflow.baseUrl`, `airflow.username/password`, API v2→v1 fallback |
+| `airflow` | 8080 | `airflow.baseUrl`, `airflow.username/password`, API v2→v1 fallback; optional `airflow.metadata` (Postgres meta DB for Superset-parity KPIs) |
 
 Example (file-based lab instance):
 
@@ -36,9 +36,21 @@ Example (file-based lab instance):
   "database": "",
   "user": "monitor",
   "password": "…",
-  "airflow": { "baseUrl": "https://airflow.example", "apiVersion": "v2" }
+  "airflow": {
+    "baseUrl": "https://airflow.example",
+    "apiVersion": "v2",
+    "metadata": {
+      "host": "airflow-meta.example",
+      "port": 5432,
+      "database": "airflow",
+      "user": "buho_ro",
+      "password": "…"
+    }
+  }
 }
 ```
+
+With `airflow.metadata`, collectors read `dag_run` / `task_instance` / `dag` / `slot_pool` / `import_error` (same plane as Superset **Airflow Monitor**). Without it, `/platform/airflow` still shows REST health, DAG counts, import errors, and a sampled recent-run summary.
 
 ## MSSQL lab
 
@@ -62,7 +74,7 @@ Add a file-based target in `config.json` (host-native collector) or **Admin → 
   "alias": "mssql-lab",
   "engine": "mssql",
   "host": "127.0.0.1",
-  "port": 1433,
+  "port": 14333,
   "database": "master",
   "user": "sa",
   "password": "Buho_Mssql_Lab1!"
@@ -71,7 +83,7 @@ Add a file-based target in `config.json` (host-native collector) or **Admin → 
 
 If the **collector container** reaches the lab over Docker DNS, set `"host": "mssql-lab"` instead of `127.0.0.1`. For production-style privileges, run `sql/monitor-user-mssql.sql` and point the target at that login instead of `sa`.
 
-**Windows / Docker:** use Docker Desktop with the **WSL2** backend and **Linux** containers; allocate at least ~2 GiB RAM to Docker. Port **1433** on `127.0.0.1` conflicts with a local SQL Server instance—stop the Windows service or change the host port mapping. Healthcheck uses `/opt/mssql-tools18/bin/sqlcmd` with `-C` (trust server cert). First boot can take 1–2 minutes before `healthy`.
+**Windows / Docker:** use Docker Desktop with the **WSL2** backend and **Linux** containers; allocate at least ~2 GiB RAM to Docker. Compose maps host **`127.0.0.1:14333`→1433** (bare **1433** often fails to bind on Windows). Healthcheck uses `/opt/mssql-tools18/bin/sqlcmd` with `-C` (trust server cert). First boot can take 1–2 minutes before `healthy`.
 
 ## Light platform lab (W1/W2)
 
@@ -88,8 +100,9 @@ Collector: include those three instances in `BUHO_CONFIG` (or merge with `config
 
 ## Console routes
 
-- `/platform/kafka` — Kafka/CDC fleet lag & under-replicated
-- `/platform/airflow` — DAG / health / import errors
+- `/platform/kafka` — Kafka cluster lag & under-replicated (Admin → Databases, engine Kafka)
+- `/platform/cdc` — CDC / DataSync apply overlays (separate from Kafka; engine CDC)
+- `/platform/airflow` — DAG / health / import errors (Admin → Databases, engine Airflow)
 - `/platform/compliance` — latest CIS pack scores
 - `POST /api/actions` — gated kill/cancel/pause DAG (requires `actions.enabled`)
 - `POST /api/compliance/run` — `{ "alias", "pack": "cis-postgres"|"cis-mssql" }`

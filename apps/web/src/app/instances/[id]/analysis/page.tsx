@@ -557,60 +557,72 @@ export default async function AnalysisPage({
           <div>
             <h1 className="page-title">Analysis · {instance.alias}</h1>
             <p className="page-sub">
-              Any store metric as a line chart. Selection lives in the URL — the link is the chart.
+              Metrics on the left, charts on the right. Selection lives in the URL — the link is the chart.
             </p>
-          </div>
-          <div className="flex items-center gap-1">
-            {WINDOWS.map((candidate) => (
-              <Link
-                key={candidate.key}
-                href={linkWith({ w: candidate.key })}
-                className={`tag ${candidate.key === window.key ? 'tag--info' : 'tag--muted'}`}
-              >
-                {candidate.key}
-              </Link>
-            ))}
           </div>
         </header>
 
         <InstanceTabs instanceId={instanceId} engine={engine} blockedCount={instance.blockedSessions ?? 0} />
 
-        {visiblePresets.length > 0 ? (
-          <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            <span className="text-[10.5px] font-semibold uppercase tracking-wide text-foreground-muted">
-              Presets
-            </span>
-            {visiblePresets.map((preset) => (
-              <Link
-                key={preset.key}
-                href={presetHref(preset.metrics)}
-                title={preset.hint}
-                className={`tag ${activePreset?.key === preset.key ? 'tag--info' : 'tag--muted'}`}
-              >
-                {preset.label}
-              </Link>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-[19rem_minmax(0,1fr)]">
-          <MetricPicker
-            available={catalog.map((meta) => ({
-              metric: meta.metric,
-              label: meta.label,
-              family: meta.family,
-              unit: meta.unit,
-            }))}
-            selected={selected}
-            basePath={basePath}
-            params={pickerParams}
-            familyOrder={FAMILY_ORDER}
-          />
-
-          <div className="flex min-w-0 flex-col gap-[0.875rem]">
+        <div className="analysis-layout">
+          <aside className="analysis-layout__rail">
             <section className="panel">
-              <div className="panel-body flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px]">
-                <span className="flex items-center gap-1.5">
+              <div className="panel-header">
+                <span className="panel-title">Window</span>
+                <span className="font-mono text-[10px] text-foreground-muted">{resolution}</span>
+              </div>
+              <div className="panel-body flex flex-wrap items-center gap-1">
+                {WINDOWS.map((candidate) => (
+                  <Link
+                    key={candidate.key}
+                    href={linkWith({ w: candidate.key })}
+                    className={`tag ${candidate.key === window.key ? 'tag--info' : 'tag--muted'}`}
+                  >
+                    {candidate.key}
+                  </Link>
+                ))}
+              </div>
+            </section>
+
+            {visiblePresets.length > 0 ? (
+              <section className="panel">
+                <div className="panel-header">
+                  <span className="panel-title">Presets</span>
+                </div>
+                <div className="panel-body flex flex-wrap items-center gap-1.5">
+                  {visiblePresets.map((preset) => (
+                    <Link
+                      key={preset.key}
+                      href={presetHref(preset.metrics)}
+                      title={preset.hint}
+                      className={`tag ${activePreset?.key === preset.key ? 'tag--info' : 'tag--muted'}`}
+                    >
+                      {preset.label}
+                    </Link>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            <MetricPicker
+              available={catalog.map((meta) => ({
+                metric: meta.metric,
+                label: meta.label,
+                family: meta.family,
+                unit: meta.unit,
+              }))}
+              selected={selected}
+              basePath={basePath}
+              params={pickerParams}
+              familyOrder={FAMILY_ORDER}
+            />
+
+            <section className="panel">
+              <div className="panel-header">
+                <span className="panel-title">Chart options</span>
+              </div>
+              <div className="panel-body flex flex-col gap-3 text-[11px]">
+                <span className="flex flex-wrap items-center gap-1.5">
                   <span className="font-semibold uppercase tracking-wide text-foreground-muted">
                     Across labels
                   </span>
@@ -624,15 +636,10 @@ export default async function AnalysisPage({
                       {entry.label}
                     </Link>
                   ))}
-                  {aggregation === null && (
-                    <span className="text-foreground-muted">
-                      auto by unit (percentages use worst case)
-                    </span>
-                  )}
                 </span>
 
-                {single && single.labelKeys.length > 0 && (
-                  <span className="flex items-center gap-1.5">
+                {single && single.labelKeys.length > 0 ? (
+                  <span className="flex flex-wrap items-center gap-1.5">
                     <span className="font-semibold uppercase tracking-wide text-foreground-muted">
                       Break down by
                     </span>
@@ -646,10 +653,10 @@ export default async function AnalysisPage({
                       </Link>
                     ))}
                   </span>
-                )}
+                ) : null}
 
-                {canCompare && (
-                  <span className="flex items-center gap-1.5">
+                {canCompare ? (
+                  <span className="flex flex-wrap items-center gap-1.5">
                     <span className="font-semibold uppercase tracking-wide text-foreground-muted">
                       Baseline
                     </span>
@@ -661,9 +668,9 @@ export default async function AnalysisPage({
                       compare
                     </Link>
                   </span>
-                )}
+                ) : null}
 
-                <span className="flex items-center gap-1.5">
+                <span className="flex flex-wrap items-center gap-1.5">
                   <span className="font-semibold uppercase tracking-wide text-foreground-muted">
                     Before / now
                   </span>
@@ -689,13 +696,11 @@ export default async function AnalysisPage({
                     </Link>
                   ))}
                 </span>
-
-                <span className="ml-auto font-mono text-[10px] text-foreground-muted">
-                  window {window.key} · {resolution}
-                </span>
               </div>
             </section>
+          </aside>
 
+          <div className="analysis-layout__stage">
             {cumulative.length > 0 && (
               <section className="panel" style={{ borderLeft: '3px solid var(--warning)' }}>
                 <div className="panel-body text-[12px]">
@@ -729,16 +734,27 @@ export default async function AnalysisPage({
                   Pick one or more metrics from the list to chart them.
                 </div>
               </section>
+            ) : panels.length > 1 ? (
+              <div className="chart-grid chart-grid--2">
+                {panels.map((panel) => (
+                  <TimeseriesPanel
+                    key={panel.key}
+                    title={panel.title}
+                    hint="one chart per unit: mixing them flattens the smaller series"
+                    data={panel.data}
+                    unit={panel.unit}
+                    height={260}
+                    series={panel.series}
+                    band={panel.band}
+                  />
+                ))}
+              </div>
             ) : (
               panels.map((panel) => (
                 <TimeseriesPanel
                   key={panel.key}
                   title={panel.title}
-                  hint={
-                    panels.length > 1
-                      ? 'one chart per unit: mixing them flattens the smaller series'
-                      : `window ${window.key} · ${resolution}`
-                  }
+                  hint={`window ${window.key} · ${resolution}`}
                   data={panel.data}
                   unit={panel.unit}
                   height={260}

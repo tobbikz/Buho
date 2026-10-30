@@ -59,14 +59,18 @@ export interface FleetCheckTotals {
  */
 const LATEST = `
   ultima as (
-    select instance_id, max(ts) as ts
-      from buho.check_results
-     group by instance_id
+    select r.instance_id, max(r.ts) as ts
+      from buho.check_results r
+      join buho.instances i on i.instance_id = r.instance_id
+     where coalesce(i.retired, false) = false
+     group by r.instance_id
   ),
   vigentes as (
     select r.*
       from buho.check_results r
       join ultima u on u.instance_id = r.instance_id and u.ts = r.ts
+      join buho.instances i on i.instance_id = r.instance_id
+     where coalesce(i.retired, false) = false
   )`;
 
 export async function getFleetChecks(
@@ -81,6 +85,7 @@ export async function getFleetChecks(
        from vigentes v
        join buho.instances i using (instance_id)
       where v.severity = any($1::text[])
+        and coalesce(i.retired, false) = false
       order by v.check_id, i.alias`,
     [severities],
   );
@@ -159,10 +164,13 @@ export async function getFleetCheckTotals(): Promise<FleetCheckTotals> {
             count(distinct v.instance_id)                              as instances_affected,
             (select count(*) from ultima)                              as instances_reporting,
             (select count(*) from buho.instances i
-              where i.engine = 'postgres'
+              where coalesce(i.retired, false) = false
+                and i.engine = 'postgres'
                 and not exists (select 1 from ultima u where u.instance_id = i.instance_id))
                                                                         as instances_silent,
-            (select min(score) from puntajes)                          as worst_score,
+            (select min(p.score) from puntajes p
+              join buho.instances i on i.instance_id = p.instance_id
+             where coalesce(i.retired, false) = false)                 as worst_score,
             (select max(ts) from ultima)                               as last_run_at
        from vigentes v`,
   );
@@ -208,6 +216,7 @@ export async function getInstanceScores(): Promise<InstanceScore[]> {
            from buho.health_scores
           order by instance_id, ts desc
        ) h using (instance_id)
+      where coalesce(i.retired, false) = false
       order by h.score asc nulls first, i.alias`,
   );
 

@@ -128,7 +128,7 @@ export default async function ProceduresPage({
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+        <div className="chart-grid chart-grid--2">
           <LabeledBars
             title="Top SPs by elapsed time"
             rows={bars}

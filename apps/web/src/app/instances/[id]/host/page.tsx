@@ -359,7 +359,7 @@ export default async function HostPage({
         {esMssql ? (
           hasMssqlSystem ? (
             <>
-              <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+              <div className="chart-grid chart-grid--2">
                 <TimeseriesPanel
                   title="SQL Server CPU"
                   hint={`${windowHint} · process vs all cores`}
@@ -381,7 +381,7 @@ export default async function HostPage({
                   ]}
                 />
               </div>
-              <div className="chart-panel--full mt-[0.875rem]">
+              <div className="chart-grid chart-grid--2 mt-[0.875rem]">
                 <TimeseriesPanel
                   title="Session state mix"
                   hint={`${windowHint} · dm_exec_sessions`}
@@ -394,8 +394,6 @@ export default async function HostPage({
                     { metric: 'sessions_sleeping', label: 'Sleeping', color: COLOR.success },
                   ]}
                 />
-              </div>
-              <div className="mt-[0.875rem]">
                 <TimeseriesPanel
                   title="Worker pool"
                   hint={windowHint}
@@ -420,7 +418,7 @@ export default async function HostPage({
             {host ? (
               <>
                 <Cards host={host} />
-                <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2 mt-[0.875rem]">
+                <div className="chart-grid chart-grid--2 mt-[0.875rem]">
                   <TimeseriesPanel
                     title="CPU"
                     hint={`${windowHint} · container /proc via hostMetrics`}
@@ -478,7 +476,7 @@ export default async function HostPage({
             )}
             {hasMariaSystem ? (
               <>
-                <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2 mt-[0.875rem]">
+                <div className="chart-grid chart-grid--2 mt-[0.875rem]">
                   <TimeseriesPanel
                     title="Buffer pool"
                     hint={`${windowHint} · InnoDB pages`}
@@ -504,7 +502,7 @@ export default async function HostPage({
                     ]}
                   />
                 </div>
-                <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2 mt-[0.875rem]">
+                <div className="chart-grid chart-grid--2 mt-[0.875rem]">
                   <TimeseriesPanel
                     title="MariaDB memory"
                     hint={`${windowHint} · Memory_used + buffer pool bytes`}
@@ -529,7 +527,7 @@ export default async function HostPage({
                     ]}
                   />
                 </div>
-                <div className="chart-panel--full mt-[0.875rem]">
+                <div className="mt-[0.875rem]">
                   <TimeseriesPanel
                     title="InnoDB I/O"
                     hint={`${windowHint} · data reads/writes`}
@@ -557,7 +555,7 @@ export default async function HostPage({
           <>
             <Cards host={host} />
 
-            <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+            <div className="chart-grid chart-grid--2">
               <TimeseriesPanel
                 title="CPU"
                 hint={windowHint}

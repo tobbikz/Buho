@@ -314,6 +314,7 @@ export async function getFleetLogPatterns(
        from buho.log_events e
        join buho.instances i using (instance_id)
       where e.at >= now() - ($1 || ' hours')::interval
+        and coalesce(i.retired, false) = false
         and (
           e.kind in ('fatal', 'error', 'deadlock', 'cancelled', 'timeout')
           or lower(e.level) in ('fatal', 'panic', 'error', 'critical', 'warning', 'warn')
@@ -398,6 +399,7 @@ export async function getFleetLogLevelCounts(hours = 24): Promise<FleetLogLevelC
        from buho.log_events e
        join buho.instances i using (instance_id)
       where e.at >= now() - ($1 || ' hours')::interval
+        and coalesce(i.retired, false) = false
         and lower(e.level) in ('fatal', 'panic', 'error', 'critical', 'warning', 'warn')
       group by e.instance_id, i.alias, i.engine, lower(e.level)
       order by i.alias, times desc`,

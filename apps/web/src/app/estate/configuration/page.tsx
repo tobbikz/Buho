@@ -6,6 +6,7 @@ import { settingGuide } from '@/lib/setting-guides';
 import { ENGINE_LABEL, getNotes, getSettings, type SettingRow } from '@/lib/estate';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Configuration · Estate · Búho' };
 
 export default async function ConfigurationPage() {
   let rows: SettingRow[];

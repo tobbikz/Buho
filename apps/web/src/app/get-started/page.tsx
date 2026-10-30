@@ -10,6 +10,7 @@ import { parseTargetForm, saveMonitorTarget } from '@/lib/targets';
 import { logConsoleEvent } from '@/lib/users';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Get started · Búho' };
 
 async function addTarget(formData: FormData) {
   'use server';

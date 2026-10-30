@@ -67,7 +67,7 @@ export async function collectMongodb(client: EngineClient): Promise<InventorySna
     notes.push({
       domain: 'replication',
       level: 'info',
-      message: 'Sin replica set: es un standalone.',
+      message: 'No replica set: this MongoDB node is standalone.',
     });
   }
 

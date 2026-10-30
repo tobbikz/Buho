@@ -250,11 +250,11 @@ export default async function QueryPlanPage({
             <p className="page-sub">
               Query <span className="font-mono">{queryid}</span>
               {statement.database ? ` · database ${statement.database}` : ''}
-              {statement.username ? ` · rol ${statement.username}` : ''}
+              {statement.username ? ` · role ${statement.username}` : ''}
             </p>
           </div>
           <Link href={`/instances/${instanceId}/queries`} className="btn">
-            Volver a consultas
+            Back to queries
           </Link>
         </header>
 
@@ -267,9 +267,9 @@ export default async function QueryPlanPage({
           <div className="stat-grid">
             <StatCard label="Calls" value={formatNumber(summary.calls)} hint="in the retained window" />
             <StatCard
-              label="Tiempo total"
+              label="Total time"
               value={formatDuration(summary.execMs / 1000)}
-              hint="suma de todas las ejecuciones"
+              hint="sum of every execution"
             />
             <StatCard
               label="Mean per call"
@@ -281,7 +281,7 @@ export default async function QueryPlanPage({
               label="Temp written"
               value={formatBytes(summary.tempWritten)}
               tone={summary.tempWritten > 0 ? 'warn' : 'ok'}
-              hint={summary.tempWritten > 0 ? 'disk spills' : 'todo en memoria'}
+              hint={summary.tempWritten > 0 ? 'disk spills' : 'all in memory'}
             />
             <StatCard
               label="Blocks read from disk"
@@ -299,9 +299,9 @@ export default async function QueryPlanPage({
                 statement.truncated
                   ? 'stored text was cut off'
                   : parameterized
-                    ? 'normalizada por pg_stat_statements'
+                    ? 'normalized by pg_stat_statements'
                     : 'with concrete values',
-                kind === 'utilitaria' ? 'utility statement' : kind === 'escritura' ? 'escribe' : null,
+                kind === 'utilitaria' ? 'utility statement' : kind === 'escritura' ? 'writes' : null,
               ]
                 .filter(Boolean)
                 .join(' · ')}
@@ -317,7 +317,8 @@ export default async function QueryPlanPage({
             <span className="panel-title">{modes.length > 0 ? 'Explain' : 'Cannot explain'}</span>
             {request ? (
               <span className="text-[11px] text-foreground-muted">
-                {MODE_LABEL[request.mode]} · pedido por {request.requestedBy} {formatAgo(request.requestedAt)}
+                {MODE_LABEL[request.mode]} · requested by {request.requestedBy}{' '}
+                {formatAgo(request.requestedAt)}
               </span>
             ) : null}
           </div>
@@ -341,7 +342,7 @@ export default async function QueryPlanPage({
               ))}
               {waiting ? (
                 <span className="tag tag--info">
-                  {request?.state === 'corriendo' ? 'ejecutando…' : 'en cola…'}
+                  {request?.state === 'corriendo' ? 'running…' : 'queued…'}
                 </span>
               ) : null}
             </div>
@@ -361,9 +362,9 @@ export default async function QueryPlanPage({
               </p>
             ) : parameterized && !generic ? (
               <p className="text-[12px] text-warning">
-                El texto viene normalizado con <span className="font-mono">$1</span> y esta instancia es anterior a
-                PostgreSQL 16, so it does not support <span className="font-mono">EXPLAIN (GENERIC_PLAN)</span>. You have to
-                explain it by hand replacing parameters with real values.
+                The text is normalized with <span className="font-mono">$1</span> and this instance is older than
+                PostgreSQL 16, so it does not support <span className="font-mono">EXPLAIN (GENERIC_PLAN)</span>.
+                Explain it by hand after replacing parameters with real values.
               </p>
             ) : (
               <div className="flex flex-col gap-1.5">
@@ -377,21 +378,19 @@ export default async function QueryPlanPage({
                 ))}
                 {kind === 'escritura' ? (
                   <p className="text-[11.5px] text-warning">
-                    This statement writes, so running it with{' '} is not offered
-                    <span className="font-mono">ANALYZE</span>. El plan estimado muestra la misma estructura sin
-                    tocar los datos. Revertir la transacción alcanzaría para las filas, pero no para lo que un
-                    INSERT deja detrás: valores de secuencia consumidos, disparadores con efectos externos, WAL y
-                    bloqueos sobre una base de producción.
+                    This statement writes, so running it with <span className="font-mono">ANALYZE</span> is not
+                    offered. The estimated plan shows the same structure without touching data. Rolling back the
+                    transaction would undo rows, but not what an INSERT leaves behind: consumed sequences,
+                    triggers with side effects, WAL, and locks on a production database.
                   </p>
                 ) : null}
               </div>
             )}
 
-            {/* Sólo tiene sentido explicar la espera cuando hay algo que pedir. */}
             {modes.length > 0 ? (
               <p className="text-[11.5px] text-foreground-muted">
-                El EXPLAIN lo corre el colector, no esta consola: es el único proceso con credenciales de las
-                instancias monitoreadas. Por eso el plan tarda un segundo en aparecer.
+                EXPLAIN runs in the collector, not this console — that is the only process with credentials for
+                monitored instances. That is why the plan takes a second to appear.
               </p>
             ) : null}
           </div>

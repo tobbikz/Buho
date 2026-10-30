@@ -357,7 +357,11 @@ export default async function IndexesPage({
             label="Invalid"
             value={formatNumber(summary.invalid)}
             tone={summary.invalid > 0 ? 'error' : 'ok'}
-            hint="failed CREATE INDEX CONCURRENTLY — rebuild or drop"
+            hint={
+              engine === 'mariadb'
+                ? 'failed / unused index build — rebuild or drop'
+                : 'failed CREATE INDEX CONCURRENTLY — rebuild or drop'
+            }
           />
           <StatCard
             label="Suggestions"

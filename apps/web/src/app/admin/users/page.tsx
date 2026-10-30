@@ -42,7 +42,7 @@ async function create(formData: FormData) {
     fail(`Password must be at least ${MIN_PASSWORD} characters.`);
   }
   if (await findUser(username)) {
-    fail(`Ya existe una cuenta llamada "${username}".`);
+    fail(`An account named "${username}" already exists.`);
   }
 
   await createUser(username, password, role, session.username);
@@ -117,14 +117,14 @@ export default async function UsersPage({
       <div className="stat-grid">
         <StatCard label="Accounts" value={String(users.length)} hint={bootstrap ? 'none yet' : undefined} />
         <StatCard
-          label="Administradores activos"
+          label="Active admins"
           value={String(admins.length)}
           hint="can change configuration"
           tone={admins.length === 0 ? 'warn' : 'neutral'}
         />
         <StatCard
           label="Shared password"
-          value={bootstrap && sharedPasswordConfigured() ? 'activa' : 'inactiva'}
+          value={bootstrap && sharedPasswordConfigured() ? 'enabled' : 'disabled'}
           hint={bootstrap ? 'stops working once the first account is created' : 'no longer works for sign-in'}
           tone={bootstrap ? 'warn' : 'ok'}
         />

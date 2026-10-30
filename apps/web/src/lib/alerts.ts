@@ -100,6 +100,7 @@ export async function listFleetAlerts(
        from buho.alerts a
        join buho.instances i using (instance_id)
       where a.status = any($1::text[])
+        and coalesce(i.retired, false) = false
         and ($2::text is null or i.engine = $2)
         and ($3::text is null or i.alias = $3)
       order by case a.severity when 'critical' then 0 when 'warning' then 1 else 2 end,
@@ -128,10 +129,12 @@ export async function listFleetAlerts(
 
 export async function countOpenAlerts(): Promise<{ firing: number; pending: number; critical: number }> {
   const rows = await query<{ status: string; severity: string; n: string }>(
-    `select status, severity, count(*)::text as n
-       from buho.alerts
-      where status in ('pending', 'firing')
-      group by status, severity`,
+    `select a.status, a.severity, count(*)::text as n
+       from buho.alerts a
+       join buho.instances i using (instance_id)
+      where a.status in ('pending', 'firing')
+        and coalesce(i.retired, false) = false
+      group by a.status, a.severity`,
   );
   let firing = 0;
   let pending = 0;
@@ -682,7 +685,9 @@ export async function getAlertDayHeatmap(days = 14): Promise<AlertDayHeatmap> {
             count(*)::text as count
        from buho.alert_deliveries d
        join buho.alerts a using (alert_id)
+       join buho.instances i on i.instance_id = a.instance_id
       where d.event = 'fired'
+        and coalesce(i.retired, false) = false
         and coalesce(d.sent_at, d.created_at) >= now() - ($1 || ' days')::interval
       group by 1, 2
       order by 1, 3 desc`,
@@ -692,12 +697,14 @@ export async function getAlertDayHeatmap(days = 14): Promise<AlertDayHeatmap> {
   let rows = fromDeliveries;
   if (rows.length === 0) {
     rows = await query<{ day: Date; check_id: string; count: string }>(
-      `select date_trunc('day', fired_at) as day,
-              check_id,
+      `select date_trunc('day', a.fired_at) as day,
+              a.check_id,
               count(*)::text as count
-         from buho.alerts
-        where fired_at is not null
-          and fired_at >= now() - ($1 || ' days')::interval
+         from buho.alerts a
+         join buho.instances i using (instance_id)
+        where a.fired_at is not null
+          and coalesce(i.retired, false) = false
+          and a.fired_at >= now() - ($1 || ' days')::interval
         group by 1, 2
         order by 1, 3 desc`,
       [days],

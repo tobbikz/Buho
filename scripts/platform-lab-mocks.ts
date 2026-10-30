@@ -33,7 +33,7 @@ async function main() {
         JSON.stringify({
           dags: [
             { dag_id: 'demo', is_paused: false, has_import_errors: false },
-            { dag_id: 'broken', is_paused: true, has_import_errors: true },
+            { dag_id: 'etl_hourly', is_paused: false, has_import_errors: false },
           ],
           total_entries: 2,
         }),
@@ -41,7 +41,7 @@ async function main() {
       return;
     }
     if (url.startsWith('/api/v1/importErrors')) {
-      res.end(JSON.stringify({ import_errors: [{ filename: 'x.py' }], total_entries: 1 }));
+      res.end(JSON.stringify({ import_errors: [], total_entries: 0 }));
       return;
     }
     if (url.startsWith('/api/v1/pools')) {

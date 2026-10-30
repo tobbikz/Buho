@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { ReportActions } from '@/components/ReportActions';
 import { ReportFleetOverview } from '@/components/ReportFleetOverview';
 import { ReportInstanceCard } from '@/components/ReportInstanceCard';
 import { StatCard } from '@/components/StatCard';
@@ -245,36 +246,7 @@ export default async function ReportPage({
           </div>
         </section>
 
-        {report.actions.length > 0 ? (
-          <section className="panel">
-            <div className="panel-header">
-              <span className="panel-title">Recommended actions</span>
-              <span className="text-[10.5px] text-foreground-muted">by severity and reach</span>
-            </div>
-            <div className="panel-body report-actions">
-              {report.actions.map((action, index) => (
-                <article
-                  key={action.checkId}
-                  className={`report-action ${action.severity === 'critical' ? 'report-action--critical' : 'report-action--warning'}`}
-                >
-                  <div className="report-action__head">
-                    <span className="report-action__num">{index + 1}</span>
-                    <span className={`tag ${action.severity === 'critical' ? 'tag--error' : 'tag--warn'}`}>
-                      {action.severity}
-                    </span>
-                    <h3 className="report-action__title">{action.title}</h3>
-                  </div>
-                  <p className="report-action__instances">
-                    {action.instances.length} instance{action.instances.length === 1 ? '' : 's'}:{' '}
-                    {action.instances.join(', ')}
-                  </p>
-                  <p className="report-action__message">{action.message}</p>
-                  <p className="report-action__fix">{action.remediation}</p>
-                </article>
-              ))}
-            </div>
-          </section>
-        ) : null}
+        <ReportActions actions={report.actions} />
 
         {report.backups.length > 0 ? (
           <section className="panel">
@@ -331,7 +303,7 @@ export default async function ReportPage({
         <section className="report-instances-section">
           <div className="report-instances-section__head">
             <h2 className="report-section-title">Instance detail</h2>
-            <span className="text-[11px] text-foreground-muted">expand for metrics, waits, maintenance and queries</span>
+            <span className="text-[11px] text-foreground-muted">click a row for metrics, waits, and queries</span>
           </div>
           <div className="report-instances-list">
             {report.instances.map((row, index) => (

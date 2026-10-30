@@ -33,8 +33,12 @@ export default async function ObservabilityMonitorRedirect({
       </div>
     );
   }
-  if (!instance || engine !== 'endpoint') notFound();
+  if (!instance) notFound();
 
   const extra = w ? { w } : undefined;
-  redirect(servicePath(instance.alias, 'uptime', extra));
+  // Endpoint monitors → Service Probes tab; DB/platform instances → instance Overview.
+  if (engine === 'endpoint') {
+    redirect(servicePath(instance.alias, 'uptime', extra));
+  }
+  redirect(`/instances/${instanceId}`);
 }

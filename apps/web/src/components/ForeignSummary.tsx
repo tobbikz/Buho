@@ -12,7 +12,6 @@ import {
 } from '@/lib/maria-labels';
 import { peakOf, peakOfDerived } from '@/lib/series-peak';
 import { getConnectionsByUser, getWaitsByApplication } from '@/lib/sessions';
-
 /**
  * Resumen de instancia para MariaDB y SQL Server.
  *
@@ -316,24 +315,6 @@ export async function ForeignSummary({
 
   return (
     <>
-      {!esMaria ? (
-        <div className="chart-panel--full">
-          <TimeseriesPanel
-            title="System CPU and memory"
-            hint={`${windowHint} · SQL Server process CPU vs all cores · host RAM from dm_os_sys_memory (no SSH)`}
-            data={extra}
-            unit="pct"
-            height={220}
-            series={[
-              { metric: 'host_cpu_pct', label: 'SQL CPU %', color: COLOR.accent },
-              { metric: 'host_mem_used_pct', label: 'Host RAM %', color: COLOR.warning },
-              { metric: 'mssql_process_memory_pct', label: 'SQL process %', color: COLOR.success },
-              { metric: 'mssql_server_memory_pct', label: 'Buffer / target %', color: COLOR.muted },
-            ]}
-          />
-        </div>
-      ) : null}
-
       <div className="stat-grid stat-grid--5">
         <StatCard label="Connections" value={connectionsAhora === null ? '—' : formatCompactNumber(connectionsAhora)} />
         <StatCard
@@ -576,43 +557,20 @@ export async function ForeignSummary({
 
       {!esMaria ? (
         <>
-          <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+          <div className="chart-grid chart-grid--3">
             <TimeseriesPanel
-              title="Batch requests /s"
-              hint={`${windowHint} · Batch Requests/sec`}
-              data={throughput}
-              unit="rate"
-              series={[{ metric: 'queries_total_per_sec', label: 'Batch/s', color: COLOR.accent, filled: true }]}
-            />
-            <TimeseriesPanel
-              title="Transactions /s"
-              hint={`${windowHint} · Transactions/sec + write tx`}
-              data={throughput}
-              unit="rate"
+              title="System CPU and memory"
+              hint={`${windowHint} · SQL Server process CPU vs all cores · host RAM from dm_os_sys_memory (no SSH)`}
+              data={extra}
+              unit="pct"
+              height={220}
               series={[
-                { metric: 'db_xact_commit_per_sec', label: 'Transactions/s', color: COLOR.accent, filled: true },
-                { metric: 'write_transactions_per_sec', label: 'Write tx/s', color: COLOR.success },
+                { metric: 'host_cpu_pct', label: 'SQL CPU %', color: COLOR.accent },
+                { metric: 'host_mem_used_pct', label: 'Host RAM %', color: COLOR.warning },
+                { metric: 'mssql_process_memory_pct', label: 'SQL process %', color: COLOR.success },
+                { metric: 'mssql_server_memory_pct', label: 'Buffer / target %', color: COLOR.muted },
               ]}
             />
-          </div>
-
-          <div className="chart-panel--full">
-            <TimeseriesPanel
-              title="Wait time"
-              hint={`${windowHint} · sum wait_time on dm_exec_requests (ms)`}
-              data={waitMs.points}
-              unit="ms"
-              height={220}
-              series={waitMs.keys.map((key, index) => ({
-                metric: key,
-                label: key,
-                color: WAIT_COLORS[index % WAIT_COLORS.length] ?? COLOR.muted,
-                filled: index === 0,
-              }))}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
             <TimeseriesPanel
               title="Connections"
               hint={windowHint}
@@ -637,7 +595,40 @@ export async function ForeignSummary({
             />
           </div>
 
-          <div className="chart-panel--full">
+          <div className="chart-grid chart-grid--2">
+            <TimeseriesPanel
+              title="Batch requests /s"
+              hint={`${windowHint} · Batch Requests/sec`}
+              data={throughput}
+              unit="rate"
+              series={[{ metric: 'queries_total_per_sec', label: 'Batch/s', color: COLOR.accent, filled: true }]}
+            />
+            <TimeseriesPanel
+              title="Transactions /s"
+              hint={`${windowHint} · Transactions/sec + write tx`}
+              data={throughput}
+              unit="rate"
+              series={[
+                { metric: 'db_xact_commit_per_sec', label: 'Transactions/s', color: COLOR.accent, filled: true },
+                { metric: 'write_transactions_per_sec', label: 'Write tx/s', color: COLOR.success },
+              ]}
+            />
+          </div>
+
+          <div className="chart-grid chart-grid--2">
+            <TimeseriesPanel
+              title="Wait time"
+              hint={`${windowHint} · sum wait_time on dm_exec_requests (ms)`}
+              data={waitMs.points}
+              unit="ms"
+              height={220}
+              series={waitMs.keys.map((key, index) => ({
+                metric: key,
+                label: key,
+                color: WAIT_COLORS[index % WAIT_COLORS.length] ?? COLOR.muted,
+                filled: index === 0,
+              }))}
+            />
             <TimeseriesPanel
               title="DML throughput (rows per second)"
               hint={windowHint}
@@ -652,7 +643,7 @@ export async function ForeignSummary({
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2 2xl:grid-cols-3">
+          <div className="chart-grid chart-grid--3">
             <TimeseriesPanel
               title="Blocked sessions"
               hint={windowHint}
@@ -680,6 +671,9 @@ export async function ForeignSummary({
                 { metric: 'memory_grants_pending', label: 'Grants pending', color: COLOR.error },
               ]}
             />
+          </div>
+
+          <div className="chart-grid chart-grid--3">
             <TimeseriesPanel
               title="Page I/O /s"
               hint={`${windowHint} · buffer manager`}
@@ -709,6 +703,9 @@ export async function ForeignSummary({
               unit="pct"
               series={[{ metric: 'db_cache_hit_pct', label: 'Hit %', color: COLOR.accent, filled: true }]}
             />
+          </div>
+
+          <div className="chart-grid chart-grid--3">
             <TimeseriesPanel
               title="SQL compilations /s"
               hint={windowHint}
@@ -741,6 +738,9 @@ export async function ForeignSummary({
                 { metric: 'temp_tables_created_per_sec', label: 'Temp tables/s', color: COLOR.muted },
               ]}
             />
+          </div>
+
+          <div className="chart-grid chart-grid--2">
             <TimeseriesPanel
               title="Session state mix"
               hint={`${windowHint} · dm_exec_sessions`}
@@ -752,9 +752,6 @@ export async function ForeignSummary({
                 { metric: 'sessions_sleeping', label: 'Sleeping', color: COLOR.muted },
               ]}
             />
-          </div>
-
-          <div className="chart-panel--full">
             <TimeseriesPanel
               title="Logins / logouts"
               hint={`${windowHint} · General Statistics`}
@@ -770,7 +767,7 @@ export async function ForeignSummary({
         </>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+          <div className="chart-grid chart-grid--2">
             <TimeseriesPanel
               title="Queries /s"
               hint={`${windowHint} · QUESTIONS`}
@@ -791,26 +788,23 @@ export async function ForeignSummary({
             />
           </div>
 
-          <div className="chart-panel--full">
-            <TimeseriesPanel
-              title="Wait time"
-              hint={`${windowHint} · PROCESSLIST time × sessions (ms) · idle replica/dump threads excluded`}
-              data={waitMs.points}
-              unit="ms"
-              height={220}
-              series={waitMs.keys
-                .filter((key) => !isIdleReplicaWaitState(key))
-                .map((key, index) => ({
-                  metric: key,
-                  label: shortProcesslistState(key),
-                  color: WAIT_COLORS[index % WAIT_COLORS.length] ?? COLOR.muted,
-                  filled: index === 0,
-                }))}
-            />
-          </div>
-
           {psWaits.keys.length > 0 ? (
-            <div className="chart-panel--full">
+            <div className="chart-grid chart-grid--2">
+              <TimeseriesPanel
+                title="Wait time"
+                hint={`${windowHint} · PROCESSLIST time × sessions (ms) · idle replica/dump threads excluded`}
+                data={waitMs.points}
+                unit="ms"
+                height={220}
+                series={waitMs.keys
+                  .filter((key) => !isIdleReplicaWaitState(key))
+                  .map((key, index) => ({
+                    metric: key,
+                    label: shortProcesslistState(key),
+                    color: WAIT_COLORS[index % WAIT_COLORS.length] ?? COLOR.muted,
+                    filled: index === 0,
+                  }))}
+              />
               <TimeseriesPanel
                 title="Instrumented waits (performance_schema)"
                 hint={`${windowHint} · events_waits_summary · IO / locks (cond noise filtered)`}
@@ -825,9 +819,27 @@ export async function ForeignSummary({
                 }))}
               />
             </div>
-          ) : null}
+          ) : (
+            <div className="chart-panel--full">
+              <TimeseriesPanel
+                title="Wait time"
+                hint={`${windowHint} · PROCESSLIST time × sessions (ms) · idle replica/dump threads excluded`}
+                data={waitMs.points}
+                unit="ms"
+                height={220}
+                series={waitMs.keys
+                  .filter((key) => !isIdleReplicaWaitState(key))
+                  .map((key, index) => ({
+                    metric: key,
+                    label: shortProcesslistState(key),
+                    color: WAIT_COLORS[index % WAIT_COLORS.length] ?? COLOR.muted,
+                    filled: index === 0,
+                  }))}
+              />
+            </div>
+          )}
 
-          <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2 2xl:grid-cols-3">
+          <div className="chart-grid chart-grid--3">
             <TimeseriesPanel
               title="Connections"
               hint={windowHint}
@@ -856,6 +868,9 @@ export async function ForeignSummary({
                 { metric: 'slow_digest_count', label: 'slow digests', color: COLOR.warning },
               ]}
             />
+          </div>
+
+          <div className="chart-grid chart-grid--3">
             <TimeseriesPanel
               title="Cache hits"
               hint={`${windowHint} · buffer pool`}
@@ -879,6 +894,9 @@ export async function ForeignSummary({
               ]}
               unit="pct"
             />
+          </div>
+
+          <div className="chart-grid chart-grid--3">
             <TimeseriesPanel
               title="History list length"
               hint={`${windowHint} · InnoDB undo purge lag`}
@@ -911,7 +929,7 @@ export async function ForeignSummary({
         </>
       )}
 
-      <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+      <div className="chart-grid chart-grid--2">
         <FindingsPanel findings={findings} checkedAt={findings[0] ? formatClock(findings[0].ts) : null} />
         <LabeledBars
           title="What sessions are waiting on"
@@ -985,7 +1003,9 @@ export async function ForeignSummary({
                         evento.level === 'error' ? 'tag--error' : evento.level === 'warn' ? 'tag--warn' : 'tag--muted'
                       }`}
                     >
-                      {evento.component}
+                      {evento.component.startsWith('security:')
+                        ? `SECURITY:${evento.component.slice('security:'.length).toUpperCase()}`
+                        : evento.component}
                     </span>
                   </td>
                   <td className="text-[12px]">{evento.message}</td>

@@ -566,7 +566,7 @@ export default async function ReplicationPage({
         )}
 
         {isStandby ? (
-          <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+          <div className="chart-grid chart-grid--2">
             <TimeseriesPanel
               title="Apply delay"
               hint={`window ${window.key} · measured on this standby`}
@@ -807,6 +807,22 @@ async function ForeignReplicationPage({
         </header>
 
         <InstanceTabs instanceId={instanceId} engine={engine} />
+
+        {peers.length === 0 && engine === 'mariadb' ? (
+          <div className="notice">
+            <strong>Standalone MariaDB — no replicas.</strong> This lab node is not in a
+            master/replica topology. HA posture below reflects local{' '}
+            <span className="font-mono">@@log_bin</span> only; charts stay empty until a peer
+            appears in inventory.
+          </div>
+        ) : null}
+        {peers.length === 0 && engine === 'mssql' && hadr && !hadr.detail?.['is_hadr_enabled'] ? (
+          <div className="notice">
+            <strong>Always On is off — no AG peers.</strong> This instance is not in an
+            availability group. Inventory still shows the HA posture row so the page is never a
+            blank shell.
+          </div>
+        ) : null}
 
         <div className="stat-grid">
           <StatCard

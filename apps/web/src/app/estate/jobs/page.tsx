@@ -6,6 +6,7 @@ import { formatAgo, formatDuration } from '@/lib/format';
 import { ENGINE_LABEL, getJobs, getNotes, type JobRow } from '@/lib/estate';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Jobs · Estate · Búho' };
 
 export default async function JobsPage() {
   let rows: JobRow[];
@@ -56,8 +57,8 @@ export default async function JobsPage() {
         </div>
         {rows.length === 0 ? (
           <div className="empty">
-            No instance reported jobs. On PostgreSQL and MariaDB that is normal: jobs often live in system cron,
-            which the engine cannot see.
+            No scheduled jobs inventoried in this lab. PostgreSQL/MariaDB usually keep jobs in OS cron (invisible
+            inside the engine). SQL Agent jobs appear here when MSSQL exposes them via msdb.
           </div>
         ) : (
           <div className="table-scroll" style={{ maxHeight: 'none' }}>

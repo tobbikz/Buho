@@ -234,7 +234,7 @@ export async function MongoSummary({
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+      <div className="chart-grid chart-grid--3">
         <TimeseriesPanel
           title="Connections"
           hint={windowHint}
@@ -269,6 +269,8 @@ export async function MongoSummary({
             { metric: 'mongo_tickets_write_used_pct', label: 'write tickets %', color: COLOR.warning },
           ]}
         />
+      </div>
+      <div className="chart-grid chart-grid--3">
         <TimeseriesPanel
           title="Network"
           hint={windowHint}
@@ -300,6 +302,8 @@ export async function MongoSummary({
             { metric: 'mongo_repl_members', label: 'members', color: COLOR.muted },
           ]}
         />
+      </div>
+      <div className="chart-grid chart-grid--3">
         <TimeseriesPanel
           title="Resident memory"
           hint={windowHint}
@@ -329,6 +333,8 @@ export async function MongoSummary({
             { metric: 'db_tup_deleted_per_sec', label: 'deleted', color: COLOR.error },
           ]}
         />
+      </div>
+      <div className="chart-grid chart-grid--2">
         <TimeseriesPanel
           title="Asserts /s"
           hint={`${windowHint} · user + warning`}
