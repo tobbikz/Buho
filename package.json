@@ -3,7 +3,7 @@
   "version": "1.8.0",
   "private": true,
   "type": "module",
-  "description": "B\u00faho \u2014 monitor de bases de datos on-prem. PostgreSQL primero.",
+  "description": "Búho — on-prem database monitoring (collector, store, console). Apache-2.0.",
   "engines": {
     "node": ">=22"
   },

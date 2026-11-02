@@ -131,8 +131,9 @@ Cursor `mcp.json` example:
 
 ```json
 "buho": {
-  "command": "C:\\Program Files\\nodejs\\npx.cmd",
-  "args": ["tsx", "C:/Users/tomy.b/Documents/buho-monitor/apps/mcp/src/main.ts"],
+  "command": "npx",
+  "args": ["tsx", "apps/mcp/src/main.ts"],
+  "cwd": "/absolute/path/to/buho",
   "env": {
     "BUHO_STORE_URL": "postgres://buho:buho@127.0.0.1:55432/buho",
     "BUHO_MCP_ALLOW_WRITE": "false"

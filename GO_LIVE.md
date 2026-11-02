@@ -1,4 +1,4 @@
-# Go-live checklist (first production customer / pilot)
+﻿# Go-live checklist (first production customer / pilot)
 
 Use before the first paid or pilot install. Pin **`v1.7.2+`**. Pricing: `PRICING.md`. Contract template: `PILOT_AGREEMENT.md`.
 
@@ -7,7 +7,7 @@ Lab console (dev): http://127.0.0.1:3100 · store `:55432`.
 ## 0. Ship the bits
 
 - [ ] `git push origin main` and `git push origin v1.7.0` (GHCR publish runs on the tag)
-- [ ] Confirm images: `ghcr.io/tobbikz/buho-monitor/collector:1.7.2` and `…/web:1.7.2`
+- [ ] Confirm images: `ghcr.io/tobbikz/buho/collector:1.7.2` and `…/web:1.7.2`
 - [ ] Customer host can `docker pull` those tags (or use `./install.sh --pull`)
 
 ## 1. Access & secrets

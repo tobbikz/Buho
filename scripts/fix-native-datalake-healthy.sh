@@ -4,8 +4,8 @@ set -euo pipefail
 
 PGHOST="${PGHOST:-127.0.0.1}"
 PGPORT="${PGPORT:-5432}"
-PGUSER="${PGUSER:-tomy.berrios}"
-PGPASSWORD="${PGPASSWORD:-Yucaquemada1}"
+PGUSER="${PGUSER:-buho_lab}"
+PGPASSWORD="${PGPASSWORD:-Buho_Lab_Pg1!}"
 PGDATABASE="${PGDATABASE:-datalake}"
 export PGPASSWORD
 

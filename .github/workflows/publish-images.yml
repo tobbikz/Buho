@@ -21,7 +21,7 @@ permissions:
 env:
   REGISTRY: ghcr.io
   OWNER: tobbikz
-  REPO: buho-monitor
+  REPO: buho
 
 jobs:
   publish:

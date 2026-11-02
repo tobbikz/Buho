@@ -8,18 +8,18 @@ SQL="$ROOT/docker/lab/seed-index-demo.sql"
 
 echo "Loading demo schema on primary..."
 docker cp "$SQL" buho-datalake-primary:/tmp/seed-index-demo.sql
-docker exec buho-datalake-primary psql -U tomy.berrios -d datalake -f /tmp/seed-index-demo.sql
+docker exec buho-datalake-primary psql -U buho_lab -d datalake -f /tmp/seed-index-demo.sql
 
 echo "Waiting for replication..."
 sleep 3
-docker exec buho-datalake-standby psql -U tomy.berrios -d datalake -qtAX \
+docker exec buho-datalake-standby psql -U buho_lab -d datalake -qtAX \
   -c "SELECT count(*) FROM buho_demo.orders;" | xargs -I{} echo "  standby rows: {}"
 
 echo "Running sample queries on standby (pg_stat_statements)..."
 for _ in $(seq 1 3); do
-  docker exec buho-datalake-standby psql -U tomy.berrios -d datalake -q -c \
+  docker exec buho-datalake-standby psql -U buho_lab -d datalake -q -c \
     "SELECT count(*) FROM buho_demo.orders WHERE amount > 999.50;" >/dev/null
-  docker exec buho-datalake-standby psql -U tomy.berrios -d datalake -q -c \
+  docker exec buho-datalake-standby psql -U buho_lab -d datalake -q -c \
     "SELECT id, amount FROM buho_demo.orders WHERE status = 'cancelled' AND region = 'north' ORDER BY amount DESC LIMIT 20;" >/dev/null
 done
 

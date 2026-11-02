@@ -5,8 +5,8 @@ set -euo pipefail
 
 HOST="${BUHO_FLOW_HOST:-127.0.0.1}"
 PORT="${BUHO_FLOW_PORT:-5435}"
-USER="${BUHO_FLOW_USER:-tomy.berrios}"
-export PGPASSWORD="${BUHO_FLOW_PASSWORD:-Yucaquemada1}"
+USER="${BUHO_FLOW_USER:-buho_lab}"
+export PGPASSWORD="${BUHO_FLOW_PASSWORD:-Buho_Lab_Pg1!}"
 DB="${BUHO_FLOW_DB:-datalake}"
 
 psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 <<'SQL'

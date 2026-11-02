@@ -1,4 +1,4 @@
-# Puesta en marcha de Búho
+﻿# Puesta en marcha de Búho
 
 Guía para instalar Búho en un servidor nuevo, sin conocer el código. Toma unos
 quince minutos, y la mayor parte es crear el usuario de monitoreo en cada base.
@@ -223,18 +223,18 @@ Opciones:
 El cliente no necesita Node ni `docker build`. Con Docker y Compose basta:
 
 ```bash
-git clone https://github.com/tobbikz/buho-monitor.git
-cd buho-monitor
+git clone https://github.com/tobbikz/buho.git
+cd buho
 # editar config.json (ver sección 2) y crear el usuario de monitoreo
 ./install.sh --pull
 ```
 
-Eso baja `collector` y `web` desde GHCR (`ghcr.io/tobbikz/buho-monitor/...`)
+Eso baja `collector` y `web` desde GHCR (`ghcr.io/tobbikz/buho/...`)
 y levanta el store. Para fijar una versión concreta:
 
 ```bash
-export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho-monitor/collector:1.3.1
-export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho-monitor/web:1.3.1
+export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho/collector:1.3.1
+export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho/web:1.3.1
 ./install.sh --pull
 ```
 
@@ -394,7 +394,7 @@ quien desarrolla en el repo compila con `./install.sh` sin flags.
 
 ```bash
 # Cliente (recomendado)
-cd buho-monitor
+cd buho
 git fetch --tags
 git checkout v1.1.1          # o la tag que toque
 ./install.sh --pull
@@ -403,8 +403,8 @@ git checkout v1.1.1          # o la tag que toque
 Versión fija de imagen (sin cambiar el checkout):
 
 ```bash
-export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho-monitor/collector:1.3.1
-export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho-monitor/web:1.3.1
+export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho/collector:1.3.1
+export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho/web:1.3.1
 ./install.sh --pull
 ```
 

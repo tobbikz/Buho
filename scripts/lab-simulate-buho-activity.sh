@@ -32,8 +32,8 @@ ENQUEUE_PLANS="${2:-1}"
 PRIMARY_CONTAINER="buho-datalake-primary"
 STANDBY_CONTAINER="buho-datalake-standby"
 DB="datalake"
-PGUSER="tomy.berrios"
-PGPASSWORD="Yucaquemada1"
+PGUSER="buho_lab"
+PGPASSWORD="Buho_Lab_Pg1!"
 
 # Búho store instance_id mapping (see buho/config.json / buho.instances).
 PRIMARY_INSTANCE_ID=1 # datalake-local

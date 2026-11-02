@@ -35,7 +35,7 @@ No auto-charge. Conversion requires a written order (email is enough).
 
 ## 5. License during pilot
 
-Same as `LICENSE` (BSL 1.1). Customer may not resell Búho or offer it as a hosted competing service.
+Same as `LICENSE` (Apache License 2.0). The “Búho” name and marks remain IKZ Technologies trademarks.
 
 ## 6. Data & security
 

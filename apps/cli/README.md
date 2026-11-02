@@ -28,5 +28,5 @@ PGHOST=… PGDATABASE=… PGUSER=… PGPASSWORD=… npm run check
 Un DBA puede pegarlo en cron o CI **hoy**, sin comprar Búho. Cuando quiera
 historial, alertas y flota multi-motor, el camino es `./install.sh --pull`.
 
-Licencia del producto: ver `LICENSE` (BSL 1.1). El uso de `buho-check` para
-evaluación y CI está cubierto por el Additional Use Grant.
+Licencia del producto: ver `LICENSE` (Apache License 2.0). `buho-check` se puede
+usar libremente en evaluación y CI.

@@ -1,12 +1,12 @@
-# External install readiness
+﻿# External install readiness
 
 A true “install on someone else’s machine” needs that host. This file is the **ready pack** so that install is mechanical.
 
 ## Customer one-liner
 
 ```bash
-git clone https://github.com/tobbikz/buho-monitor.git
-cd buho-monitor
+git clone https://github.com/tobbikz/buho.git
+cd buho
 git checkout v1.7.2
 ./install.sh --pull
 ```
@@ -39,8 +39,8 @@ npx tsx scripts/assert-check-parity.ts
 
 | Image | Tag |
 |-------|-----|
-| `ghcr.io/tobbikz/buho-monitor/collector` | `1.7.2` / `latest` |
-| `ghcr.io/tobbikz/buho-monitor/web` | `1.7.2` / `latest` |
+| `ghcr.io/tobbikz/buho/collector` | `1.7.2` / `latest` |
+| `ghcr.io/tobbikz/buho/web` | `1.7.2` / `latest` |
 
 Published by `.github/workflows/publish-images.yml` on push of tag `v*`.
 
@@ -50,10 +50,10 @@ Published by `.github/workflows/publish-images.yml` on push of tag `v*`.
 On a machine with GHCR access:
 
 ```bash
-docker pull ghcr.io/tobbikz/buho-monitor/collector:1.7.2
-docker pull ghcr.io/tobbikz/buho-monitor/web:1.7.2
-docker save ghcr.io/tobbikz/buho-monitor/collector:1.7.2 \
-            ghcr.io/tobbikz/buho-monitor/web:1.7.2 \
+docker pull ghcr.io/tobbikz/buho/collector:1.7.2
+docker pull ghcr.io/tobbikz/buho/web:1.7.2
+docker save ghcr.io/tobbikz/buho/collector:1.7.2 \
+            ghcr.io/tobbikz/buho/web:1.7.2 \
   | gzip > buho-1.7.2-images.tgz
 ```
 

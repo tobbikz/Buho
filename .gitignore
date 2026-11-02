@@ -17,6 +17,16 @@ tmp/
 *.png
 !apps/web/public/**
 
+# Local lab / secrets (never commit)
+.lab-auth.txt
+.lab-start-collector.bat
+.lab-collector*.log
+config.lab-core.json
+config.lab*.json
+!config.example.json
+qa-run-output.txt
+scripts/_tmp-*
+
 # APM SSH lab keys
 deploy/apm-ssh-lab/lab_id_ed25519
 deploy/apm-ssh-lab/lab_id_ed25519.pub

@@ -24,7 +24,7 @@ TRUNCATE_EVERY_SECONDS="${TRUNCATE_EVERY_SECONDS:-600}"
 
 PRIMARY_CONTAINER="buho-datalake-primary"
 DB="datalake"
-PGUSER="tomy.berrios"
+PGUSER="buho_lab"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BASE_SCRIPT="${SCRIPT_DIR}/lab-simulate-buho-activity.sh"

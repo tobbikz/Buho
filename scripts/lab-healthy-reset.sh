@@ -15,7 +15,7 @@ docker compose -f docker-compose.lab.yml up -d
 for port in 5435 5434; do
   echo "Waiting for PostgreSQL on :${port}..."
   for _ in $(seq 1 30); do
-    if pg_isready -h 127.0.0.1 -p "$port" -U tomy.berrios -d datalake >/dev/null 2>&1; then
+    if pg_isready -h 127.0.0.1 -p "$port" -U buho_lab -d datalake >/dev/null 2>&1; then
       echo "  :${port} ready."
       break
     fi

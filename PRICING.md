@@ -1,7 +1,10 @@
-# Búho pricing
+# Búho pricing (optional commercial support)
 
-Anchored to **Redgate Monitor** list pricing (~**USD 1,150 / server / year** for small fleets).
-Búho is the same class of product (on-prem DB monitor) at a deliberately lower sticker — not a race to $15/mo.
+The **software is Apache License 2.0** — you can run, modify, and redistribute the core freely ([`LICENSE`](LICENSE)).
+
+The table below is **optional paid support / SLAs** from IKZ Technologies (not a license fee for the open-source core). Self-support via GitHub Issues is always available.
+
+Anchored to **Redgate Monitor** list pricing (~**USD 1,150 / server / year** for small fleets) for teams that want a comparable commercial envelope.
 
 Currency: **USD**. Billing: annual preferred (monthly available for Pro).
 
@@ -34,9 +37,10 @@ One **database host** (host+port), regardless of how many databases Búho monito
 | CDC overlay on an already-licensed Kafka cluster | **0** extra (same brokers) |
 | Endpoint / infra probe hosts | unchanged (existing probe rules) |
 
-## Commercial license
+## License vs support
 
-Production use is under **Business Source License 1.1** (`LICENSE`). Offering Búho as a competing hosted monitoring SaaS requires a separate commercial agreement with IKZ Technologies.
+- **License:** Apache 2.0 — see [`LICENSE`](LICENSE).
+- **Support contracts / pilots:** contact IKZ Technologies; templates in [`PILOT_AGREEMENT.md`](PILOT_AGREEMENT.md).
 
 Contact: sales via the GitHub org / IKZ — attach `PILOT_AGREEMENT.md` for pilots.
 
