@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { FootprintFilters, IndexFilters } from '@/components/IndexFilters';
 import { IndexFindingsList } from '@/components/IndexFindingsList';
+import { IndexInventoryTable } from '@/components/IndexInventoryTable';
 import { IndexSuggestionCards } from '@/components/IndexSuggestionCards';
 import { InstanceTabs } from '@/components/InstanceTabs';
 import { StatCard } from '@/components/StatCard';
@@ -30,27 +31,6 @@ const STATUS_LABEL: Record<IndexStatus, string> = {
   redundant: 'Redundant',
   invalid: 'Invalid',
 };
-
-const STATUS_TAG: Record<IndexStatus, string> = {
-  ok: 'tag--ok',
-  unused: 'tag--warn',
-  redundant: 'tag--warn',
-  invalid: 'tag--error',
-};
-
-function IndexBadge({ status }: { status: IndexStatus }) {
-  return <span className={`tag ${STATUS_TAG[status]}`}>{STATUS_LABEL[status]}</span>;
-}
-
-function IndexDefinition({ row }: { row: IndexRow }) {
-  if (!row.definition) return null;
-  return (
-    <details>
-      <summary className="cursor-pointer font-mono text-[10px] text-foreground-muted">definition</summary>
-      <div className="mt-1 font-mono text-[10px] text-foreground-muted">{row.definition}</div>
-    </details>
-  );
-}
 
 const INDEX_PAGE_SIZE = 40;
 const FOOTPRINT_PAGE_SIZE = 20;
@@ -81,62 +61,6 @@ function buildIndexesHref(
   if (opts?.fpage && opts.fpage > 1) params.set('fpage', String(opts.fpage));
   const query = params.toString();
   return query ? `/instances/${instanceId}/indexes?${query}` : `/instances/${instanceId}/indexes`;
-}
-
-function IndexTable({ rows }: { rows: IndexRow[] }) {
-  if (rows.length === 0) {
-    return <div className="empty">No indexes in this category.</div>;
-  }
-
-  return (
-    <div className="table-scroll">
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>Index</th>
-            <th>Table</th>
-            <th>Columns</th>
-            <th className="text-right">Size</th>
-            <th className="text-right">Scans</th>
-            <th>Flags</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={`${row.schema}.${row.table}.${row.name}`}>
-              <td className="font-mono text-[11px]">{row.name}</td>
-              <td className="font-mono text-[11px]">
-                {row.schema}.{row.table}
-              </td>
-              <td className="font-mono text-[11px]">{row.columns.join(', ') || '·'}</td>
-              <td className="num">{formatBytes(row.sizeBytes)}</td>
-              <td className="num">{formatNumber(row.idxScan)}</td>
-              <td className="text-[11px] text-foreground-muted">
-                {[
-                  row.isPrimary ? 'PK' : null,
-                  row.isUnique && !row.isPrimary ? 'UNIQUE' : null,
-                  row.isPartial ? 'partial' : null,
-                  row.hasExpression ? 'expression' : null,
-                ]
-                  .filter(Boolean)
-                  .join(' · ') || '·'}
-              </td>
-              <td>
-                <IndexBadge status={row.status} />
-                {row.coveredBy && (
-                  <div className="mt-1 font-mono text-[10px] text-foreground-muted">
-                    covered by {row.coveredBy}
-                  </div>
-                )}
-                <IndexDefinition row={row} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
 }
 
 export default async function IndexesPage({
@@ -394,8 +318,8 @@ export default async function IndexesPage({
             </div>
           </section>
         ) : (
-          <>
-            <section className="panel">
+          <div className="grid grid-cols-1 gap-[0.875rem] xl:grid-cols-2">
+            <section className="panel min-w-0">
               <div className="panel-header">
                 <span className="panel-title">{fragmented ? 'Larger than the table' : 'All indexes'}</span>
                 <span className="font-mono text-[10px] text-foreground-muted">
@@ -425,9 +349,9 @@ export default async function IndexesPage({
                 <p className="mb-4 text-[11px] text-foreground-muted">
                   {fragmented
                     ? 'PostgreSQL does not publish leaf fragmentation. These are secondary indexes at least twice the heap and over 64 MB, joined to the vacuum snapshot. SQL Server fragmentation is a check (LIMITED, connected database only).'
-                    : `Page ${currentPage} of ${pageCount} · ${formatNumber(inventory.total)} index${inventory.total === 1 ? '' : 'es'}${activeFilter !== 'all' ? ` · status ${STATUS_LABEL[activeFilter]}` : ''}${activeSchema ? ` · schema ${activeSchema}` : ''}. The list is paged so the browser does not render the whole inventory at once.`}
+                    : `Page ${currentPage} of ${pageCount} · ${formatNumber(inventory.total)} index${inventory.total === 1 ? '' : 'es'}${activeFilter !== 'all' ? ` · status ${STATUS_LABEL[activeFilter]}` : ''}${activeSchema ? ` · schema ${activeSchema}` : ''}.`}
                 </p>
-                <IndexTable rows={inventory.rows} />
+                <IndexInventoryTable rows={inventory.rows} instanceId={instanceId} />
                 <div className="mt-3 flex gap-2">
                   {currentPage > 1 ? (
                     <Link
@@ -463,7 +387,7 @@ export default async function IndexesPage({
               </div>
             </section>
 
-            <section className="panel">
+            <section className="panel min-w-0">
               <div className="panel-header">
                 <span className="panel-title">Footprint by schema and table</span>
                 <span className="font-mono text-[10px] text-foreground-muted">
@@ -483,7 +407,7 @@ export default async function IndexesPage({
                   footprintSchema={footprintSchema}
                   footprintQuery={footprintQuery}
                 />
-                <div className="table-scroll" style={{ maxHeight: '16rem' }}>
+                <div className="table-scroll" style={{ maxHeight: '8rem' }}>
                   <table className="data-table">
                     <thead>
                       <tr>
@@ -505,7 +429,7 @@ export default async function IndexesPage({
                     </tbody>
                   </table>
                 </div>
-                <div className="table-scroll mt-4">
+                <div className="table-scroll mt-4" style={{ maxHeight: '22rem' }}>
                   <table className="data-table">
                     <thead>
                       <tr>
@@ -570,7 +494,7 @@ export default async function IndexesPage({
                 </div>
               </div>
             </section>
-          </>
+          </div>
         )}
 
         <section className="panel">
