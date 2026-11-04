@@ -1,73 +1,60 @@
-﻿# External install readiness
+# Install on another host
 
-A true “install on someone else’s machine” needs that host. This file is the **ready pack** so that install is mechanical.
+Customer install, including machines that cannot pull from GHCR.
 
-## Customer one-liner
+## Customer install
 
 ```bash
 git clone https://github.com/tobbikz/buho.git
 cd buho
-git checkout v1.7.2
+git checkout v1.8.0
 ./install.sh --pull
 ```
 
-Then open the console → **Get started** → follow `GO_LIVE.md`.
+Then open the console → **Get started**, and follow [`GO_LIVE.md`](GO_LIVE.md).
 
-## Local proof (this repo)
+## Before you start
 
-Automated clean-room install (same machine, isolated compose):
-
-```bash
-npm run ensayo:instalacion
-```
-
-Parity gate before calling the build production-ready:
-
-```bash
-npx tsx scripts/assert-check-parity.ts
-```
-
-## Operator checklist (remote host)
-
-1. Docker + Compose v2
-2. Outbound pull from `ghcr.io` (or mirror the two images)
-3. Open ports only for console (TLS) and store (not public)
-4. Run `GO_LIVE.md` §§1–7
-5. Sign `PILOT_AGREEMENT.md` or Pro order (`PRICING.md`)
+1. Docker and Compose v2 are installed.
+2. The host can pull from `ghcr.io`, or you loaded the two images with the steps below.
+3. The console is reached through TLS or a VPN. The store port is not public.
+4. [`GO_LIVE.md`](GO_LIVE.md) sections 1–7 are done.
+5. The pilot is signed ([`PILOT_AGREEMENT.md`](PILOT_AGREEMENT.md)) or there is a Pro/Fleet order ([`PRICING.md`](PRICING.md)).
 
 ## Images
 
 | Image | Tag |
-|-------|-----|
-| `ghcr.io/tobbikz/buho/collector` | `1.7.2` / `latest` |
-| `ghcr.io/tobbikz/buho/web` | `1.7.2` / `latest` |
+| --- | --- |
+| `ghcr.io/tobbikz/buho/collector` | `1.8.0` / `latest` |
+| `ghcr.io/tobbikz/buho/web` | `1.8.0` / `latest` |
 
-Published by `.github/workflows/publish-images.yml` on push of tag `v*`.
+Published by `.github/workflows/publish-images.yml` when a `v*` tag is pushed. Pin `1.8.0` for a customer host so `latest` cannot move under you.
 
+## Air-gapped
 
-## Air-gapped / offline
-
-On a machine with GHCR access:
-
-```bash
-docker pull ghcr.io/tobbikz/buho/collector:1.7.2
-docker pull ghcr.io/tobbikz/buho/web:1.7.2
-docker save ghcr.io/tobbikz/buho/collector:1.7.2 \
-            ghcr.io/tobbikz/buho/web:1.7.2 \
-  | gzip > buho-1.7.2-images.tgz
-```
-
-On the foreign host (no registry pull):
+On a machine that can reach GHCR:
 
 ```bash
-gunzip -c buho-1.7.2-images.tgz | docker load
-# then install.sh / compose with image tags pinned to 1.7.2 (no :latest drift)
-export BUHO_OTLP_TOKEN="$(openssl rand -hex 24)"   # required off-loopback
+docker pull ghcr.io/tobbikz/buho/collector:1.8.0
+docker pull ghcr.io/tobbikz/buho/web:1.8.0
+docker save ghcr.io/tobbikz/buho/collector:1.8.0 \
+            ghcr.io/tobbikz/buho/web:1.8.0 \
+  | gzip > buho-1.8.0-images.tgz
 ```
 
-### Foreign host smoke checklist
+On the customer host:
 
-- [ ] `curl -sS http://HOST:3100/api/otlp/v1/traces` → auth hint / token mode
-- [ ] `npm run smoke:otlp` (or equivalent) with `Authorization: Bearer $BUHO_OTLP_TOKEN`
-- [ ] Console login + `npm run verify:v1` against foreign `BUHO_BASE_URL`
-- [ ] Collector scrape at least one DB target
+```bash
+gunzip -c buho-1.8.0-images.tgz | docker load
+export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho/collector:1.8.0
+export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho/web:1.8.0
+export BUHO_OTLP_TOKEN="$(openssl rand -hex 24)"   # required if OTLP is not loopback-only
+./install.sh --pull
+```
+
+## After it is up
+
+- [ ] Console login works.
+- [ ] One database shows a health score.
+- [ ] One alert channel **Test** arrived.
+- [ ] If OTLP is exposed: exporters send the bearer token, and traces show up under Observability.

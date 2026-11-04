@@ -1,164 +1,148 @@
-﻿# Puesta en marcha de Búho
+# Installing Búho
 
-Guía para instalar Búho en un servidor nuevo, sin conocer el código. Toma unos
-quince minutos, y la mayor parte es crear el usuario de monitoreo en cada base.
+Operator guide for a new host. About fifteen minutes, most of it creating a read-only monitor login on each database.
 
-Si sólo se quiere ver funcionando: `./install.sh` y saltar a
-[Primer ingreso](#primer-ingreso).
+Customer path: `./install.sh --pull`, then [First login](#first-login). First production cutover: [`GO_LIVE.md`](GO_LIVE.md).
 
 ---
 
-## Qué se está instalando
+## What you are installing
 
-Tres procesos, en contenedores separados:
+Three containers:
 
-| Proceso | Qué hace | Con qué habla |
+| Process | Role | Talks to |
 | --- | --- | --- |
-| **store** | PostgreSQL donde Búho guarda su propia historia | nadie más |
-| **collector** | se conecta a cada base monitoreada, muestrea y corre los checks | las bases monitoreadas y el store |
-| **web** | la consola | **sólo** el store |
+| **store** | PostgreSQL that holds Búho’s own history | nothing else |
+| **collector** | connects to each monitored database, samples, runs checks | monitored databases and the store |
+| **web** | the console | **only** the store |
 
-Esa última frontera es deliberada: un render de la consola no puede abrir
-conexiones contra la base de un cliente. Las credenciales de las instancias
-monitoreadas existen únicamente en el colector.
+The console never opens a connection to a customer database. Credentials for monitored instances live in the collector (and in `config.json` or Admin → Databases).
 
-Búho es **agentless**: no se instala nada en los servidores monitoreados. Se
-conecta como un cliente más, con un usuario de sólo lectura.
+Búho is **agentless**. It connects as a normal client, with a read-only user. Nothing is installed on the database host. Host CPU and memory are optional and use SSH or local `/proc`.
 
----
-
-## Requisitos
-
-- Linux con Docker y el plugin `compose` (`docker compose version`)
-- 2 GB de RAM y 10 GB de disco libres para empezar; el store crece con la
-  retención configurada y el número de instancias
-- Alcance de red desde el servidor de Búho hacia cada base a monitorear
-- `openssl` para generar los secretos la primera vez
-
-No hace falta Node ni PostgreSQL en el host: todo va dentro de los contenedores.
+Engines: **PostgreSQL, SQL Server, MariaDB / MySQL, Oracle**.
 
 ---
 
-## 1. Usuario de monitoreo, uno por servidor
+## Requirements
 
-Búho nunca necesita escribir. Los scripts de `sql/` crean un usuario con el
-mínimo privilegio que cada motor exige para leer sus propias estadísticas, y
-están comentados con **por qué** hace falta cada permiso.
+- Linux with Docker and the Compose plugin (`docker compose version`)
+- About 2 GB of RAM and 10 GB of free disk to start; the store grows with retention and fleet size
+- Network path from the Búho host to each database
+- `openssl` (the installer generates secrets on first run)
+
+Node.js and a host PostgreSQL are not required. Both run inside containers when you use `./install.sh --pull`.
+
+---
+
+## 1. Monitor user, one per server
+
+Búho does not need to write. Scripts in `sql/` create a least-privilege user that can read the engine’s own statistics. Each script says why a grant exists. Change the password in the script before you run it, and use that same password in the console or in `config.json`.
 
 ```bash
-# PostgreSQL — rol pg_monitor, sin acceso a los datos de las tablas
-psql   -h TU_SERVIDOR -U postgres -f sql/monitor-user.sql
+# PostgreSQL — pg_monitor, no table data
+psql   -h YOUR_SERVER -U postgres -f sql/monitor-user.sql
 
-# MariaDB — PROCESS, REPLICATION CLIENT, SLAVE MONITOR
-mariadb -h TU_SERVIDOR -u root   < sql/monitor-user-mariadb.sql
+# MariaDB / MySQL — PROCESS, REPLICATION CLIENT, SLAVE MONITOR
+mariadb -h YOUR_SERVER -u root < sql/monitor-user-mariadb.sql
 
-# SQL Server — VIEW SERVER STATE, VIEW ANY DEFINITION, lectura de msdb
-sqlcmd -S TU_SERVIDOR -U sa      -i sql/monitor-user-mssql.sql
+# SQL Server — VIEW SERVER STATE, VIEW ANY DEFINITION, msdb read
+sqlcmd -S YOUR_SERVER -U sa -i sql/monitor-user-mssql.sql
+
+# Oracle — session + catalog views (run as SYS/SYSTEM in the PDB you monitor)
+sqlplus sys@host:1521/ORCLPDB as sysdba @sql/monitor-user-oracle.sql
 ```
 
-Cada script deja al final la contraseña que hay que cambiar. Cambiarla ahí y
-usar la misma en `config.json`.
+A user created this way cannot read table rows, write, change configuration, or see passwords. It can see object names, normalized statement text, and execution plans. Decide whether that is acceptable before you install.
 
-Lo que un usuario así **no** puede hacer: leer filas de las tablas, escribir,
-cambiar configuración, ni ver contraseñas. Lo que sí ve: nombres de objetos,
-textos de consultas normalizados (`pg_stat_statements`) y planes de ejecución.
-Si eso último es sensible en el entorno, conviene decidirlo antes de instalar y
-no después.
+### Optional PostgreSQL extras
 
-### Extras opcionales de PostgreSQL
-
-Búho funciona sin ellos, pero pierde vistas completas:
+Búho runs without these. You lose the query and measured-bloat views.
 
 ```sql
--- Consultas más caras, planes y el análisis por consulta.
--- Requiere reinicio: shared_preload_libraries no es recargable.
+-- Top statements, plans, and per-query analysis.
+-- shared_preload_libraries is not reloadable: this needs a restart.
 ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements';
-ALTER SYSTEM SET track_io_timing = on;   -- este sí es recargable
--- reiniciar, y después, dentro de cada base:
+ALTER SYSTEM SET track_io_timing = on;
+-- restart, then in each database:
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
--- Bloat medido de verdad, para el botón "medir" de la pantalla de vacuum.
--- Sin esto el bloat sigue estimándose, que es honesto pero aproximado.
+-- Measured bloat for the vacuum screen “measure” action.
+-- Without it, bloat stays an estimate.
 CREATE EXTENSION IF NOT EXISTS pgstattuple;
-GRANT pg_stat_scan_tables TO buho_monitor;   -- estadísticas, no datos
+GRANT pg_stat_scan_tables TO buho_monitor;
 ```
 
-### Extras opcionales de MariaDB
+### Optional MariaDB extras
 
-Sin `performance_schema` no hay analítica de consultas: la pantalla de consultas
-queda vacía y lo dice. Encenderlo requiere reiniciar y cuesta cerca de un 5 % de
-CPU. Sin `log_bin` no hay métricas de binlog ni de replicación.
+Without `performance_schema` the queries screen stays empty and says so. Turning it on needs a restart and costs roughly 5% CPU. Without `log_bin` there are no binlog or replication metrics.
 
 ```ini
 [mysqld]
 performance_schema = ON
 slow_query_log     = ON
 long_query_time    = 0.1
-log_output         = TABLE   ; para que Búho lea el slow log por SQL
+log_output         = TABLE
 ```
 
-### Extras opcionales de SQL Server
+### Optional SQL Server extras
 
-Las consultas salen de la caché de planes, que se vacía al reiniciar el servicio
-y bajo presión de memoria. Para que sobrevivan, Query Store, que es por base:
+Statements come from the plan cache, which clears on service restart and under memory pressure. Query Store keeps them, per database:
 
 ```sql
-ALTER DATABASE [MiBase] SET QUERY_STORE = ON;
-GRANT EXECUTE ON sys.xp_readerrorlog TO buho_monitor;  -- log de errores
+ALTER DATABASE [YourDb] SET QUERY_STORE = ON;
+GRANT EXECUTE ON sys.xp_readerrorlog TO buho_monitor;
 ```
 
-Los deadlocks completos ya salen de la sesión `system_health`, que viene
-encendida por omisión y no hay que configurar.
+Full deadlocks already come from the `system_health` session, which is on by default.
 
 ---
 
-## 2. Configuración
+## 2. Configuration
 
 ```bash
-git clone <repo> buho && cd buho
-./install.sh          # crea .env y config.json, y se detiene para que se edite
+git clone https://github.com/tobbikz/buho.git
+cd buho
+git checkout v1.8.0
+./install.sh --pull
 ```
 
-`.env` lo genera el script con secretos aleatorios y no lo vuelve a tocar:
-regenerar `BUHO_AUTH_SECRET` cerraría todas las sesiones abiertas.
+The first run writes `.env` with random secrets and does not rewrite it later. Regenerating `BUHO_AUTH_SECRET` signs everyone out.
 
-En `config.json`, una entrada por servidor:
+Prefer **Admin → Databases** in the console for production targets. They are stored in the store volume. `config.json` remains supported. `config.example.json` lists the fields.
 
 ```json
 {
   "instances": [
     {
-      "alias": "ventas-prod",
+      "alias": "sales-prod",
+      "engine": "postgres",
       "environment": "prod",
       "host": "10.0.0.10",
       "port": 5432,
-      "database": "ventas",
+      "database": "sales",
       "user": "buho_monitor",
-      "password": "la-que-se-puso-en-el-script",
-      "tags": { "grupo": "produccion-cr", "equipo": "datos" }
+      "password": "the-password-from-the-script",
+      "tags": { "grupo": "prod-cr", "equipo": "data" }
     }
   ]
 }
 ```
 
-Campos que vale la pena conocer:
-
-| Campo | Para qué |
+| Field | Use |
 | --- | --- |
-| `alias` | cómo se llama en la consola; único |
-| `engine` | `postgres` (por omisión), `mariadb` o `mssql` |
-| `tags` | agrupan y filtran la flota; `grupo` es el que usa la barra lateral |
-| `hostMetrics` | CPU, memoria y disco del servidor. PostgreSQL no los expone: se leen de `/proc`, en `local` o por `ssh` |
-| `logs` | lectura del log de PostgreSQL: de ahí salen los deadlocks completos y los errores de la aplicación |
-| `collector.retention` | cuántos días se guarda cada resolución |
+| `alias` | name in the console; unique |
+| `engine` | `postgres` (default), `mariadb`, `mssql`, or `oracle` |
+| `tags` | fleet filters; `grupo` is the one the sidebar uses |
+| `hostMetrics` | host CPU, memory, and disk. Not exposed by PostgreSQL; read from `/proc`, locally or over SSH |
+| `logs` | PostgreSQL log: full deadlocks and application errors |
+| `collector.retention` | how many days each resolution is kept |
 
-`config.example.json` tiene los tres motores y todas las opciones con
-comentarios.
+Default retention in `config.example.json`: 7 days raw, 90 days at 5 minutes, 400 days at 1 hour. Change it later under **Admin → Retention** without a restart.
 
-### Métricas del host (opcional)
+### Host metrics (optional)
 
-Sin esto, Búho no puede decir si la lentitud es de la base o del servidor.
-Como es agentless, se leen por SSH con una llave dedicada:
+Without this, Búho cannot tell a slow database from a busy server.
 
 ```json
 "hostMetrics": {
@@ -169,100 +153,75 @@ Como es agentless, se leen por SSH con una llave dedicada:
 }
 ```
 
-El usuario remoto sólo necesita leer `/proc` y correr `df`: ningún privilegio
-especial. Si Búho corre en el mismo servidor, `"source": "local"`.
+The remote user only needs to read `/proc` and run `df`. If Búho runs on the same machine, use `"source": "local"`.
 
-### Log de PostgreSQL (opcional)
+### PostgreSQL log (optional)
 
 ```json
 "logs": { "source": "journal", "access": "ssh", "target": "buho@10.0.0.10", "unit": "postgresql" }
 ```
 
-o, si el log va a archivos:
+or, for files:
 
 ```json
 "logs": { "source": "file", "access": "local", "path": "/var/log/postgresql/*.log" }
 ```
 
-Para que el log sirva de verdad conviene, en la instancia monitoreada:
+On the monitored instance:
 
 ```sql
-ALTER SYSTEM SET log_lock_waits = on;         -- esperas de lock con detalle
+ALTER SYSTEM SET log_lock_waits = on;
 ALTER SYSTEM SET deadlock_timeout = '1s';
 ALTER SYSTEM SET log_min_duration_statement = '1s';
 ALTER SYSTEM SET log_checkpoints = on;
--- 'jsonlog' es el formato que menos se rompe al parsear
 ALTER SYSTEM SET log_destination = 'jsonlog';
 SELECT pg_reload_conf();
 ```
 
 ---
 
-## 3. Arranque
+## 3. Start
 
 ```bash
-./install.sh
+./install.sh --pull
 ```
 
-Construye las imágenes, levanta los tres contenedores, espera a que el colector
-aplique el esquema y verifica que ya estén entrando muestras. Al final imprime
-la URL y la contraseña de arranque.
+Pulls published images, starts the three containers, waits until the collector has applied the schema, and checks that samples are arriving. It prints the URL and the bootstrap password.
 
-Opciones:
-
-| Comando | Cuándo |
+| Command | When |
 | --- | --- |
-| `./install.sh` | instalar o actualizar (compila en el host) |
-| `./install.sh --pull` | **bajar imágenes publicadas; el cliente no compila** |
-| `./install.sh --actualizar` | reconstruir colector y consola; **el store no se reinicia** |
-| `./install.sh --sin-build` | `up -d` con las imágenes ya presentes, sin reconstruir |
-| `./install.sh --verificar` | comprobar una instalación existente |
+| `./install.sh --pull` | **customer install or upgrade** — pull published images, do not compile |
+| `./install.sh` | build on this host (contributors) |
+| `./install.sh --actualizar` | rebuild collector and console; **does not recreate the store** |
+| `./install.sh --sin-build` | `up -d` with images already on the host |
+| `./install.sh --verificar` | check an existing install |
 
-### Sin compilar (lo que se vende)
-
-El cliente no necesita Node ni `docker build`. Con Docker y Compose basta:
+Pin a version:
 
 ```bash
-git clone https://github.com/tobbikz/buho.git
-cd buho
-# editar config.json (ver sección 2) y crear el usuario de monitoreo
+export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho/collector:1.8.0
+export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho/web:1.8.0
 ./install.sh --pull
 ```
 
-Eso baja `collector` y `web` desde GHCR (`ghcr.io/tobbikz/buho/...`)
-y levanta el store. Para fijar una versión concreta:
-
-```bash
-export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho/collector:1.3.1
-export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho/web:1.3.1
-./install.sh --pull
-```
-
-Las imágenes se publican automáticamente al etiquetar un release (`v1.1.0`).
-Si GHCR pide autenticación para paquetes privados: `echo $TOKEN | docker login ghcr.io -u USUARIO --password-stdin`.
+Images publish when a `v*` tag is pushed. If GHCR asks for a login: `echo $TOKEN | docker login ghcr.io -u USER --password-stdin`. Air-gapped load: [`EXTERNAL_INSTALL.md`](EXTERNAL_INSTALL.md).
 
 ---
 
-## Primer ingreso
+## First login
 
-1. Abrir <http://127.0.0.1:3100>
-2. Entrar con la contraseña que imprimió el instalador (está en `.env`, como
-   `BUHO_AUTH_PASSWORD`)
-3. **Administración → Usuarios**: crear la cuenta propia como `admin`
+1. Open <http://127.0.0.1:3100>
+2. Sign in with the password the installer printed (`BUHO_AUTH_PASSWORD` in `.env`)
+3. **Admin → Users**: create your own `admin` account
 
-En cuanto existe una cuenta, la contraseña de arranque deja de funcionar. Hay
-dos roles y no más: `admin` cambia configuración, usuarios, descubrimiento y
-retención; `viewer` sólo lee.
+Once a real account exists, the bootstrap password stops working. Two roles: `admin` changes configuration, users, discovery, and retention; `viewer` is read-only.
 
-La consola escucha en `127.0.0.1` a propósito. Para exponerla, un proxy con TLS
-delante o una VPN. La autenticación no reemplaza a ninguno de los dos.
-
-Ejemplo mínimo con nginx:
+The console binds to `127.0.0.1` on purpose. Put TLS or a VPN in front of it. Authentication does not replace either.
 
 ```nginx
 server {
   listen 443 ssl;
-  server_name buho.empresa.com;
+  server_name buho.example.com;
   ssl_certificate     /etc/ssl/certs/buho.pem;
   ssl_certificate_key /etc/ssl/private/buho.key;
 
@@ -274,248 +233,128 @@ server {
 }
 ```
 
-Con TLS terminado en el proxy, dejar `BUHO_AUTH_COOKIE_SECURE=false`: exigir
-`secure` detrás de un proxy que habla HTTP hacia Búho impide entrar a todos.
+With TLS terminated at the proxy, leave `BUHO_AUTH_COOKIE_SECURE=false`. A `secure` cookie behind a proxy that speaks plain HTTP to Búho locks everyone out.
+
+If OTLP is reachable beyond loopback, set `BUHO_OTLP_TOKEN`. Wiring: [`deploy/otel-collector/README.md`](deploy/otel-collector/README.md).
 
 ---
 
-## Qué mirar el primer día
+## First day
 
-| Pantalla | Qué contesta |
+| Screen | Question it answers |
 | --- | --- |
-| **Resumen** | qué instancia está peor ahora |
-| **Chequeos** | los 22 chequeos de toda la flota, priorizados por cuántas instancias toca cada uno |
-| **Informe** | cómo se portó la semana; se descarga en Markdown |
-| **Parque** | versiones, configuración, disco, replicación, respaldos, jobs y licencias |
-| **Seguridad** | autenticación, privilegios, cifrado, superficie de ataque y auditoría |
+| **Fleet** | which instance is worst right now |
+| **Checks** | findings across the fleet, with remediation |
+| **Weekly report** | how the week went; download as Markdown |
+| **Estate** | versions, configuration, disk, replication, backups, jobs, licensing, RPO |
+| **Security** | authentication, privileges, encryption, attack surface, audit |
 
-Las líneas base ("¿es normal este número para un martes a las 3pm?") necesitan
-historia: aparecen a los pocos días con la forma por hora del día, y a las cinco
-semanas empiezan a distinguir el martes del domingo.
+Hour-of-day baselines need a few days of history. Weekday-versus-weekend shape needs about five weeks.
 
 ---
 
-## Comprobar que todo responde
+## Operations
 
 ```bash
-BUHO_URL=http://127.0.0.1:3100 BUHO_USER=tu-usuario BUHO_PASSWORD=tu-contraseña \
-  npm run verify:v1
+docker compose ps
+docker compose logs -f collector
+docker compose logs -f web
+docker compose restart collector    # reload config.json
+docker compose down                 # stop, keep data
 ```
 
-Entra a la consola y abre las 27 pantallas, comprobando el código HTTP, que no
-haya errores de JavaScript y que ninguna esté mostrando el panel de error del
-store (que responde 200 y parece una página buena). Sale con código 1 si algo
-falla, así que sirve en CI o después de actualizar.
+`config.json` is read when the collector starts. Restart it after edits. Targets added in the console are picked up within about 30 seconds.
 
-Necesita Playwright instalado en el host donde se corre:
-`npx playwright install chromium`.
+### Store backup
 
-### Ensayar la instalación completa antes de tocar un servidor de un cliente
+Back up the store. Everything else is rebuilt from configuration. The history is what you are keeping.
+
+The backup service is part of Compose. It runs on its own, keeps the latest copies, and writes success or failure to collector events so a failed backup shows up in the console.
+
+In `.env`:
 
 ```bash
-npm run ensayo:instalacion          # instala, comprueba y borra
-npm run ensayo:instalacion -- --dejar   # deja todo arriba para mirarlo
+BUHO_BACKUP_DIR=/var/backups/buho   # host path, not a Docker volume
+BUHO_BACKUP_EVERY=86400             # seconds between dumps
+BUHO_BACKUP_KEEP=7
 ```
 
-Levanta un PostgreSQL nuevo, crea el usuario de monitoreo con
-`sql/monitor-user.sql`, instala Búho en una copia limpia del proyecto con puertos
-propios (3200 y 55433, para no chocar con nada) y verifica de punta a punta:
-muestras escritas, chequeos corridos, consola accesible con la contraseña de
-arranque, todas las pantallas respondiendo, y una segunda corrida que no
-regenera los secretos ni pierde datos.
+A dump inside a Docker volume disappears with `docker compose down -v`.
 
-Es la prueba que conviene correr después de cualquier cambio en `install.sh`, en
-el `docker-compose.yml`, en los scripts de `sql/` o en el arranque del colector:
-son exactamente las partes que funcionan en una máquina ya configurada y fallan
-en una limpia.
-
----
-
-## Operación
-
-```bash
-docker compose ps                        # estado
-docker compose logs -f collector         # qué está recolectando
-docker compose logs -f web               # errores de la consola
-docker compose restart collector         # recargar config.json
-docker compose down                      # detener, conservando los datos
-```
-
-`config.json` se lee al arrancar el colector: después de editarlo hay que
-reiniciarlo.
-
-### Respaldo del store
-
-Lo único que hay que respaldar es el store; todo lo demás se reconstruye desde
-`config.json`. Y es justo lo que el cliente está pagando: la historia.
-
-El respaldo viene automatizado como un servicio del compose. Corre solo, cada
-día, conserva las últimas siete copias y deja el resultado en
-**Instancia → eventos del colector**, para que un respaldo que falla se vea en
-la consola en vez de descubrirse el día que hay que restaurar.
-
-En `.env`:
-
-```bash
-BUHO_BACKUP_DIR=/var/backups/buho   # ruta del host, no un volumen de docker
-BUHO_BACKUP_EVERY=86400             # segundos entre copias
-BUHO_BACKUP_KEEP=7                  # cuántas conservar
-```
-
-La ruta es del host a propósito: un respaldo guardado dentro de un volumen de
-docker se borra con el mismo `docker compose down -v` que borra el store.
-
-Para restaurar en un store vacío:
+Restore into an empty store:
 
 ```bash
 docker compose up -d store
-docker compose exec -T store pg_restore -U buho -d buho --no-owner < buho-FECHA.dump
+docker compose exec -T store pg_restore -U buho -d buho --no-owner < buho-DATE.dump
 docker compose up -d
 ```
 
-El formato es el propio de `pg_dump` (`-Fc`), así que se puede restaurar en
-paralelo (`-j 4`) o sólo una tabla.
+The format is `pg_dump -Fc`.
 
-### Primer cliente (producción)
+### Upgrade
 
-Sigue **[GO_LIVE.md](GO_LIVE.md)**: secretos, usuarios monitor, canales de alerta reales,
-backup del store y smoke. Resumen mínimo:
-
-1. `.env` con `BUHO_AUTH_PASSWORD` + `BUHO_STORE_URL` (no defaults en red abierta)
-2. `sql/monitor-user*.sql` en cada motor
-3. Admin → Alerts → canal Slack/Teams/… de verdad + pack revisado
-4. `BUHO_BACKUP_DIR` en el host y un restore de prueba
-5. `./install.sh --pull` desde tag `v1.6.1+`
-
-### Actualizar
-
-**Decisión de entrega (v1.1):** los clientes usan **imágenes publicadas** (`--pull`);
-quien desarrolla en el repo compila con `./install.sh` sin flags.
+Customers pull a tag. Contributors on this checkout compile.
 
 ```bash
-# Cliente (recomendado)
 cd buho
 git fetch --tags
-git checkout v1.1.1          # o la tag que toque
+git checkout v1.8.0
 ./install.sh --pull
 ```
 
-Versión fija de imagen (sin cambiar el checkout):
+Or pin images without changing the checkout:
 
 ```bash
-export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho/collector:1.3.1
-export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho/web:1.3.1
+export BUHO_COLLECTOR_IMAGE=ghcr.io/tobbikz/buho/collector:1.8.0
+export BUHO_WEB_IMAGE=ghcr.io/tobbikz/buho/web:1.8.0
 ./install.sh --pull
 ```
 
-Desarrollador / fork, cuando el código ya está en este checkout:
+On a development checkout:
 
 ```bash
 git pull
 ./install.sh --actualizar
 ```
 
-Eso construye sólo `collector` y `web`. Antes de volver a crearlos los para y
-los borra: en Podman rootless `--force-recreate` intenta el puerto 3100
-mientras el contenedor viejo todavía lo tiene. No ejecuta `up` del `store`
-(ese mismo fallo, en el 55432) ni regenera `.env`. No hace falta `sudo`.
-`docker compose up -d` a secas no alcanza: reutiliza las imágenes viejas si no
-se pasó `--build`.
+That rebuilds `collector` and `web` only. It does not recreate the store and does not regenerate `.env`. Plain `docker compose up -d` reuses old images unless you pass `--build`.
 
-`./install.sh` sin flags también actualiza, pero hace `up -d` de todo el
-compose. Si la definición del store cambió, Compose puede recrear ese
-contenedor (el volumen se conserva igual). `--actualizar` no lo toca.
+The collector migrates the schema on startup. Outside Docker: `BUHO_STORE_URL=... npm run migrate`.
 
-El esquema se migra solo al arrancar el colector (`store.migrate()`).
-Tras un pull grande: `BUHO_STORE_URL=... npm run migrate` si se corre fuera de Docker.
-
-Catálogo de alertas SQL (opcional, una vez):
+Optional SQL alert catalog, once:
 
 ```bash
-BUHO_STORE_URL=postgres://buho:…@127.0.0.1:55432/buho \
-  npx tsx scripts/import-alert-catalog.ts
+npm run alerts:import
 ```
 
-### Cuánto ocupa
-
-Con retención por omisión (7 días en crudo, 30 en 5 minutos, 400 en una hora),
-una instancia de PostgreSQL ronda 1–2 GB al año. La consola muestra el tamaño
-real por tabla en el resumen de flota, y **Administración → Retención** permite
-ajustarlo sin reiniciar nada.
+The console shows store size on the fleet summary. **Admin → Retention** changes it without a restart.
 
 ---
 
-## Cuando algo no funciona
+## When something fails
 
-**La consola dice "Consola sin autenticación".**
-Falta `BUHO_AUTH_SECRET` o `BUHO_AUTH_PASSWORD` en el entorno del contenedor
-web. Comprobar que `.env` existe y `docker compose up -d` se corrió después.
+**The console says it has no authentication.**  
+`BUHO_AUTH_SECRET` or `BUHO_AUTH_PASSWORD` is missing in the web container. Check that `.env` exists and that Compose was started after it was written.
 
-**No entran muestras de una instancia.**
-`docker compose logs --tail 40 collector` dice exactamente qué falló. Los tres
-casos habituales: credenciales, `pg_hba.conf` que no admite la IP de Búho, o un
-firewall en el medio. Probar la conexión desde el contenedor:
+**No samples for an instance.**  
+`docker compose logs --tail 40 collector` names the failure. Usual causes: credentials, `pg_hba.conf` (or the equivalent) not allowing Búho’s address, or a firewall. The instance **Events** tab records the same probe errors.
 
-```bash
-docker compose exec collector npx tsx apps/cli/src/main.ts
-```
+**No host CPU or memory.**  
+`hostMetrics` is missing, or the SSH user cannot read the data directory. Búho walks parent directories until it finds one it can `df`, but it still needs the SSH login.
 
-**No hay CPU ni memoria del servidor.**
-Falta `hostMetrics`, o el usuario SSH no puede leer el `data_directory`. Búho
-sube por el árbol de directorios hasta uno legible para sacar el uso del
-sistema de archivos, pero necesita entrar por SSH.
+**No top statements (PostgreSQL).**  
+`pg_stat_statements` is not loaded. Add it to `shared_preload_libraries`, restart, and create the extension in each database. The console says which step is missing.
 
-**No aparecen las consultas más caras.**
-Falta `pg_stat_statements`: hay que ponerlo en `shared_preload_libraries`,
-reiniciar el servidor y crear la extensión en cada base. La consola dice en qué
-paso está cada instancia.
+**The log screen is empty.**  
+It shows the source it is reading and the limits it hit. For `journal`, the SSH user must be in `systemd-journal`.
 
-**El log no trae nada.**
-La pantalla de Log de cada instancia muestra el origen que se está leyendo y las
-limitaciones detectadas. Con `journal` el usuario SSH tiene que estar en el grupo
-`systemd-journal`.
-
-**Los respaldos salen como "no verificable".**
-Búho reporta lo que el motor sabe de sus propios respaldos. Una herramienta
-externa que no deja rastro en el motor no aparece, y eso no significa que no
-exista. En PostgreSQL, "sin recuperación" con `archive_mode = off` sí es real: no
-hay recuperación a un punto en el tiempo.
+**Backups show as “not verifiable”.**  
+Búho reports what the engine itself knows. An external backup tool that leaves no trace in the engine does not appear, and that does not mean the backup is missing. On PostgreSQL, “no recovery” with `archive_mode = off` is real: there is no point-in-time recovery.
 
 ---
 
-## Desinstalar
+## Uninstall
 
 ```bash
-docker compose down -v    # -v borra también la historia del store
+docker compose down -v    # -v also deletes store history
 ```
-
----
-
-## Demo users + Observability FEAT (lab)
-
-```bash
-npm run seed:demo-users   # demo-dba / demo-sre / demo-sec (+ -ro); password demo-buho-pass
-# smoke console login used by verify:* → smoke / smoke-test-pass
-```
-
-App OTLP logs: `POST /api/otlp/v1/logs` (same token policy as traces) · UI `/observability/app-logs`.  
-DB engine scrape stays on `/observability/logs`. Probe kinds: HTTP · TCP · ICMP · Journey (HTTP steps).
-
-### Infra Hosts (PRTG-class sensors)
-
-`engine: "infra"` + `infra.sensors[]` (package `@buho/sensors`: host · icmp · tcp · udp · http · tls_cert · dns · snmp).  
-UI: Observability → **Hosts** → drill-down `/observability/hosts/<host>`.
-
-```bash
-npm run lab:infra:snmp      # fake SNMP agents UDP 1161/1162 — leave running
-npm run lab:infra:seed      # probe lab devices → metric_samples
-npm run lab:infra:discover  # CIDR/host scan → buho.infra_discovery
-npm run lab:infra:trap      # inject SNMP trap row (+ UDP if listener up)
-npm run test:sensors
-```
-
-Lab config fragment: `lab/infra/config.infra.lab.json` (merge into `instances[]` for continuous collector scrape).
-
-P2 sensors: `process` (Linux ps/SSH) · `winrm` (SSH+PowerShell or pwsh WinRM).  
-Collector optional: `"infraTraps": { "enabled": true, "port": 1162 }` · `"infraDiscovery": { "enabled": true, "hosts": ["127.0.0.1"] }`.  
-UI: Hosts map `/observability/hosts/map` · traps on host drill-down.

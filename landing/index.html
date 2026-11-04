@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Búho — Monitor de bases de datos on-prem</title>
+    <title>Búho — On-prem database monitor</title>
     <meta
       name="description"
-      content="Monitor on-prem de PostgreSQL, SQL Server, MariaDB y MongoDB. Checks con remediación y alertas — sin Prometheus ni Grafana."
+      content="On-prem monitor for PostgreSQL, SQL Server, MariaDB, and Oracle. Checks with remediation and alerts — no Prometheus, no Grafana."
     />
     <style>
       :root {
@@ -160,87 +160,86 @@
     <main class="wrap">
       <p class="brand">Búho</p>
       <p class="tagline">
-        Monitor on-prem de bases de datos: te dice qué está mal y cómo se arregla — no otro stack de
-        métricas.
+        On-prem database monitoring that tells you what is wrong and how to fix it — not another
+        metrics stack.
       </p>
       <p>
-        <a class="cta" href="https://github.com/tobbikz/buho-monitor">Ver en GitHub</a>
-        <a class="cta cta--ghost" href="https://github.com/tobbikz/buho-monitor/blob/main/INSTALL.md"
-          >Instalar en 15 min</a
+        <a class="cta" href="https://github.com/tobbikz/buho">View on GitHub</a>
+        <a class="cta cta--ghost" href="https://github.com/tobbikz/buho/blob/main/INSTALL.md"
+          >Install</a
         >
       </p>
 
       <div class="pitch">
         <p>
-          <strong>Pitch (30 s):</strong> Redgate/SolarWinds cuestan +$1k/servidor/año; PMM no cubre SQL
-          Server y arrastra Prometheus. Búho es un colector + PostgreSQL + consola, con checks
-          opinados, alertas (Slack/Teams/Discord/…) e informe semanal. On-prem, sin agente en el host
-          del cliente.
+          Redgate and SolarWinds list above $1k per server per year. PMM skips SQL Server and brings
+          Prometheus. Búho is one collector, one PostgreSQL store, and one console: checks with
+          remediation, native alerts, and a weekly report. On-prem. No agent on the database host.
         </p>
       </div>
 
-      <h2>Qué incluye</h2>
+      <h2>What you get</h2>
       <ul>
-        <li>PostgreSQL primero; también SQL Server, MariaDB/MySQL y MongoDB</li>
-        <li>Health score + remediación en español/inglés</li>
-        <li>Alertas nativas: pack de sistema + SQL custom + auto-recovery</li>
-        <li>Parque (backups, disco, jobs, HA), seguridad, análisis de series</li>
+        <li>PostgreSQL, SQL Server, MariaDB / MySQL, and Oracle</li>
+        <li>Health score plus remediation</li>
+        <li>Native alerts: system pack, custom SQL, and channels</li>
+        <li>Estate (backups, disk, jobs, HA), security, and time-series analysis</li>
       </ul>
 
-      <h2>Precios (ancla Redgate)</h2>
+      <h2>Pricing</h2>
       <p style="color: var(--muted); font-size: 0.9rem; margin: 0 0 0.75rem">
-        Redgate Monitor ~USD 1,150 / servidor / año. Búho Pro queda ~22% debajo — mismo tipo de
-        producto, sticker más bajo. Detalle: <code>PRICING.md</code> · piloto:
+        Redgate Monitor is about USD 1,150 per server per year. Búho Pro sits about 22% under that,
+        same product class. Detail: <code>PRICING.md</code>. Pilot:
         <code>PILOT_AGREEMENT.md</code>.
       </p>
       <table class="pricing">
         <thead>
           <tr>
             <th>Plan</th>
-            <th>Precio</th>
-            <th>Incluye</th>
+            <th>Price</th>
+            <th>Includes</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td><strong>Free</strong></td>
             <td>$0</td>
-            <td>1 instancia · retención 7 días · CLI <code>buho-check</code></td>
+            <td>1 instance · 7-day retention · CLI <code>buho-check</code></td>
           </tr>
           <tr>
             <td><strong>Pro</strong></td>
-            <td>$899 / servidor / año<br /><span style="color: var(--muted)">(~$89 / mes)</span></td>
-            <td>Multi-instancia · alertas · Estate · retención 13 meses · soporte ES/EN</td>
+            <td>$899 / server / year<br /><span style="color: var(--muted)">(~$89 / month)</span></td>
+            <td>Multi-instance · alerts · Estate · 13-month retention · support in English or Spanish</td>
           </tr>
           <tr>
             <td><strong>Fleet</strong></td>
-            <td>$799 / servidor / año</td>
-            <td>Igual que Pro con 5+ servidores en un contrato</td>
+            <td>$799 / server / year</td>
+            <td>Same as Pro when 5 or more servers are on one contract</td>
           </tr>
           <tr>
             <td><strong>Pilot</strong></td>
-            <td>$0 · 30 días · hasta 3 servidores</td>
-            <td>Features Pro; convierte a Pro/Fleet o baja a Free</td>
+            <td>$0 · 30 days · up to 3 servers</td>
+            <td>Pro features; convert to Pro/Fleet or drop to Free</td>
           </tr>
         </tbody>
       </table>
 
-      <h2>Lead gen gratis</h2>
+      <h2>Health check without a store</h2>
       <ul>
         <li>
-          CLI <code>buho-check</code>: mismos checks, sin store —
+          CLI <code>buho-check</code> runs the same PostgreSQL checks —
           <code>npm run check -- 'postgres://…'</code>
         </li>
-        <li>Códigos de salida listos para cron/CI (0/1/2/3)</li>
+        <li>Exit codes for cron or CI: 0, 1, 2, 3</li>
       </ul>
 
-      <h2>Primer piloto</h2>
+      <h2>First install</h2>
       <ul>
-        <li><code>./install.sh --pull</code> desde tag <code>v1.3.1+</code></li>
-        <li>Checklist: <code>GO_LIVE.md</code> · install externo: <code>EXTERNAL_INSTALL.md</code></li>
+        <li><code>./install.sh --pull</code> from tag <code>v1.8.0</code></li>
+        <li>Checklist: <code>GO_LIVE.md</code> · another host or air-gap: <code>EXTERNAL_INSTALL.md</code></li>
       </ul>
 
-      <footer>IKZ Technologies · suite: Quetzal · Tucán · Colibrí · Búho</footer>
+      <footer>IKZ Technologies · Business Source License 1.1</footer>
     </main>
   </body>
 </html>

@@ -125,15 +125,37 @@ Monitored DBs ──(SQL / optional SSH)──► Collector ──► PostgreSQL
 ```
 apps/collector   24/7 scrape + alert reconcile
 apps/web         Next.js console
-apps/cli         buho-check
+apps/cli         buho-check (one-off PostgreSQL health report)
 apps/mcp         MCP server for agents
-packages/core    collectors, inventory, security
+packages/core    collectors, inventory, security, discovery
 packages/checks  check catalog + remediation
 packages/store   schema, partitions, rollups
 packages/sensors Host / SNMP / process sensors
 sql/             least-privilege monitor users
 lab/             optional lab compose / SNMP helpers
-deploy/          optional OTEL / lab helpers
+deploy/          optional OpenTelemetry collector
+```
+
+---
+
+## Development (contributors)
+
+```bash
+cp config.example.json config.json   # edit targets
+docker compose up -d                 # store + collector (+ web)
+# console: http://127.0.0.1:3100
+# store:   127.0.0.1:55432
+```
+
+Production console requires `BUHO_AUTH_PASSWORD` (and a strong store password). Without it, the UI refuses to serve pages.
+
+Useful gates:
+
+```bash
+npm run verify:v1
+npx tsx scripts/assert-check-parity.ts
+npm run test:sensors
+npm run ensayo:instalacion    # clean-room install on this machine, then tear down
 ```
 
 ---

@@ -15,13 +15,13 @@ Currency: **USD**. Billing: annual preferred (monthly available for Pro).
 | **Fleet** | **$799 / server / year** | Same as Pro when you license **5+ servers** on one contract |
 | **Pilot** | **$0 for 30 days** (up to **3 servers**) | Full Pro features · ends automatically unless you convert to Pro/Fleet · see `PILOT_AGREEMENT.md` |
 
-## Why not “4–6× cheaper”?
+## Positioning
 
-The earlier internal sketch ($15–25/instance/mo) undercut the market so hard it looked untrustworthy next to Redgate/DPA. Positioning:
+Same product class as Redgate Monitor, lower sticker:
 
 - Redgate ≈ **$1,150**/server/year → Búho Pro **$899** (~**22% less**)
 - Fleet (5+) **$799** (~**30% less** than Redgate)
-- Still far below Datadog DBM once you add infra hosts
+- Below Datadog DBM once infra hosts are added
 
 ## What “server” means
 

@@ -1,32 +1,26 @@
-# buho-check (CLI gratis / lead gen)
+# buho-check
 
-Informe de salud **read-only** de una instancia PostgreSQL. Reutiliza el mismo
-catálogo de checks que el colector — sin store, sin Docker, sin agente.
+Read-only health report for one PostgreSQL instance. Same check catalog as the collector. No store, no Docker, no agent on the database host.
 
-## Uso
+## Use
 
 ```bash
-# desde el monorepo
 npm install
-npm run check -- 'postgres://usuario:clave@127.0.0.1:5432/mibase'
+npm run check -- 'postgres://user:password@127.0.0.1:5432/mydb'
 
-# o variables libpq
+# or libpq variables
 PGHOST=… PGDATABASE=… PGUSER=… PGPASSWORD=… npm run check
 ```
 
-## Códigos de salida
+## Exit codes
 
-| Código | Significado |
-|--------|-------------|
-| 0 | Sin hallazgos |
-| 1 | Solo avisos / info |
-| 2 | Al menos un crítico |
-| 3 | Error de conexión o ejecución |
+| Code | Meaning |
+| --- | --- |
+| 0 | No findings |
+| 1 | Warnings or info only |
+| 2 | At least one critical |
+| 3 | Connection or runtime error |
 
-## Por qué es lead gen
+Suitable for cron or CI. History, alerts, and the four-engine fleet are the full product: `./install.sh --pull`.
 
-Un DBA puede pegarlo en cron o CI **hoy**, sin comprar Búho. Cuando quiera
-historial, alertas y flota multi-motor, el camino es `./install.sh --pull`.
-
-Licencia del producto: ver `LICENSE` (Apache License 2.0). `buho-check` se puede
-usar libremente en evaluación y CI.
+License: [`LICENSE`](../../LICENSE) (Apache License 2.0). `buho-check` can be used freely for evaluation and CI.
